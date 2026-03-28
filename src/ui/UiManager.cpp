@@ -1,5 +1,7 @@
 ﻿#include "UiManager.h"
 
+#include <cstdio>
+
 #include "../bsp/BoardConfig.h"
 #include "ThemeMono.h"
 
@@ -14,6 +16,143 @@ constexpr uint32_t kBackSectionEndMs = 200;
 constexpr uint32_t kBackMenuStartMs = 180;
 constexpr uint32_t kBackMenuEndMs = 340;
 constexpr uint32_t kBackBgStartMs = 300;
+constexpr uint32_t kButtonDebounceMs = 25;
+
+struct SectionContent {
+  const char* title;
+  const char* const* items;
+  uint8_t itemCount;
+};
+
+const char* const kSettingsItems[] = {"重启设备", "语言", "恢复默认设置", "关于设备", "关于作者"};
+const char* const kMusicItems[] = {"音乐列表", "收藏歌曲"};
+const char* const kReaderItems[] = {"单词阅读", "提词器"};
+const char* const kClockItems[] = {"时钟桌面", "计时器"};
+const char* const kWirelessItems[] = {"WiFi连接", "蓝牙连接", "蓝牙远程拍照"};
+
+const SectionContent kSectionContents[] = {
+    {"设置", kSettingsItems, static_cast<uint8_t>(sizeof(kSettingsItems) / sizeof(kSettingsItems[0]))},
+    {"音乐", kMusicItems, static_cast<uint8_t>(sizeof(kMusicItems) / sizeof(kMusicItems[0]))},
+    {"阅读", kReaderItems, static_cast<uint8_t>(sizeof(kReaderItems) / sizeof(kReaderItems[0]))},
+    {"时钟", kClockItems, static_cast<uint8_t>(sizeof(kClockItems) / sizeof(kClockItems[0]))},
+    {"无线功能", kWirelessItems, static_cast<uint8_t>(sizeof(kWirelessItems) / sizeof(kWirelessItems[0]))},
+};
+
+const SectionContent& sectionContentFor(uint8_t homeFocus) {
+  const size_t count = sizeof(kSectionContents) / sizeof(kSectionContents[0]);
+  return kSectionContents[homeFocus % count];
+}
+
+struct SectionListLayout {
+  int16_t listX;
+  int16_t listStartBaseline;
+  int16_t rowStep;
+  int16_t textHeight;
+  int16_t focusPadX;
+  int16_t focusPadY;
+  int16_t focusRadius;
+  int16_t boxMaxRight;
+};
+
+struct SectionRowLayout {
+  int16_t baselineY;
+  int16_t boxLeft;
+  int16_t boxTop;
+  int16_t boxRight;
+  int16_t boxBottom;
+};
+
+SectionListLayout makeSectionListLayout(int16_t xOffset, int16_t yOffset, int16_t width) {
+  SectionListLayout layout;
+  layout.listX = static_cast<int16_t>(xOffset + 16);
+  layout.listStartBaseline = static_cast<int16_t>(yOffset + 52);
+  layout.rowStep = 28;
+  layout.textHeight = 14;
+  layout.focusPadX = 12;
+  layout.focusPadY = 4;
+  layout.focusRadius = 8;
+  layout.boxMaxRight = static_cast<int16_t>(xOffset + width - 16);
+  return layout;
+}
+
+SectionRowLayout makeSectionRowLayout(const SectionListLayout& layout, int16_t labelW,
+                                      uint8_t rowIndex) {
+  SectionRowLayout row;
+  row.baselineY = static_cast<int16_t>(layout.listStartBaseline + layout.rowStep * rowIndex);
+  row.boxTop = static_cast<int16_t>(row.baselineY - layout.textHeight - layout.focusPadY);
+  row.boxBottom = static_cast<int16_t>(row.baselineY + layout.focusPadY);
+  row.boxLeft = static_cast<int16_t>(layout.listX - layout.focusPadX);
+  row.boxRight = static_cast<int16_t>(layout.listX + labelW + layout.focusPadX - 1);
+  if (row.boxRight > layout.boxMaxRight) {
+    row.boxRight = layout.boxMaxRight;
+  }
+  return row;
+}
+
+void applySectionItemTextStyle(U8G2_FOR_ST73XX& text, bool selected) {
+  if (selected) {
+    text.setBackgroundColor(ST7305_COLOR_BLACK);
+    text.setFontMode(0);
+    text.setForegroundColor(ST7305_COLOR_WHITE);
+    return;
+  }
+
+  text.setBackgroundColor(ST7305_COLOR_WHITE);
+  text.setFontMode(1);
+  text.setForegroundColor(ST7305_COLOR_BLACK);
+}
+
+void drawFilledRoundRect(ST7305_2p9_BW_DisplayDriver& canvas, int16_t x1, int16_t y1,
+                         int16_t x2, int16_t y2, int16_t radius, uint16_t color) {
+  if (x1 > x2) {
+    const int16_t t = x1;
+    x1 = x2;
+    x2 = t;
+  }
+  if (y1 > y2) {
+    const int16_t t = y1;
+    y1 = y2;
+    y2 = t;
+  }
+
+  const int16_t w = static_cast<int16_t>(x2 - x1 + 1);
+  const int16_t h = static_cast<int16_t>(y2 - y1 + 1);
+  if (w <= 0 || h <= 0) {
+    return;
+  }
+
+  int16_t r = radius;
+  if (r < 0) {
+    r = 0;
+  }
+  if (r > w / 2) {
+    r = static_cast<int16_t>(w / 2);
+  }
+  if (r > h / 2) {
+    r = static_cast<int16_t>(h / 2);
+  }
+
+  if (r == 0) {
+    canvas.drawFilledRectangle(x1, y1, x2, y2, color);
+    return;
+  }
+
+  canvas.drawFilledRectangle(static_cast<uint>(x1 + r), static_cast<uint>(y1),
+                             static_cast<uint>(x2 - r), static_cast<uint>(y2), color);
+  canvas.drawFilledRectangle(static_cast<uint>(x1), static_cast<uint>(y1 + r),
+                             static_cast<uint>(x1 + r - 1), static_cast<uint>(y2 - r), color);
+  canvas.drawFilledRectangle(static_cast<uint>(x2 - r + 1), static_cast<uint>(y1 + r),
+                             static_cast<uint>(x2), static_cast<uint>(y2 - r), color);
+
+  canvas.drawFilledCircle(static_cast<int>(x1 + r), static_cast<int>(y1 + r),
+                          static_cast<uint>(r), color);
+  canvas.drawFilledCircle(static_cast<int>(x2 - r), static_cast<int>(y1 + r),
+                          static_cast<uint>(r), color);
+  canvas.drawFilledCircle(static_cast<int>(x1 + r), static_cast<int>(y2 - r),
+                          static_cast<uint>(r), color);
+  canvas.drawFilledCircle(static_cast<int>(x2 - r), static_cast<int>(y2 - r),
+                          static_cast<uint>(r), color);
+}
 }  // namespace
 
 bool UiManager::begin() {
@@ -23,9 +162,13 @@ bool UiManager::begin() {
   buttons_[3].pin = static_cast<uint8_t>(BoardConfig::kPinBtnDown);
   buttons_[4].pin = static_cast<uint8_t>(BoardConfig::kPinBtnOk);
 
+  const uint32_t nowMs = millis();
   for (auto& button : buttons_) {
     pinMode(button.pin, INPUT_PULLUP);
-    button.lastPressed = isPressed(button.pin);
+    const bool pressed = isPressed(button.pin);
+    button.stablePressed = pressed;
+    button.lastRawPressed = pressed;
+    button.lastRawChangeMs = nowMs;
   }
 
   if (!display_.begin()) {
@@ -59,24 +202,30 @@ void UiManager::tick() {
 
 UiManager::InputEdges UiManager::pollInputEdges() {
   InputEdges edges;
+  const uint32_t nowMs = millis();
 
-  const bool leftPressed = isPressed(buttons_[0].pin);
-  const bool rightPressed = isPressed(buttons_[1].pin);
-  const bool upPressed = isPressed(buttons_[2].pin);
-  const bool downPressed = isPressed(buttons_[3].pin);
-  const bool okPressed = isPressed(buttons_[4].pin);
+  auto risingEdgeDebounced = [&](ButtonEdge& button) -> bool {
+    const bool rawPressed = isPressed(button.pin);
+    if (rawPressed != button.lastRawPressed) {
+      button.lastRawPressed = rawPressed;
+      button.lastRawChangeMs = nowMs;
+    }
 
-  edges.left = leftPressed && !buttons_[0].lastPressed;
-  edges.right = rightPressed && !buttons_[1].lastPressed;
-  edges.up = upPressed && !buttons_[2].lastPressed;
-  edges.down = downPressed && !buttons_[3].lastPressed;
-  edges.ok = okPressed && !buttons_[4].lastPressed;
+    const bool stableEnough = (nowMs - button.lastRawChangeMs) >= kButtonDebounceMs;
+    if (stableEnough && button.stablePressed != button.lastRawPressed) {
+      const bool prevStable = button.stablePressed;
+      button.stablePressed = button.lastRawPressed;
+      return button.stablePressed && !prevStable;
+    }
 
-  buttons_[0].lastPressed = leftPressed;
-  buttons_[1].lastPressed = rightPressed;
-  buttons_[2].lastPressed = upPressed;
-  buttons_[3].lastPressed = downPressed;
-  buttons_[4].lastPressed = okPressed;
+    return false;
+  };
+
+  edges.left = risingEdgeDebounced(buttons_[0]);
+  edges.right = risingEdgeDebounced(buttons_[1]);
+  edges.up = risingEdgeDebounced(buttons_[2]);
+  edges.down = risingEdgeDebounced(buttons_[3]);
+  edges.ok = risingEdgeDebounced(buttons_[4]);
 
   return edges;
 }
@@ -92,6 +241,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
           homePage_.handleInput(edges.up, edges.down, edges.ok, nowMs);
       homePage_.update(nowMs);
       if (enterSection) {
+        sectionFocusIndex_ = 0;
         state_ = UiState::ToSectionTransition;
         transitionStartMs_ = nowMs;
         needsRedraw_ = true;
@@ -116,7 +266,18 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
     }
 
     case UiState::Section: {
-      if (edges.left) {
+      const SectionContent& content = sectionContentFor(homePage_.focusIndex());
+      if (content.itemCount > 0 && edges.up) {
+        if (sectionFocusIndex_ == 0) {
+          sectionFocusIndex_ = static_cast<uint8_t>(content.itemCount - 1);
+        } else {
+          sectionFocusIndex_ = static_cast<uint8_t>(sectionFocusIndex_ - 1);
+        }
+        needsRedraw_ = true;
+      } else if (content.itemCount > 0 && edges.down) {
+        sectionFocusIndex_ = static_cast<uint8_t>((sectionFocusIndex_ + 1) % content.itemCount);
+        needsRedraw_ = true;
+      } else if (edges.left) {
         state_ = UiState::ToHomeTransition;
         transitionStartMs_ = nowMs;
         needsRedraw_ = true;
@@ -169,14 +330,13 @@ void UiManager::render(uint32_t nowMs) {
   display_.clear();
 
   if (state_ == UiState::Home) {
-    homePage_.render(display_, 0, false, nowMs);
+    homePage_.render(display_, 0, nowMs);
   } else if (state_ == UiState::ToSectionTransition) {
     const uint32_t elapsedRaw = nowMs - transitionStartMs_;
     const uint32_t elapsed =
         elapsedRaw > kSectionTransitionMs ? kSectionTransitionMs : elapsedRaw;
     const int16_t width = static_cast<int16_t>(display_.width());
     const int16_t height = static_cast<int16_t>(display_.height());
-
     int16_t backgroundOffsetX = static_cast<int16_t>(-width);
     if (elapsed < kForwardBgEndMs) {
       const float t = static_cast<float>(elapsed) /
@@ -221,7 +381,7 @@ void UiManager::render(uint32_t nowMs) {
     }
 
     homePage_.renderTransition(display_, backgroundOffsetX, 0, menuUpOffsetX,
-                               menuFocusOffsetX, menuDownOffsetX, false, nowMs);
+                               menuFocusOffsetX, menuDownOffsetX, nowMs);
     renderSection(0, sectionOffsetY);
   } else if (state_ == UiState::ToHomeTransition) {
     const uint32_t elapsedRaw = nowMs - transitionStartMs_;
@@ -229,7 +389,6 @@ void UiManager::render(uint32_t nowMs) {
         elapsedRaw > kSectionTransitionMs ? kSectionTransitionMs : elapsedRaw;
     const int16_t width = static_cast<int16_t>(display_.width());
     const int16_t height = static_cast<int16_t>(display_.height());
-
     int16_t sectionOffsetY = height;
     if (elapsed < kBackSectionEndMs) {
       const float t = static_cast<float>(elapsed) /
@@ -274,7 +433,7 @@ void UiManager::render(uint32_t nowMs) {
     }
 
     homePage_.renderTransition(display_, backgroundOffsetX, 0, menuUpOffsetX,
-                               menuFocusOffsetX, menuDownOffsetX, false, nowMs);
+                               menuFocusOffsetX, menuDownOffsetX, nowMs);
     renderSection(0, sectionOffsetY);
   } else if (state_ == UiState::Section) {
     renderSection(0, 0);
@@ -291,29 +450,40 @@ void UiManager::renderSection(int16_t xOffset, int16_t yOffset) {
   auto& canvas = display_.canvas();
   auto& text = display_.text();
   const int16_t width = static_cast<int16_t>(display_.width());
-  const int16_t height = static_cast<int16_t>(display_.height());
+  const uint8_t focus = homePage_.focusIndex();
+  const SectionContent& content = sectionContentFor(focus);
+  const uint8_t itemCount = content.itemCount;
+  const SectionListLayout layout = makeSectionListLayout(xOffset, yOffset, width);
 
-  canvas.drawFilledRectangle(xOffset, yOffset, xOffset + width - 1,
-                             static_cast<int16_t>(yOffset + ThemeMono::kHeaderHeight),
-                             ST7305_COLOR_BLACK);
-  text.setFont(u8g2_font_6x12_mf);
-  text.setForegroundColor(ST7305_COLOR_WHITE);
-  text.drawUTF8(xOffset + 6, static_cast<int16_t>(yOffset + 24), "SECTION");
-
+  text.setFont(chinese_font_all);
+  text.setBackgroundColor(ST7305_COLOR_WHITE);
+  text.setFontMode(1);
   text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.setFont(u8g2_font_8x13B_mf);
-  text.drawUTF8(xOffset + 8, static_cast<int16_t>(yOffset + 52), homePage_.focusName());
+  text.drawUTF8(xOffset + 12, static_cast<int16_t>(yOffset + 20), content.title);
 
-  text.setFont(u8g2_font_6x12_mf);
-  text.drawUTF8(xOffset + 8, static_cast<int16_t>(yOffset + 78), "1. Item A");
-  text.drawUTF8(xOffset + 8, static_cast<int16_t>(yOffset + 100), "2. Item B");
-  text.drawUTF8(xOffset + 8, static_cast<int16_t>(yOffset + 122), "3. Item C");
-  text.drawUTF8(xOffset + width - 118, static_cast<int16_t>(yOffset + height - 10),
-                "OK: Detail");
+  if (itemCount == 0) {
+    return;
+  }
 
-  canvas.drawRectangle(xOffset + 4, static_cast<int16_t>(yOffset + 32),
-                       xOffset + width - 5, static_cast<int16_t>(yOffset + height - 5),
-                       ST7305_COLOR_BLACK);
+  const uint8_t selected = static_cast<uint8_t>(sectionFocusIndex_ % itemCount);
+
+  for (uint8_t i = 0; i < itemCount; ++i) {
+    const int16_t labelW = text.getUTF8Width(content.items[i]);
+    const SectionRowLayout row = makeSectionRowLayout(layout, labelW, i);
+    const bool isSelected = (i == selected);
+
+    if (isSelected) {
+      drawFilledRoundRect(canvas, row.boxLeft, row.boxTop, row.boxRight, row.boxBottom,
+                          layout.focusRadius,
+                          ST7305_COLOR_BLACK);
+    }
+    applySectionItemTextStyle(text, isSelected);
+
+    text.drawUTF8(layout.listX, row.baselineY, content.items[i]);
+  }
+
+  text.setBackgroundColor(ST7305_COLOR_WHITE);
+  text.setFontMode(1);
 }
 
 void UiManager::renderDetail() {
@@ -324,16 +494,14 @@ void UiManager::renderDetail() {
 
   canvas.drawFilledRectangle(0, 0, width - 1, ThemeMono::kHeaderHeight,
                              ST7305_COLOR_BLACK);
-  text.setFont(u8g2_font_6x12_mf);
+  text.setFont(chinese_font_all);
   text.setForegroundColor(ST7305_COLOR_WHITE);
-  text.drawUTF8(6, 24, "DETAIL");
+  text.drawUTF8(6, 24, "详情页");
 
   text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.setFont(u8g2_font_8x13B_mf);
   text.drawUTF8(8, 62, homePage_.focusName());
-  text.setFont(u8g2_font_6x12_mf);
-  text.drawUTF8(8, 92, "Detail content placeholder");
-  text.drawUTF8(width - 102, height - 10, "LEFT: Back");
+  text.drawUTF8(8, 92, "详情内容开发中");
+  text.drawUTF8(width - 92, height - 10, "LEFT: 返回");
 
   canvas.drawRectangle(4, 32, width - 5, height - 5, ST7305_COLOR_BLACK);
 }
@@ -362,3 +530,5 @@ int16_t UiManager::easeOutCubic(int16_t from, int16_t to, float t) const {
   const float eased = 1.0f - (inv * inv * inv);
   return static_cast<int16_t>(from + (to - from) * eased);
 }
+
+

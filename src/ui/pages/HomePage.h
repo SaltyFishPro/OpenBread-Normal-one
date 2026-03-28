@@ -9,12 +9,11 @@ public:
   bool begin();
   bool handleInput(bool upEdge, bool downEdge, bool okEdge, uint32_t nowMs);
   void update(uint32_t nowMs);
-  void render(DisplayMonoTft& display, int16_t pageOffsetX, bool confirmPulse,
-              uint32_t nowMs);
+  void render(DisplayMonoTft& display, int16_t pageOffsetX, uint32_t nowMs);
   void renderTransition(DisplayMonoTft& display, int16_t backgroundOffsetX,
                         int16_t menuBaseOffsetX, int16_t menuUpExtraOffsetX,
                         int16_t menuFocusExtraOffsetX, int16_t menuDownExtraOffsetX,
-                        bool confirmPulse, uint32_t nowMs);
+                        uint32_t nowMs);
 
   bool isSliding() const;
   bool hasAnimationTick(uint32_t nowMs) const;
@@ -39,5 +38,5 @@ private:
   uint16_t lastFocusFrame_ = 0;
 
   static constexpr uint8_t kMenuCount = 5;
-  const char* menuNames_[kMenuCount] = {"Music", "Reader", "Alarm", "Remote", "Settings"};
+  const char* menuNames_[kMenuCount] = {"设置", "音乐", "阅读", "时钟", "无线功能"};
 };

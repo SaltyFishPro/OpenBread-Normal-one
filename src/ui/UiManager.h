@@ -22,7 +22,9 @@ private:
 
   struct ButtonEdge {
     uint8_t pin;
-    bool lastPressed;
+    bool stablePressed;
+    bool lastRawPressed;
+    uint32_t lastRawChangeMs;
   };
 
   struct InputEdges {
@@ -49,8 +51,13 @@ private:
   UiState state_ = UiState::Home;
 
   uint32_t transitionStartMs_ = 0;
+  uint8_t sectionFocusIndex_ = 0;
   bool needsRedraw_ = true;
 
   ButtonEdge buttons_[5] = {
-      {0, false}, {0, false}, {0, false}, {0, false}, {0, false}};
+      {0, false, false, 0},
+      {0, false, false, 0},
+      {0, false, false, 0},
+      {0, false, false, 0},
+      {0, false, false, 0}};
 };
