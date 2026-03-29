@@ -3,9 +3,9 @@
 #include <cstdio>
 
 #include "../DateUtils.h"
-#include "../ThemeMono.h"
+#include "../IconBitmap.h"
 #include "../Segment7Font.h"
-#include "../../bsp/BoardConfig.h"
+#include "../ThemeMono.h"
 #include "../assets/UI_background.h"
 #include "../assets/icons8-book.h"
 #include "../assets/icons8-clock.h"
@@ -79,16 +79,7 @@ constexpr DateCardStyle kDateCardStyle = {
     6,
     -2};
 
-struct IconAnim {
-  const uint8_t* frames;
-  uint16_t frameBytes;
-  uint16_t frameWidth;
-  uint16_t frameHeight;
-  uint16_t frameDelayMs;
-  uint16_t frameCount;
-};
-
-const IconAnim kMenuIcons[5] = {
+const IconBitmap::Anim kMenuIcons[5] = {
     {reinterpret_cast<const uint8_t*>(&setting_frames[0][0]), SETTING_FRAME_BYTES,
      SETTING_FRAME_WIDTH, SETTING_FRAME_HEIGHT, SETTING_FRAME_DELAY, SETTING_FRAME_COUNT},
     {reinterpret_cast<const uint8_t*>(&itunes_frames[0][0]), ITUNES_FRAME_BYTES,
@@ -101,7 +92,7 @@ const IconAnim kMenuIcons[5] = {
      WIFI_FRAME_WIDTH, WIFI_FRAME_HEIGHT, WIFI_FRAME_DELAY, WIFI_FRAME_COUNT},
 };
 
-const IconAnim kHomeBackground = {
+const IconBitmap::Anim kHomeBackground = {
     reinterpret_cast<const uint8_t*>(&ui_background_frames[0][0]),
     UI_BACKGROUND_FRAME_BYTES,
     UI_BACKGROUND_FRAME_WIDTH,
@@ -109,61 +100,8 @@ const IconAnim kHomeBackground = {
     UI_BACKGROUND_FRAME_DELAY,
     UI_BACKGROUND_FRAME_COUNT};
 
-void writeLogicalPixel(ST7305_2p9_BW_DisplayDriver& canvas, int16_t lx, int16_t ly,
-                       bool colorOn) {
-  int16_t rx = lx;
-  int16_t ry = ly;
-  switch (BoardConfig::kDisplayRotation % 4U) {
-    case 0:
-      break;
-    case 1:
-      rx = static_cast<int16_t>(BoardConfig::kDisplayRawWidth - 1 - ly);
-      ry = lx;
-      break;
-    case 2:
-      rx = static_cast<int16_t>(BoardConfig::kDisplayRawWidth - 1 - lx);
-      ry = static_cast<int16_t>(BoardConfig::kDisplayRawHeight - 1 - ly);
-      break;
-    case 3:
-      rx = ly;
-      ry = static_cast<int16_t>(BoardConfig::kDisplayRawHeight - 1 - lx);
-      break;
-  }
-
-  if (rx < 0 || ry < 0 || rx >= BoardConfig::kDisplayRawWidth ||
-      ry >= BoardConfig::kDisplayRawHeight) {
-    return;
-  }
-  canvas.writePoint(static_cast<uint>(rx), static_cast<uint>(ry), colorOn);
-}
-
-void drawIconFrame(ST7305_2p9_BW_DisplayDriver& canvas, const IconAnim& anim,
-                   uint16_t frameIndex, int16_t dstX, int16_t dstY, int16_t dstW,
-                   int16_t dstH, bool invert, int16_t clipTop, int16_t clipBottom) {
-  if (anim.frameCount == 0 || dstW <= 0 || dstH <= 0) {
-    return;
-  }
-
-  const uint16_t idx = static_cast<uint16_t>(frameIndex % anim.frameCount);
-  const uint8_t* frame = anim.frames + (static_cast<size_t>(idx) * anim.frameBytes);
-  const uint16_t srcStride = (anim.frameWidth + 7U) / 8U;
-
-  for (int16_t dy = 0; dy < dstH; ++dy) {
-    const int16_t py = static_cast<int16_t>(dstY + dy);
-    if (py < clipTop || py > clipBottom) {
-      continue;
-    }
-
-    const uint16_t sy = static_cast<uint16_t>((static_cast<uint32_t>(dy) * anim.frameHeight) / dstH);
-    for (int16_t dx = 0; dx < dstW; ++dx) {
-      const uint16_t sx = static_cast<uint16_t>((static_cast<uint32_t>(dx) * anim.frameWidth) / dstW);
-      const uint16_t byteIndex = static_cast<uint16_t>(sy * srcStride + (sx >> 3));
-      const uint8_t bitMask = static_cast<uint8_t>(0x80U >> (sx & 0x7U));
-      const bool on = (pgm_read_byte(frame + byteIndex) & bitMask) != 0;
-      writeLogicalPixel(canvas, dstX + dx, py, invert ? !on : on);
-    }
-  }
-}
+const char* const kMenuNamesZh[5] = {"设置", "音乐", "阅读", "时钟", "无线功能"};
+const char* const kMenuNamesEn[5] = {"Settings", "Music", "Reader", "Clock", "Wireless"};
 
 bool clipRectToDisplay(ST7305_2p9_BW_DisplayDriver& canvas, int16_t& x1, int16_t& y1,
                        int16_t& x2, int16_t& y2) {
@@ -428,17 +366,24 @@ int16_t HomePage::currentMenuOffset(uint32_t nowMs) const {
 }
 
 bool HomePage::hasAnimationTick(uint32_t nowMs) const {
-  const IconAnim& anim = kMenuIcons[focusIndex_];
+  const IconBitmap::Anim& anim = kMenuIcons[focusIndex_];
   if (anim.frameCount == 0 || anim.frameDelayMs == 0) {
     return false;
   }
-  const uint16_t frame = static_cast<uint16_t>((nowMs / anim.frameDelayMs) % anim.frameCount);
+  const uint16_t frame = IconBitmap::frameAt(anim, nowMs);
   return frame != lastFocusFrame_;
 }
 
 uint8_t HomePage::focusIndex() const { return focusIndex_; }
 
-const char* HomePage::focusName() const { return menuNames_[focusIndex_]; }
+const char* HomePage::menuLabel(uint8_t idx) const {
+  const uint8_t safe = static_cast<uint8_t>(idx % kMenuCount);
+  return (language_ == Language::Zh) ? kMenuNamesZh[safe] : kMenuNamesEn[safe];
+}
+
+const char* HomePage::focusName() const { return menuLabel(focusIndex_); }
+
+void HomePage::setLanguage(Language language) { language_ = language; }
 
 void HomePage::render(DisplayMonoTft& display, int16_t pageOffsetX, uint32_t nowMs) {
   renderTransition(display, pageOffsetX, pageOffsetX, 0, 0, 0, nowMs);
@@ -457,11 +402,9 @@ void HomePage::renderTransition(DisplayMonoTft& display, int16_t backgroundOffse
       menuBaseOffsetX + width - kWheelFrameWidth - kWheelFrameRightMargin);
   const int16_t centerY = static_cast<int16_t>(height / 2);
 
-  const uint16_t bgFrame =
-      static_cast<uint16_t>((nowMs / kHomeBackground.frameDelayMs) %
-                            kHomeBackground.frameCount);
-  drawIconFrame(canvas, kHomeBackground, bgFrame, backgroundOffsetX, 0, width, height,
-                false, 0, static_cast<int16_t>(height - 1));
+  const uint16_t bgFrame = IconBitmap::frameAt(kHomeBackground, nowMs);
+  IconBitmap::drawFrame(canvas, kHomeBackground, bgFrame, backgroundOffsetX, 0, width,
+                        height, false, 0, static_cast<int16_t>(height - 1));
   drawHomeTimePreview(canvas, nowMs, backgroundOffsetX);
   drawHomeDatePreview(canvas, text, nowMs, backgroundOffsetX);
 
@@ -479,7 +422,7 @@ void HomePage::renderTransition(DisplayMonoTft& display, int16_t backgroundOffse
     }
 
     const bool isFocus = (delta == 0);
-    const IconAnim& anim = kMenuIcons[i];
+    const IconBitmap::Anim& anim = kMenuIcons[i];
 
     int16_t iconSize = isFocus ? static_cast<int16_t>(ThemeMono::kIconFocusSize)
                                : static_cast<int16_t>(ThemeMono::kIconSideSize);
@@ -515,17 +458,18 @@ void HomePage::renderTransition(DisplayMonoTft& display, int16_t backgroundOffse
                            ST7305_COLOR_BLACK);
     }
 
-    const uint16_t frame = static_cast<uint16_t>((nowMs / anim.frameDelayMs) % anim.frameCount);
+    const uint16_t frame = IconBitmap::frameAt(anim, nowMs);
     if (isFocus) {
       lastFocusFrame_ = frame;
     }
 
     const int16_t iconX = static_cast<int16_t>(frameX + kWheelItemInsetX);
     const int16_t iconY = rowTop;
-    drawIconFrame(canvas, anim, frame, iconX, iconY, iconSize, iconSize, false,
-                  kMenuClipTop, kMenuClipBottom);
+    IconBitmap::drawFrame(canvas, anim, frame, iconX, iconY, iconSize, iconSize, false,
+                          kMenuClipTop, kMenuClipBottom);
 
-    const int16_t labelW = text.getUTF8Width(menuNames_[i]);
+    const char* label = menuLabel(i);
+    const int16_t labelW = text.getUTF8Width(label);
     const int16_t textBlockX = static_cast<int16_t>(iconX + iconSize + kWheelTextGap);
     const int16_t textBlockW = static_cast<int16_t>(frameX + kWheelFrameWidth - textBlockX - kWheelItemInsetX);
     int16_t labelX = static_cast<int16_t>(textBlockX + (textBlockW - labelW) / 2);
@@ -534,7 +478,7 @@ void HomePage::renderTransition(DisplayMonoTft& display, int16_t backgroundOffse
     }
     const int16_t labelY = static_cast<int16_t>(rowCenterY + 6);
     if (labelY >= kMenuClipTop + kMenuLabelHeight && labelY <= kMenuClipBottom) {
-      text.drawUTF8(labelX, labelY, menuNames_[i]);
+      text.drawUTF8(labelX, labelY, label);
     }
   }
 }

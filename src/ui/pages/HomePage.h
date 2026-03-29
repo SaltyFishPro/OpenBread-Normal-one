@@ -6,6 +6,8 @@
 
 class HomePage {
 public:
+  enum class Language : uint8_t { Zh, En };
+
   bool begin();
   bool handleInput(bool upEdge, bool downEdge, bool okEdge, uint32_t nowMs);
   void update(uint32_t nowMs);
@@ -19,10 +21,12 @@ public:
   bool hasAnimationTick(uint32_t nowMs) const;
   uint8_t focusIndex() const;
   const char* focusName() const;
+  void setLanguage(Language language);
 
 private:
   enum class SlideState : uint8_t { Idle, Sliding };
 
+  const char* menuLabel(uint8_t idx) const;
   int16_t currentMenuOffset(uint32_t nowMs) const;
   int16_t easeOutCubic(int16_t from, int16_t to, float t) const;
   void beginSlide(int8_t direction, uint32_t nowMs);
@@ -36,7 +40,7 @@ private:
   uint32_t animStartMs_ = 0;
 
   uint16_t lastFocusFrame_ = 0;
+  Language language_ = Language::Zh;
 
   static constexpr uint8_t kMenuCount = 5;
-  const char* menuNames_[kMenuCount] = {"设置", "音乐", "阅读", "时钟", "无线功能"};
 };

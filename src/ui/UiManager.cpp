@@ -3,7 +3,23 @@
 #include <cstdio>
 
 #include "../bsp/BoardConfig.h"
+#include "IconBitmap.h"
 #include "ThemeMono.h"
+#include "assets/submenu_icon/about.h"
+#include "assets/submenu_icon/author.h"
+#include "assets/submenu_icon/bluetoothconnet.h"
+#include "assets/submenu_icon/desktopclock.h"
+#include "assets/submenu_icon/language.h"
+#include "assets/submenu_icon/likemusic.h"
+#include "assets/submenu_icon/musiclist.h"
+#include "assets/submenu_icon/remote.h"
+#include "assets/submenu_icon/reset.h"
+#include "assets/submenu_icon/restart.h"
+#include "assets/submenu_icon/teleprompter.h"
+#include "assets/submenu_icon/timer.h"
+#include "assets/submenu_icon/vocabularybook.h"
+#include "assets/submenu_icon/wificonnet.h"
+#include "assets/pop_up_window.h"
 
 namespace {
 constexpr uint32_t kSectionTransitionMs = 600;
@@ -16,31 +32,125 @@ constexpr uint32_t kBackSectionEndMs = 200;
 constexpr uint32_t kBackMenuStartMs = 180;
 constexpr uint32_t kBackMenuEndMs = 340;
 constexpr uint32_t kBackBgStartMs = 300;
+constexpr uint32_t kDetailTransitionMs = 420;
+constexpr uint32_t kDetailForwardIconEndMs = 120;
+constexpr uint32_t kDetailForwardRowsStartMs = 80;
+constexpr uint32_t kDetailForwardRowsEndMs = 320;
+constexpr uint32_t kDetailForwardDetailStartMs = 220;
+constexpr uint32_t kDetailBackDetailEndMs = 200;
+constexpr uint32_t kDetailBackRowsStartMs = 180;
+constexpr uint32_t kDetailBackRowsEndMs = 340;
+constexpr uint32_t kDetailBackIconStartMs = 300;
 constexpr uint32_t kButtonDebounceMs = 25;
+constexpr uint32_t kSectionFocusSlideMs = 170;
+constexpr uint8_t kSettingsHomeIndex = 0;
+constexpr uint8_t kSettingsRestartItemIndex = 0;
+constexpr uint8_t kSettingsLanguageItemIndex = 1;
+constexpr uint8_t kSettingsAboutDeviceItemIndex = 3;
+constexpr uint8_t kMaxSectionItemsForAnim = 8;
+constexpr int16_t kRestartPopupOptionWidth = 44;
+constexpr int16_t kRestartPopupOptionGap = 16;
+constexpr int16_t kRestartPopupTitleTopOffset = 35;
+constexpr int16_t kRestartPopupOptionBottomMargin = 8;
+constexpr int16_t kRestartPopupOptionPadY = 4;
+constexpr int16_t kDetailHeaderHeight = 28;
+
+const IconBitmap::Anim kRestartPopupWindow = {
+    reinterpret_cast<const uint8_t*>(&pop_up_window_frames[0][0]),
+    POP_UP_WINDOW_FRAME_BYTES,
+    POP_UP_WINDOW_FRAME_WIDTH,
+    POP_UP_WINDOW_FRAME_HEIGHT,
+    POP_UP_WINDOW_FRAME_DELAY,
+    POP_UP_WINDOW_FRAME_COUNT};
+
+struct SectionItem {
+  const char* labelZh;
+  const char* labelEn;
+  IconBitmap::Anim icon;
+};
 
 struct SectionContent {
-  const char* title;
-  const char* const* items;
+  const SectionItem* items;
   uint8_t itemCount;
 };
 
-const char* const kSettingsItems[] = {"重启设备", "语言", "恢复默认设置", "关于设备", "关于作者"};
-const char* const kMusicItems[] = {"音乐列表", "收藏歌曲"};
-const char* const kReaderItems[] = {"单词阅读", "提词器"};
-const char* const kClockItems[] = {"时钟桌面", "计时器"};
-const char* const kWirelessItems[] = {"WiFi连接", "蓝牙连接", "蓝牙远程拍照"};
+const SectionItem kSettingsItems[] = {
+    {"重启设备", "Restart Device",
+     {reinterpret_cast<const uint8_t*>(&restart_frames[0][0]), RESTART_FRAME_BYTES,
+      RESTART_FRAME_WIDTH, RESTART_FRAME_HEIGHT, RESTART_FRAME_DELAY, RESTART_FRAME_COUNT}},
+    {"语言", "Language",
+     {reinterpret_cast<const uint8_t*>(&language_frames[0][0]), LANGUAGE_FRAME_BYTES,
+      LANGUAGE_FRAME_WIDTH, LANGUAGE_FRAME_HEIGHT, LANGUAGE_FRAME_DELAY, LANGUAGE_FRAME_COUNT}},
+    {"恢复默认设置", "Reset to Defaults",
+     {reinterpret_cast<const uint8_t*>(&reset_frames[0][0]), RESET_FRAME_BYTES,
+      RESET_FRAME_WIDTH, RESET_FRAME_HEIGHT, RESET_FRAME_DELAY, RESET_FRAME_COUNT}},
+    {"关于设备", "About Device",
+     {reinterpret_cast<const uint8_t*>(&about_frames[0][0]), ABOUT_FRAME_BYTES,
+      ABOUT_FRAME_WIDTH, ABOUT_FRAME_HEIGHT, ABOUT_FRAME_DELAY, ABOUT_FRAME_COUNT}},
+    {"关于作者", "About Author",
+     {reinterpret_cast<const uint8_t*>(&author_frames[0][0]), AUTHOR_FRAME_BYTES,
+      AUTHOR_FRAME_WIDTH, AUTHOR_FRAME_HEIGHT, AUTHOR_FRAME_DELAY, AUTHOR_FRAME_COUNT}},
+};
+
+const SectionItem kMusicItems[] = {
+    {"音乐列表", "Music List",
+     {reinterpret_cast<const uint8_t*>(&musiclist_frames[0][0]), MUSICLIST_FRAME_BYTES,
+      MUSICLIST_FRAME_WIDTH, MUSICLIST_FRAME_HEIGHT, MUSICLIST_FRAME_DELAY, MUSICLIST_FRAME_COUNT}},
+    {"收藏歌曲", "Favorites",
+     {reinterpret_cast<const uint8_t*>(&likemusic_frames[0][0]), LIKEMUSIC_FRAME_BYTES,
+      LIKEMUSIC_FRAME_WIDTH, LIKEMUSIC_FRAME_HEIGHT, LIKEMUSIC_FRAME_DELAY, LIKEMUSIC_FRAME_COUNT}},
+};
+
+const SectionItem kReaderItems[] = {
+    {"单词阅读", "Vocabulary",
+     {reinterpret_cast<const uint8_t*>(&vocabularybook_frames[0][0]),
+      VOCABULARYBOOK_FRAME_BYTES, VOCABULARYBOOK_FRAME_WIDTH, VOCABULARYBOOK_FRAME_HEIGHT,
+      VOCABULARYBOOK_FRAME_DELAY, VOCABULARYBOOK_FRAME_COUNT}},
+    {"提词器", "Teleprompter",
+     {reinterpret_cast<const uint8_t*>(&teleprompter_frames[0][0]),
+      TELEPROMPTER_FRAME_BYTES, TELEPROMPTER_FRAME_WIDTH, TELEPROMPTER_FRAME_HEIGHT,
+      TELEPROMPTER_FRAME_DELAY, TELEPROMPTER_FRAME_COUNT}},
+};
+
+const SectionItem kClockItems[] = {
+    {"时钟桌面", "Clock",
+     {reinterpret_cast<const uint8_t*>(&desktopclock_frames[0][0]), DESKTOPCLOCK_FRAME_BYTES,
+      DESKTOPCLOCK_FRAME_WIDTH, DESKTOPCLOCK_FRAME_HEIGHT, DESKTOPCLOCK_FRAME_DELAY,
+      DESKTOPCLOCK_FRAME_COUNT}},
+    {"计时器", "Timer",
+     {reinterpret_cast<const uint8_t*>(&timer_frames[0][0]), TIMER_FRAME_BYTES,
+      TIMER_FRAME_WIDTH, TIMER_FRAME_HEIGHT, TIMER_FRAME_DELAY, TIMER_FRAME_COUNT}},
+};
+
+const SectionItem kWirelessItems[] = {
+    {"WiFi连接", "Wi-Fi",
+     {reinterpret_cast<const uint8_t*>(&wificonnet_frames[0][0]), WIFICONNET_FRAME_BYTES,
+      WIFICONNET_FRAME_WIDTH, WIFICONNET_FRAME_HEIGHT, WIFICONNET_FRAME_DELAY,
+      WIFICONNET_FRAME_COUNT}},
+    {"蓝牙连接", "Bluetooth",
+     {reinterpret_cast<const uint8_t*>(&bluetoothconnet_frames[0][0]),
+      BLUETOOTHCONNET_FRAME_BYTES, BLUETOOTHCONNET_FRAME_WIDTH, BLUETOOTHCONNET_FRAME_HEIGHT,
+      BLUETOOTHCONNET_FRAME_DELAY, BLUETOOTHCONNET_FRAME_COUNT}},
+    {"蓝牙远程拍照", "BT Remote Cam",
+     {reinterpret_cast<const uint8_t*>(&remote_frames[0][0]), REMOTE_FRAME_BYTES,
+      REMOTE_FRAME_WIDTH, REMOTE_FRAME_HEIGHT, REMOTE_FRAME_DELAY, REMOTE_FRAME_COUNT}},
+};
 
 const SectionContent kSectionContents[] = {
-    {"设置", kSettingsItems, static_cast<uint8_t>(sizeof(kSettingsItems) / sizeof(kSettingsItems[0]))},
-    {"音乐", kMusicItems, static_cast<uint8_t>(sizeof(kMusicItems) / sizeof(kMusicItems[0]))},
-    {"阅读", kReaderItems, static_cast<uint8_t>(sizeof(kReaderItems) / sizeof(kReaderItems[0]))},
-    {"时钟", kClockItems, static_cast<uint8_t>(sizeof(kClockItems) / sizeof(kClockItems[0]))},
-    {"无线功能", kWirelessItems, static_cast<uint8_t>(sizeof(kWirelessItems) / sizeof(kWirelessItems[0]))},
+    {kSettingsItems, static_cast<uint8_t>(sizeof(kSettingsItems) / sizeof(kSettingsItems[0]))},
+    {kMusicItems, static_cast<uint8_t>(sizeof(kMusicItems) / sizeof(kMusicItems[0]))},
+    {kReaderItems, static_cast<uint8_t>(sizeof(kReaderItems) / sizeof(kReaderItems[0]))},
+    {kClockItems, static_cast<uint8_t>(sizeof(kClockItems) / sizeof(kClockItems[0]))},
+    {kWirelessItems, static_cast<uint8_t>(sizeof(kWirelessItems) / sizeof(kWirelessItems[0]))},
 };
 
 const SectionContent& sectionContentFor(uint8_t homeFocus) {
   const size_t count = sizeof(kSectionContents) / sizeof(kSectionContents[0]);
   return kSectionContents[homeFocus % count];
+}
+
+const char* labelForLanguage(const SectionItem& item, HomePage::Language language) {
+  return (language == HomePage::Language::Zh) ? item.labelZh : item.labelEn;
 }
 
 struct SectionListLayout {
@@ -52,6 +162,9 @@ struct SectionListLayout {
   int16_t focusPadY;
   int16_t focusRadius;
   int16_t boxMaxRight;
+  int16_t iconX;
+  int16_t iconY;
+  int16_t iconSize;
 };
 
 struct SectionRowLayout {
@@ -62,16 +175,27 @@ struct SectionRowLayout {
   int16_t boxBottom;
 };
 
-SectionListLayout makeSectionListLayout(int16_t xOffset, int16_t yOffset, int16_t width) {
+SectionListLayout makeSectionListLayout(int16_t xOffset, int16_t yOffset, int16_t width,
+                                        int16_t height) {
   SectionListLayout layout;
-  layout.listX = static_cast<int16_t>(xOffset + 16);
-  layout.listStartBaseline = static_cast<int16_t>(yOffset + 52);
-  layout.rowStep = 28;
+  layout.iconSize = static_cast<int16_t>(height - 18);
+  if (layout.iconSize > 150) {
+    layout.iconSize = 150;
+  }
+  if (layout.iconSize < 96) {
+    layout.iconSize = static_cast<int16_t>(height - 12);
+  }
+  layout.iconX = static_cast<int16_t>(xOffset + width - layout.iconSize - 8);
+  layout.iconY = static_cast<int16_t>(yOffset + (height - layout.iconSize) / 2);
+
+  layout.listX = static_cast<int16_t>(xOffset + 14);
+  layout.listStartBaseline = static_cast<int16_t>(yOffset + 34);
+  layout.rowStep = 26;
   layout.textHeight = 14;
-  layout.focusPadX = 12;
-  layout.focusPadY = 4;
+  layout.focusPadX = 10;
+  layout.focusPadY = 5;
   layout.focusRadius = 8;
-  layout.boxMaxRight = static_cast<int16_t>(xOffset + width - 16);
+  layout.boxMaxRight = static_cast<int16_t>(layout.iconX - 10);
   return layout;
 }
 
@@ -181,10 +305,38 @@ bool UiManager::begin() {
     return false;
   }
 
+  initDeviceInfoCache();
+  language_ = HomePage::Language::Zh;
+  homePage_.setLanguage(language_);
   state_ = UiState::Home;
   transitionStartMs_ = millis();
+  sectionFocusIndex_ = 0;
+  sectionAnimFromIndex_ = 0;
+  sectionAnimToIndex_ = 0;
+  sectionAnimStartMs_ = transitionStartMs_;
+  lastSectionIconFrame_ = 0;
+  popupKind_ = PopupKind::RestartConfirm;
+  popupSelectPrimary_ = false;
+  lastPopupFrame_ = 0;
+  sectionAnimActive_ = false;
   needsRedraw_ = true;
   return true;
+}
+
+void UiManager::initDeviceInfoCache() {
+  const uint64_t efuseMac = ESP.getEfuseMac();
+  snprintf(deviceIdText_, sizeof(deviceIdText_), "设备ID：%012llX",
+           static_cast<unsigned long long>(efuseMac & 0x0000FFFFFFFFFFFFULL));
+
+  const uint32_t flashBytes = ESP.getFlashChipSize();
+  const uint32_t flashMb = flashBytes / (1024U * 1024U);
+  if (flashMb > 0) {
+    snprintf(flashTotalText_, sizeof(flashTotalText_), "Flash空间：%u MB",
+             static_cast<unsigned>(flashMb));
+  } else {
+    snprintf(flashTotalText_, sizeof(flashTotalText_), "Flash空间：%u B",
+             static_cast<unsigned>(flashBytes));
+  }
 }
 
 void UiManager::tick() {
@@ -242,6 +394,10 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
       homePage_.update(nowMs);
       if (enterSection) {
         sectionFocusIndex_ = 0;
+        sectionAnimFromIndex_ = 0;
+        sectionAnimToIndex_ = 0;
+        sectionAnimStartMs_ = nowMs;
+        sectionAnimActive_ = false;
         state_ = UiState::ToSectionTransition;
         transitionStartMs_ = nowMs;
         needsRedraw_ = true;
@@ -265,32 +421,104 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
       break;
     }
 
-    case UiState::Section: {
-      const SectionContent& content = sectionContentFor(homePage_.focusIndex());
-      if (content.itemCount > 0 && edges.up) {
-        if (sectionFocusIndex_ == 0) {
-          sectionFocusIndex_ = static_cast<uint8_t>(content.itemCount - 1);
-        } else {
-          sectionFocusIndex_ = static_cast<uint8_t>(sectionFocusIndex_ - 1);
-        }
-        needsRedraw_ = true;
-      } else if (content.itemCount > 0 && edges.down) {
-        sectionFocusIndex_ = static_cast<uint8_t>((sectionFocusIndex_ + 1) % content.itemCount);
-        needsRedraw_ = true;
-      } else if (edges.left) {
-        state_ = UiState::ToHomeTransition;
-        transitionStartMs_ = nowMs;
-        needsRedraw_ = true;
-      } else if (edges.ok) {
+    case UiState::ToDetailTransition: {
+      if (nowMs - transitionStartMs_ >= kDetailTransitionMs) {
         state_ = UiState::Detail;
         needsRedraw_ = true;
       }
       break;
     }
 
+    case UiState::ToSectionFromDetailTransition: {
+      if (nowMs - transitionStartMs_ >= kDetailTransitionMs) {
+        state_ = UiState::Section;
+        needsRedraw_ = true;
+      }
+      break;
+    }
+
+    case UiState::Section: {
+      const SectionContent& content = sectionContentFor(homePage_.focusIndex());
+      if (sectionAnimActive_ && nowMs - sectionAnimStartMs_ >= kSectionFocusSlideMs) {
+        sectionAnimActive_ = false;
+        needsRedraw_ = true;
+      }
+
+      if (content.itemCount > 0 && edges.up) {
+        const uint8_t next = (sectionFocusIndex_ == 0)
+                                 ? static_cast<uint8_t>(content.itemCount - 1)
+                                 : static_cast<uint8_t>(sectionFocusIndex_ - 1);
+        startSectionFocusAnimation(next, nowMs);
+        needsRedraw_ = true;
+      } else if (content.itemCount > 0 && edges.down) {
+        const uint8_t next =
+            static_cast<uint8_t>((sectionFocusIndex_ + 1) % content.itemCount);
+        startSectionFocusAnimation(next, nowMs);
+        needsRedraw_ = true;
+      } else if (edges.left) {
+        sectionAnimActive_ = false;
+        state_ = UiState::ToHomeTransition;
+        transitionStartMs_ = nowMs;
+        needsRedraw_ = true;
+      } else if (edges.ok) {
+        sectionAnimActive_ = false;
+        const bool shouldOpenRestartPopup =
+            (homePage_.focusIndex() == kSettingsHomeIndex) &&
+            (sectionFocusIndex_ == kSettingsRestartItemIndex);
+        const bool shouldOpenLanguagePopup =
+            (homePage_.focusIndex() == kSettingsHomeIndex) &&
+            (sectionFocusIndex_ == kSettingsLanguageItemIndex);
+        if (shouldOpenRestartPopup || shouldOpenLanguagePopup) {
+          state_ = UiState::Popup;
+          if (shouldOpenRestartPopup) {
+            popupKind_ = PopupKind::RestartConfirm;
+            popupSelectPrimary_ = false;  // default "No"
+          } else {
+            popupKind_ = PopupKind::LanguageSelect;
+            popupSelectPrimary_ = (language_ == HomePage::Language::Zh);
+          }
+        } else {
+          detailPageIndex_ = 0;
+          state_ = UiState::ToDetailTransition;
+          transitionStartMs_ = nowMs;
+        }
+        needsRedraw_ = true;
+      }
+      break;
+    }
+
+    case UiState::Popup: {
+      if (edges.left || edges.up) {
+        popupSelectPrimary_ = true;
+        needsRedraw_ = true;
+      } else if (edges.right || edges.down) {
+        popupSelectPrimary_ = false;
+        needsRedraw_ = true;
+      } else if (edges.ok) {
+        if (popupKind_ == PopupKind::RestartConfirm) {
+          if (popupSelectPrimary_) {
+            ESP.restart();
+          } else {
+            state_ = UiState::Section;
+            needsRedraw_ = true;
+          }
+        } else {
+          language_ = popupSelectPrimary_ ? HomePage::Language::Zh : HomePage::Language::En;
+          homePage_.setLanguage(language_);
+          state_ = UiState::Section;
+          needsRedraw_ = true;
+        }
+      }
+      break;
+    }
+
     case UiState::Detail: {
       if (edges.left) {
-        state_ = UiState::Section;
+        state_ = UiState::ToSectionFromDetailTransition;
+        transitionStartMs_ = nowMs;
+        needsRedraw_ = true;
+      } else if (isAboutDeviceDetail() && (edges.up || edges.down || edges.right || edges.ok)) {
+        detailPageIndex_ = static_cast<uint8_t>((detailPageIndex_ + 1) % 2U);
         needsRedraw_ = true;
       }
       break;
@@ -317,6 +545,32 @@ bool UiManager::shouldRedraw(uint32_t nowMs) const {
   }
   if (state_ == UiState::ToHomeTransition) {
     return true;
+  }
+  if (state_ == UiState::ToDetailTransition) {
+    return true;
+  }
+  if (state_ == UiState::ToSectionFromDetailTransition) {
+    return true;
+  }
+  if (state_ == UiState::Section) {
+    if (sectionAnimActive_) {
+      return true;
+    }
+
+    const SectionContent& content = sectionContentFor(homePage_.focusIndex());
+    if (content.itemCount > 0) {
+      const uint8_t selected = static_cast<uint8_t>(sectionFocusIndex_ % content.itemCount);
+      const uint16_t frame = IconBitmap::frameAt(content.items[selected].icon, nowMs);
+      if (frame != lastSectionIconFrame_) {
+        return true;
+      }
+    }
+  }
+  if (state_ == UiState::Popup) {
+    const uint16_t frame = IconBitmap::frameAt(kRestartPopupWindow, nowMs);
+    if (frame != lastPopupFrame_) {
+      return true;
+    }
   }
 
   return false;
@@ -382,7 +636,7 @@ void UiManager::render(uint32_t nowMs) {
 
     homePage_.renderTransition(display_, backgroundOffsetX, 0, menuUpOffsetX,
                                menuFocusOffsetX, menuDownOffsetX, nowMs);
-    renderSection(0, sectionOffsetY);
+    renderSection(0, sectionOffsetY, nowMs);
   } else if (state_ == UiState::ToHomeTransition) {
     const uint32_t elapsedRaw = nowMs - transitionStartMs_;
     const uint32_t elapsed =
@@ -434,9 +688,126 @@ void UiManager::render(uint32_t nowMs) {
 
     homePage_.renderTransition(display_, backgroundOffsetX, 0, menuUpOffsetX,
                                menuFocusOffsetX, menuDownOffsetX, nowMs);
-    renderSection(0, sectionOffsetY);
+    renderSection(0, sectionOffsetY, nowMs);
+  } else if (state_ == UiState::ToDetailTransition) {
+    const uint32_t elapsedRaw = nowMs - transitionStartMs_;
+    const uint32_t elapsed =
+        elapsedRaw > kDetailTransitionMs ? kDetailTransitionMs : elapsedRaw;
+    const int16_t width = static_cast<int16_t>(display_.width());
+    const int16_t height = static_cast<int16_t>(display_.height());
+
+    int16_t iconOffsetX = width;
+    if (elapsed < kDetailForwardIconEndMs) {
+      const float t = static_cast<float>(elapsed) /
+                      static_cast<float>(kDetailForwardIconEndMs == 0 ? 1
+                                                                      : kDetailForwardIconEndMs);
+      iconOffsetX = easeInCubic(0, width, t);
+    }
+
+    const SectionContent& content = sectionContentFor(homePage_.focusIndex());
+    const uint8_t rowCount = content.itemCount > kMaxSectionItemsForAnim
+                                 ? kMaxSectionItemsForAnim
+                                 : content.itemCount;
+    int16_t rowOffsets[kMaxSectionItemsForAnim] = {0};
+    if (rowCount > 0) {
+      const uint32_t rowWindow = kDetailForwardRowsEndMs - kDetailForwardRowsStartMs;
+      uint32_t rowStep = rowWindow / rowCount;
+      if (rowStep == 0) {
+        rowStep = 1;
+      }
+      const uint32_t rowDur = rowStep;
+
+      for (uint8_t i = 0; i < rowCount; ++i) {
+        const uint32_t startMs = kDetailForwardRowsStartMs + rowStep * i;
+        if (elapsed <= startMs) {
+          rowOffsets[i] = 0;
+          continue;
+        }
+        const uint32_t endMs = startMs + rowDur;
+        if (elapsed >= endMs) {
+          rowOffsets[i] = width;
+          continue;
+        }
+        const float t = static_cast<float>(elapsed - startMs) /
+                        static_cast<float>(rowDur == 0 ? 1 : rowDur);
+        rowOffsets[i] = easeInCubic(0, width, t);
+      }
+    }
+    const int16_t focusOffsetX =
+        (sectionFocusIndex_ < rowCount) ? rowOffsets[sectionFocusIndex_] : 0;
+
+    int16_t detailOffsetY = height;
+    if (elapsed >= kDetailForwardDetailStartMs) {
+      const uint32_t moveDuration = kDetailTransitionMs - kDetailForwardDetailStartMs;
+      const float t = static_cast<float>(elapsed - kDetailForwardDetailStartMs) /
+                      static_cast<float>(moveDuration == 0 ? 1 : moveDuration);
+      detailOffsetY = easeOutCubic(height, 0, t);
+    }
+
+    renderSection(0, 0, nowMs, iconOffsetX, rowOffsets, rowCount, focusOffsetX);
+    renderDetail(detailOffsetY);
+  } else if (state_ == UiState::ToSectionFromDetailTransition) {
+    const uint32_t elapsedRaw = nowMs - transitionStartMs_;
+    const uint32_t elapsed =
+        elapsedRaw > kDetailTransitionMs ? kDetailTransitionMs : elapsedRaw;
+    const int16_t width = static_cast<int16_t>(display_.width());
+    const int16_t height = static_cast<int16_t>(display_.height());
+
+    int16_t detailOffsetY = height;
+    if (elapsed < kDetailBackDetailEndMs) {
+      const float t = static_cast<float>(elapsed) /
+                      static_cast<float>(kDetailBackDetailEndMs == 0 ? 1 : kDetailBackDetailEndMs);
+      detailOffsetY = easeInCubic(0, height, t);
+    }
+
+    const SectionContent& content = sectionContentFor(homePage_.focusIndex());
+    const uint8_t rowCount = content.itemCount > kMaxSectionItemsForAnim
+                                 ? kMaxSectionItemsForAnim
+                                 : content.itemCount;
+    int16_t rowOffsets[kMaxSectionItemsForAnim] = {0};
+    if (rowCount > 0) {
+      const uint32_t rowWindow = kDetailBackRowsEndMs - kDetailBackRowsStartMs;
+      uint32_t rowStep = rowWindow / rowCount;
+      if (rowStep == 0) {
+        rowStep = 1;
+      }
+      const uint32_t rowDur = rowStep;
+
+      for (uint8_t i = 0; i < rowCount; ++i) {
+        const uint32_t order = static_cast<uint32_t>(rowCount - 1U - i);
+        const uint32_t startMs = kDetailBackRowsStartMs + rowStep * order;
+        if (elapsed <= startMs) {
+          rowOffsets[i] = width;
+          continue;
+        }
+        const uint32_t endMs = startMs + rowDur;
+        if (elapsed >= endMs) {
+          rowOffsets[i] = 0;
+          continue;
+        }
+        const float t = static_cast<float>(elapsed - startMs) /
+                        static_cast<float>(rowDur == 0 ? 1 : rowDur);
+        rowOffsets[i] = easeOutCubic(width, 0, t);
+      }
+    }
+    const int16_t focusOffsetX =
+        (sectionFocusIndex_ < rowCount) ? rowOffsets[sectionFocusIndex_] : 0;
+
+    int16_t iconOffsetX = width;
+    if (elapsed >= kDetailBackIconStartMs) {
+      const uint32_t moveDuration = kDetailTransitionMs - kDetailBackIconStartMs;
+      const float t = static_cast<float>(elapsed - kDetailBackIconStartMs) /
+                      static_cast<float>(moveDuration == 0 ? 1 : moveDuration);
+      iconOffsetX = easeOutCubic(width, 0, t);
+    }
+
+    renderSection(0, 0, nowMs, iconOffsetX, rowOffsets, rowCount, focusOffsetX);
+    renderDetail(detailOffsetY);
   } else if (state_ == UiState::Section) {
-    renderSection(0, 0);
+    renderSection(0, 0, nowMs);
+  } else if (state_ == UiState::Popup) {
+    renderSection(0, 0, nowMs);
+    renderPopup(nowMs);
   } else {
     renderDetail();
   }
@@ -446,64 +817,287 @@ void UiManager::render(uint32_t nowMs) {
   }
 }
 
-void UiManager::renderSection(int16_t xOffset, int16_t yOffset) {
+void UiManager::startSectionFocusAnimation(uint8_t toIndex, uint32_t nowMs) {
+  if (sectionAnimActive_) {
+    sectionFocusIndex_ = sectionAnimToIndex_;
+  }
+
+  sectionAnimFromIndex_ = sectionFocusIndex_;
+  sectionAnimToIndex_ = toIndex;
+  sectionFocusIndex_ = toIndex;
+  sectionAnimStartMs_ = nowMs;
+  sectionAnimActive_ = (sectionAnimFromIndex_ != sectionAnimToIndex_);
+}
+
+void UiManager::renderSection(int16_t xOffset, int16_t yOffset, uint32_t nowMs,
+                              int16_t iconExtraOffsetX, const int16_t* rowExtraOffsets,
+                              uint8_t rowExtraCount, int16_t focusBoxExtraOffsetX) {
   auto& canvas = display_.canvas();
   auto& text = display_.text();
   const int16_t width = static_cast<int16_t>(display_.width());
+  const int16_t height = static_cast<int16_t>(display_.height());
   const uint8_t focus = homePage_.focusIndex();
   const SectionContent& content = sectionContentFor(focus);
   const uint8_t itemCount = content.itemCount;
-  const SectionListLayout layout = makeSectionListLayout(xOffset, yOffset, width);
+  const SectionListLayout layout = makeSectionListLayout(xOffset, yOffset, width, height);
 
   text.setFont(chinese_font_all);
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setFontMode(1);
   text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.drawUTF8(xOffset + 12, static_cast<int16_t>(yOffset + 20), content.title);
 
   if (itemCount == 0) {
     return;
   }
 
   const uint8_t selected = static_cast<uint8_t>(sectionFocusIndex_ % itemCount);
+  const uint8_t fromIndex = static_cast<uint8_t>(sectionAnimFromIndex_ % itemCount);
+  const uint8_t toIndex = static_cast<uint8_t>(sectionAnimToIndex_ % itemCount);
+
+  const int16_t fromLabelW =
+      text.getUTF8Width(labelForLanguage(content.items[fromIndex], language_));
+  const int16_t toLabelW =
+      text.getUTF8Width(labelForLanguage(content.items[toIndex], language_));
+  const SectionRowLayout fromRow = makeSectionRowLayout(layout, fromLabelW, fromIndex);
+  const SectionRowLayout toRow = makeSectionRowLayout(layout, toLabelW, toIndex);
+
+  int16_t boxLeft = toRow.boxLeft;
+  int16_t boxTop = toRow.boxTop;
+  int16_t boxRight = toRow.boxRight;
+  int16_t boxBottom = toRow.boxBottom;
+  float sectionAnimT = 1.0f;
+
+  if (sectionAnimActive_) {
+    const uint32_t elapsed = nowMs - sectionAnimStartMs_;
+    sectionAnimT = elapsed >= kSectionFocusSlideMs
+                       ? 1.0f
+                       : static_cast<float>(elapsed) /
+                             static_cast<float>(kSectionFocusSlideMs == 0 ? 1
+                                                                          : kSectionFocusSlideMs);
+    boxLeft = easeOutCubic(fromRow.boxLeft, toRow.boxLeft, sectionAnimT);
+    boxTop = easeOutCubic(fromRow.boxTop, toRow.boxTop, sectionAnimT);
+    boxRight = easeOutCubic(fromRow.boxRight, toRow.boxRight, sectionAnimT);
+    boxBottom = easeOutCubic(fromRow.boxBottom, toRow.boxBottom, sectionAnimT);
+  }
+
+  boxLeft = static_cast<int16_t>(boxLeft + focusBoxExtraOffsetX);
+  boxRight = static_cast<int16_t>(boxRight + focusBoxExtraOffsetX);
+
+  drawFilledRoundRect(canvas, boxLeft, boxTop, boxRight, boxBottom, layout.focusRadius,
+                      ST7305_COLOR_BLACK);
 
   for (uint8_t i = 0; i < itemCount; ++i) {
-    const int16_t labelW = text.getUTF8Width(content.items[i]);
+    const char* label = labelForLanguage(content.items[i], language_);
+    const int16_t labelW = text.getUTF8Width(label);
     const SectionRowLayout row = makeSectionRowLayout(layout, labelW, i);
     const bool isSelected = (i == selected);
-
-    if (isSelected) {
-      drawFilledRoundRect(canvas, row.boxLeft, row.boxTop, row.boxRight, row.boxBottom,
-                          layout.focusRadius,
-                          ST7305_COLOR_BLACK);
+    int16_t rowExtraOffsetX = 0;
+    if (rowExtraOffsets != nullptr && i < rowExtraCount) {
+      rowExtraOffsetX = rowExtraOffsets[i];
     }
-    applySectionItemTextStyle(text, isSelected);
 
-    text.drawUTF8(layout.listX, row.baselineY, content.items[i]);
+    applySectionItemTextStyle(text, isSelected);
+    text.drawUTF8(static_cast<int16_t>(layout.listX + rowExtraOffsetX), row.baselineY, label);
   }
+
+  const SectionItem& selectedItem = content.items[selected];
+  const uint16_t iconFrame = IconBitmap::frameAt(selectedItem.icon, nowMs);
+  lastSectionIconFrame_ = iconFrame;
+  const int16_t iconBaseX = static_cast<int16_t>(layout.iconX + iconExtraOffsetX);
+  int16_t iconDrawX = iconBaseX;
+  if (sectionAnimActive_) {
+    const int16_t iconStartX = static_cast<int16_t>(iconBaseX + layout.iconSize + 16);
+    iconDrawX = easeOutCubic(iconStartX, iconBaseX, sectionAnimT);
+  }
+
+  const int16_t iconPad = 4;
+  int16_t borderX1 = static_cast<int16_t>(iconDrawX - iconPad);
+  int16_t borderY1 = static_cast<int16_t>(layout.iconY - iconPad);
+  int16_t borderX2 =
+      static_cast<int16_t>(iconDrawX + layout.iconSize + iconPad - 1);
+  int16_t borderY2 =
+      static_cast<int16_t>(layout.iconY + layout.iconSize + iconPad - 1);
+  const int16_t areaX1 = xOffset;
+  const int16_t areaY1 = yOffset;
+  const int16_t areaX2 = static_cast<int16_t>(xOffset + width - 1);
+  const int16_t areaY2 = static_cast<int16_t>(yOffset + height - 1);
+  if (!(borderX2 < areaX1 || borderY2 < areaY1 || borderX1 > areaX2 || borderY1 > areaY2)) {
+    if (borderX1 < areaX1) borderX1 = areaX1;
+    if (borderY1 < areaY1) borderY1 = areaY1;
+    if (borderX2 > areaX2) borderX2 = areaX2;
+    if (borderY2 > areaY2) borderY2 = areaY2;
+    canvas.drawRectangle(static_cast<uint>(borderX1), static_cast<uint>(borderY1),
+                         static_cast<uint>(borderX2), static_cast<uint>(borderY2),
+                         ST7305_COLOR_BLACK);
+  }
+  IconBitmap::drawFrame(
+      canvas, selectedItem.icon, iconFrame, iconDrawX, layout.iconY, layout.iconSize,
+      layout.iconSize, false, yOffset, static_cast<int16_t>(yOffset + height - 1));
 
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setFontMode(1);
 }
 
-void UiManager::renderDetail() {
+void UiManager::renderTwoOptionPopup(const char* title, const char* primaryLabel,
+                                     const char* secondaryLabel, uint32_t nowMs) {
   auto& canvas = display_.canvas();
   auto& text = display_.text();
   const int16_t width = static_cast<int16_t>(display_.width());
   const int16_t height = static_cast<int16_t>(display_.height());
 
-  canvas.drawFilledRectangle(0, 0, width - 1, ThemeMono::kHeaderHeight,
+  const int16_t popupW = static_cast<int16_t>(kRestartPopupWindow.frameWidth);
+  const int16_t popupH = static_cast<int16_t>(kRestartPopupWindow.frameHeight);
+  const int16_t popupX = static_cast<int16_t>((width - popupW) / 2);
+  const int16_t popupY = static_cast<int16_t>((height - popupH) / 2);
+
+  const uint16_t popupFrame = IconBitmap::frameAt(kRestartPopupWindow, nowMs);
+  lastPopupFrame_ = popupFrame;
+  IconBitmap::drawFrame(canvas, kRestartPopupWindow, popupFrame, popupX, popupY, popupW,
+                        popupH, false, 0, static_cast<int16_t>(height - 1));
+
+  text.setFont(chinese_font_all);
+  text.setBackgroundColor(ST7305_COLOR_WHITE);
+  text.setForegroundColor(ST7305_COLOR_BLACK);
+  text.setFontMode(1);
+  const int16_t titleW = text.getUTF8Width(title);
+  const int16_t titleX = static_cast<int16_t>(popupX + (popupW - titleW) / 2);
+  text.drawUTF8(titleX, static_cast<int16_t>(popupY + kRestartPopupTitleTopOffset), title);
+
+  const int16_t optionGroupW =
+      static_cast<int16_t>(kRestartPopupOptionWidth * 2 + kRestartPopupOptionGap);
+  const int16_t optionStartX = static_cast<int16_t>(popupX + (popupW - optionGroupW) / 2);
+  const int16_t primaryTextW = text.getUTF8Width(primaryLabel);
+  const int16_t secondaryTextW = text.getUTF8Width(secondaryLabel);
+  const int16_t textHeight = 12;          // chinese_font_all glyph height
+  const int16_t textBaselineFromTop = 12; // chinese_font_all baseline
+  const int16_t optionHeight =
+      static_cast<int16_t>(textHeight + kRestartPopupOptionPadY * 2);
+  const int16_t optionY =
+      static_cast<int16_t>(popupY + popupH - optionHeight - kRestartPopupOptionBottomMargin);
+  const int16_t optionTextBaselineY =
+      static_cast<int16_t>(optionY + kRestartPopupOptionPadY + textBaselineFromTop);
+  const int16_t yesX = optionStartX;
+  const int16_t noX = static_cast<int16_t>(optionStartX + kRestartPopupOptionWidth +
+                                           kRestartPopupOptionGap);
+
+  drawFilledRoundRect(canvas, yesX, optionY,
+                      static_cast<int16_t>(yesX + kRestartPopupOptionWidth - 1),
+                      static_cast<int16_t>(optionY + optionHeight - 1), 5,
+                      popupSelectPrimary_ ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE);
+  drawFilledRoundRect(canvas, noX, optionY,
+                      static_cast<int16_t>(noX + kRestartPopupOptionWidth - 1),
+                      static_cast<int16_t>(optionY + optionHeight - 1), 5,
+                      popupSelectPrimary_ ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK);
+  canvas.drawRectangle(yesX, optionY,
+                       static_cast<int16_t>(yesX + kRestartPopupOptionWidth - 1),
+                       static_cast<int16_t>(optionY + optionHeight - 1),
+                       ST7305_COLOR_BLACK);
+  canvas.drawRectangle(noX, optionY,
+                       static_cast<int16_t>(noX + kRestartPopupOptionWidth - 1),
+                       static_cast<int16_t>(optionY + optionHeight - 1),
+                       ST7305_COLOR_BLACK);
+
+  applySectionItemTextStyle(text, popupSelectPrimary_);
+  text.drawUTF8(static_cast<int16_t>(yesX + (kRestartPopupOptionWidth - primaryTextW) / 2),
+                optionTextBaselineY, primaryLabel);
+
+  applySectionItemTextStyle(text, !popupSelectPrimary_);
+  text.drawUTF8(static_cast<int16_t>(noX + (kRestartPopupOptionWidth - secondaryTextW) / 2),
+                optionTextBaselineY, secondaryLabel);
+
+  text.setBackgroundColor(ST7305_COLOR_WHITE);
+  text.setForegroundColor(ST7305_COLOR_BLACK);
+  text.setFontMode(1);
+}
+
+void UiManager::renderPopup(uint32_t nowMs) {
+  if (popupKind_ == PopupKind::RestartConfirm) {
+    renderTwoOptionPopup(language_ == HomePage::Language::Zh ? "重启设备?" : "Restart Device?",
+                         language_ == HomePage::Language::Zh ? "是" : "Yes",
+                         language_ == HomePage::Language::Zh ? "否" : "No", nowMs);
+    return;
+  }
+
+  renderTwoOptionPopup(language_ == HomePage::Language::Zh ? "语言" : "Language", "中",
+                       "En", nowMs);
+}
+
+bool UiManager::isAboutDeviceDetail() const {
+  return homePage_.focusIndex() == kSettingsHomeIndex &&
+         sectionFocusIndex_ == kSettingsAboutDeviceItemIndex;
+}
+
+void UiManager::renderDetailHeader(const char* title, int16_t yOffset) {
+  auto& canvas = display_.canvas();
+  auto& text = display_.text();
+  const int16_t width = static_cast<int16_t>(display_.width());
+
+  canvas.drawFilledRectangle(0, yOffset, width - 1,
+                             static_cast<int16_t>(yOffset + kDetailHeaderHeight - 1),
+                             ST7305_COLOR_BLACK);
+
+  text.setFont(chinese_font_all);
+  text.setForegroundColor(ST7305_COLOR_WHITE);
+  text.setBackgroundColor(ST7305_COLOR_BLACK);
+  text.setFontMode(0);
+  const int16_t titleW = text.getUTF8Width(title);
+  const int16_t titleX = static_cast<int16_t>((width - titleW) / 2);
+  text.drawUTF8(titleX, static_cast<int16_t>(yOffset + 22), title);
+
+  text.setBackgroundColor(ST7305_COLOR_WHITE);
+  text.setForegroundColor(ST7305_COLOR_BLACK);
+  text.setFontMode(1);
+}
+
+void UiManager::renderAboutDeviceDetail(int16_t yOffset) {
+  auto& text = display_.text();
+  renderDetailHeader("OpenBread Normal One", yOffset);
+
+  const char* const kPage0Lines[4] = {"设备名称：My device", "固件版本：V0.01",
+                                      deviceIdText_, "屏幕尺寸：2.9黑白反射屏"};
+  const char* const kPage1Lines[4] = {"IP地址：", "处理器：ESP32 S3", "SD卡容量：",
+                                      flashTotalText_};
+  const int16_t kLineY[4] = {55, 87, 119, 151};
+  const char* const* lines = (detailPageIndex_ == 0) ? kPage0Lines : kPage1Lines;
+
+  text.setFont(chinese_font_all);
+  text.setForegroundColor(ST7305_COLOR_BLACK);
+  text.setBackgroundColor(ST7305_COLOR_WHITE);
+  text.setFontMode(1);
+  for (uint8_t i = 0; i < 4; ++i) {
+    text.drawUTF8(9, static_cast<int16_t>(yOffset + kLineY[i]), lines[i]);
+  }
+}
+
+void UiManager::renderDetail(int16_t yOffset) {
+  auto& canvas = display_.canvas();
+  auto& text = display_.text();
+  const int16_t width = static_cast<int16_t>(display_.width());
+  const int16_t height = static_cast<int16_t>(display_.height());
+
+  if (isAboutDeviceDetail()) {
+    renderAboutDeviceDetail(yOffset);
+    return;
+  }
+
+  canvas.drawFilledRectangle(0, yOffset, width - 1,
+                             static_cast<int16_t>(yOffset + ThemeMono::kHeaderHeight),
                              ST7305_COLOR_BLACK);
   text.setFont(chinese_font_all);
   text.setForegroundColor(ST7305_COLOR_WHITE);
-  text.drawUTF8(6, 24, "详情页");
+  text.drawUTF8(6, static_cast<int16_t>(yOffset + 24),
+                language_ == HomePage::Language::Zh ? "详情页" : "Details");
 
   text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.drawUTF8(8, 62, homePage_.focusName());
-  text.drawUTF8(8, 92, "详情内容开发中");
-  text.drawUTF8(width - 92, height - 10, "LEFT: 返回");
+  text.drawUTF8(8, static_cast<int16_t>(yOffset + 62), homePage_.focusName());
+  text.drawUTF8(8, static_cast<int16_t>(yOffset + 92),
+                language_ == HomePage::Language::Zh ? "详情内容开发中"
+                                                    : "Detail content WIP");
+  text.drawUTF8(width - 92, static_cast<int16_t>(yOffset + height - 10),
+                language_ == HomePage::Language::Zh ? "LEFT: 返回" : "LEFT: Back");
 
-  canvas.drawRectangle(4, 32, width - 5, height - 5, ST7305_COLOR_BLACK);
+  canvas.drawRectangle(4, static_cast<int16_t>(yOffset + 32), width - 5,
+                       static_cast<int16_t>(yOffset + height - 5), ST7305_COLOR_BLACK);
 }
 
 bool UiManager::isPressed(uint8_t pin) const { return digitalRead(pin) == LOW; }
@@ -530,5 +1124,3 @@ int16_t UiManager::easeOutCubic(int16_t from, int16_t to, float t) const {
   const float eased = 1.0f - (inv * inv * inv);
   return static_cast<int16_t>(from + (to - from) * eased);
 }
-
-
