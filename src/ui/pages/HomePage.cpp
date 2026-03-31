@@ -171,8 +171,8 @@ void drawClippedPseudoRoundOutline(ST7305_2p9_BW_DisplayDriver& canvas, int16_t 
                                    static_cast<int16_t>(y2 - 1), innerColor);
 }
 
-void drawHomeTimePreview(ST7305_2p9_BW_DisplayDriver& canvas, uint32_t nowMs,
-                         int16_t xOffset) {
+void drawHomeTimePreview(ST7305_2p9_BW_DisplayDriver& canvas, uint32_t nowMs, int16_t xOffset,
+                         const HomePage::ClockData& clockData) {
   const int16_t boxX1 = static_cast<int16_t>(kTimeCardStyle.rect.x1 + xOffset);
   const int16_t boxY1 = kTimeCardStyle.rect.y1;
   const int16_t boxX2 = static_cast<int16_t>(kTimeCardStyle.rect.x2 + xOffset);
@@ -182,9 +182,16 @@ void drawHomeTimePreview(ST7305_2p9_BW_DisplayDriver& canvas, uint32_t nowMs,
                         static_cast<int16_t>(boxY1 + 1), static_cast<int16_t>(boxX2 - 1),
                         static_cast<int16_t>(boxY2 - 1), ST7305_COLOR_BLACK);
 
-  const uint32_t totalSeconds = nowMs / 1000U;
-  const uint8_t hour = static_cast<uint8_t>((totalSeconds / 3600U) % 24U);
-  const uint8_t minute = static_cast<uint8_t>((totalSeconds / 60U) % 60U);
+  uint8_t hour = 0;
+  uint8_t minute = 0;
+  if (clockData.valid) {
+    hour = clockData.hour;
+    minute = clockData.minute;
+  } else {
+    const uint32_t totalSeconds = nowMs / 1000U;
+    hour = static_cast<uint8_t>((totalSeconds / 3600U) % 24U);
+    minute = static_cast<uint8_t>((totalSeconds / 60U) % 60U);
+  }
 
   char hhmm[6];
   snprintf(hhmm, sizeof(hhmm), "%02u:%02u", static_cast<unsigned>(hour),
@@ -208,7 +215,8 @@ void drawHomeTimePreview(ST7305_2p9_BW_DisplayDriver& canvas, uint32_t nowMs,
 }
 
 void drawHomeDatePreview(ST7305_2p9_BW_DisplayDriver& canvas, U8G2_FOR_ST73XX& text,
-                         uint32_t nowMs, int16_t xOffset) {
+                         uint32_t nowMs, int16_t xOffset,
+                         const HomePage::ClockData& clockData) {
   static const char* const kWeekdayAbbr[7] = {"SUN", "MON", "TUE", "WED",
                                                "THU", "FRI", "SAT"};
   static const char* const kMonthAbbr[12] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN",
@@ -230,13 +238,20 @@ void drawHomeDatePreview(ST7305_2p9_BW_DisplayDriver& canvas, U8G2_FOR_ST73XX& t
       static_cast<int16_t>(boxY2 - kDateCardStyle.outerInset), ST7305_COLOR_WHITE,
       ST7305_COLOR_BLACK);
 
-  const uint32_t totalSeconds = nowMs / 1000U;
-  const uint32_t days = totalSeconds / 86400U;
   uint16_t year = 0;
   uint8_t month = 1;
   uint8_t day = 1;
   uint8_t weekday = 0;
-  DateUtils::daysToDate(days, kEpochYear, kEpochWeekday, year, month, day, weekday);
+  if (clockData.valid) {
+    year = clockData.year;
+    month = clockData.month;
+    day = clockData.day;
+    weekday = clockData.weekday;
+  } else {
+    const uint32_t totalSeconds = nowMs / 1000U;
+    const uint32_t days = totalSeconds / 86400U;
+    DateUtils::daysToDate(days, kEpochYear, kEpochWeekday, year, month, day, weekday);
+  }
 
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setForegroundColor(ST7305_COLOR_WHITE);
@@ -385,6 +400,8 @@ const char* HomePage::focusName() const { return menuLabel(focusIndex_); }
 
 void HomePage::setLanguage(Language language) { language_ = language; }
 
+void HomePage::setClockData(const ClockData& data) { clockData_ = data; }
+
 void HomePage::render(DisplayMonoTft& display, int16_t pageOffsetX, uint32_t nowMs) {
   renderTransition(display, pageOffsetX, pageOffsetX, 0, 0, 0, nowMs);
 }
@@ -405,8 +422,8 @@ void HomePage::renderTransition(DisplayMonoTft& display, int16_t backgroundOffse
   const uint16_t bgFrame = IconBitmap::frameAt(kHomeBackground, nowMs);
   IconBitmap::drawFrame(canvas, kHomeBackground, bgFrame, backgroundOffsetX, 0, width,
                         height, false, 0, static_cast<int16_t>(height - 1));
-  drawHomeTimePreview(canvas, nowMs, backgroundOffsetX);
-  drawHomeDatePreview(canvas, text, nowMs, backgroundOffsetX);
+  drawHomeTimePreview(canvas, nowMs, backgroundOffsetX, clockData_);
+  drawHomeDatePreview(canvas, text, nowMs, backgroundOffsetX, clockData_);
 
   text.setFont(chinese_font_all);
   text.setBackgroundColor(ST7305_COLOR_WHITE);

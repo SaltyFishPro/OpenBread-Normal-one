@@ -3,8 +3,12 @@
 #include <Arduino.h>
 
 #include "../bsp/DisplayMonoTft.h"
+#include "../bsp/RtcDriver.h"
+#include "../services/WifiProvisionService.h"
 #include "Render1bpp.h"
 #include "pages/HomePage.h"
+#include "pages/SettingsPage.h"
+#include "../services/SdCardService.h"
 
 class UiManager {
 public:
@@ -21,11 +25,6 @@ private:
     Section,
     Popup,
     Detail
-  };
-
-  enum class PopupKind : uint8_t {
-    RestartConfirm,
-    LanguageSelect
   };
 
   struct ButtonEdge {
@@ -56,11 +55,12 @@ private:
   void renderTwoOptionPopup(const char* title, const char* primaryLabel,
                             const char* secondaryLabel, uint32_t nowMs);
   void initDeviceInfoCache();
-  bool isAboutDeviceDetail() const;
-  void renderDetailHeader(const char* title, int16_t yOffset);
-  void renderAboutDeviceDetail(int16_t yOffset);
   void renderDetail(int16_t yOffset = 0);
   void startSectionFocusAnimation(uint8_t toIndex, uint32_t nowMs);
+  void syncHomeClockFromRtc(uint32_t nowMs);
+  bool startNtpSync(uint32_t nowMs);
+  void processNtpSync(uint32_t nowMs);
+  void refreshSdStatus();
   int16_t easeInCubic(int16_t from, int16_t to, float t) const;
   bool isPressed(uint8_t pin) const;
   int16_t easeOutCubic(int16_t from, int16_t to, float t) const;
@@ -68,6 +68,10 @@ private:
   DisplayMonoTft display_;
   Render1bpp renderer_;
   HomePage homePage_;
+  SettingsPage settingsPage_;
+  WifiProvisionService wifiProvisionService_;
+  SdCardService sdCardService_;
+  RtcDriver rtcDriver_;
   UiState state_ = UiState::Home;
 
   uint32_t transitionStartMs_ = 0;
@@ -77,12 +81,17 @@ private:
   uint32_t sectionAnimStartMs_ = 0;
   uint16_t lastSectionIconFrame_ = 0;
   HomePage::Language language_ = HomePage::Language::Zh;
-  PopupKind popupKind_ = PopupKind::RestartConfirm;
+  SettingsPage::PopupKind popupKind_ = SettingsPage::PopupKind::RestartConfirm;
   bool popupSelectPrimary_ = false;
   uint16_t lastPopupFrame_ = 0;
   uint8_t detailPageIndex_ = 0;
   char deviceIdText_[40] = {0};
   char flashTotalText_[40] = {0};
+  char sdStatusText_[48] = {0};
+  bool rtcReady_ = false;
+  bool ntpSyncActive_ = false;
+  uint32_t ntpSyncStartMs_ = 0;
+  uint32_t lastRtcReadMs_ = 0;
   bool sectionAnimActive_ = false;
   bool needsRedraw_ = true;
 

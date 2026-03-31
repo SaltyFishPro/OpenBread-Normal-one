@@ -7,6 +7,16 @@
 class HomePage {
 public:
   enum class Language : uint8_t { Zh, En };
+  struct ClockData {
+    uint8_t second = 0;
+    uint8_t minute = 0;
+    uint8_t hour = 0;
+    uint8_t day = 1;
+    uint8_t weekday = 0;
+    uint8_t month = 1;
+    uint16_t year = 2026;
+    bool valid = false;
+  };
 
   bool begin();
   bool handleInput(bool upEdge, bool downEdge, bool okEdge, uint32_t nowMs);
@@ -22,6 +32,7 @@ public:
   uint8_t focusIndex() const;
   const char* focusName() const;
   void setLanguage(Language language);
+  void setClockData(const ClockData& data);
 
 private:
   enum class SlideState : uint8_t { Idle, Sliding };
@@ -41,6 +52,7 @@ private:
 
   uint16_t lastFocusFrame_ = 0;
   Language language_ = Language::Zh;
+  ClockData clockData_;
 
   static constexpr uint8_t kMenuCount = 5;
 };

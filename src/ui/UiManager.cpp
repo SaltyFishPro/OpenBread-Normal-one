@@ -1,24 +1,20 @@
 ﻿#include "UiManager.h"
 
 #include <cstdio>
+#include <time.h>
 
 #include "../bsp/BoardConfig.h"
 #include "IconBitmap.h"
 #include "ThemeMono.h"
-#include "assets/submenu_icon/about.h"
-#include "assets/submenu_icon/author.h"
+#include "../services/SdCardService.h"
 #include "assets/submenu_icon/bluetoothconnet.h"
 #include "assets/submenu_icon/desktopclock.h"
-#include "assets/submenu_icon/language.h"
 #include "assets/submenu_icon/likemusic.h"
 #include "assets/submenu_icon/musiclist.h"
 #include "assets/submenu_icon/remote.h"
-#include "assets/submenu_icon/reset.h"
-#include "assets/submenu_icon/restart.h"
 #include "assets/submenu_icon/teleprompter.h"
 #include "assets/submenu_icon/timer.h"
 #include "assets/submenu_icon/vocabularybook.h"
-#include "assets/submenu_icon/wificonnet.h"
 #include "assets/pop_up_window.h"
 
 namespace {
@@ -43,17 +39,17 @@ constexpr uint32_t kDetailBackRowsEndMs = 340;
 constexpr uint32_t kDetailBackIconStartMs = 300;
 constexpr uint32_t kButtonDebounceMs = 25;
 constexpr uint32_t kSectionFocusSlideMs = 170;
-constexpr uint8_t kSettingsHomeIndex = 0;
-constexpr uint8_t kSettingsRestartItemIndex = 0;
-constexpr uint8_t kSettingsLanguageItemIndex = 1;
-constexpr uint8_t kSettingsAboutDeviceItemIndex = 3;
+constexpr uint8_t kSectionPageSize = 5;
 constexpr uint8_t kMaxSectionItemsForAnim = 8;
 constexpr int16_t kRestartPopupOptionWidth = 44;
 constexpr int16_t kRestartPopupOptionGap = 16;
 constexpr int16_t kRestartPopupTitleTopOffset = 35;
 constexpr int16_t kRestartPopupOptionBottomMargin = 8;
 constexpr int16_t kRestartPopupOptionPadY = 4;
-constexpr int16_t kDetailHeaderHeight = 28;
+constexpr uint32_t kNtpSyncTimeoutMs = 15000;
+constexpr uint32_t kRtcReadIntervalMs = 1000;
+constexpr long kNtpUtcOffsetSeconds = 8 * 3600;
+constexpr int kNtpDaylightOffsetSeconds = 0;
 
 const IconBitmap::Anim kRestartPopupWindow = {
     reinterpret_cast<const uint8_t*>(&pop_up_window_frames[0][0]),
@@ -63,33 +59,11 @@ const IconBitmap::Anim kRestartPopupWindow = {
     POP_UP_WINDOW_FRAME_DELAY,
     POP_UP_WINDOW_FRAME_COUNT};
 
-struct SectionItem {
-  const char* labelZh;
-  const char* labelEn;
-  IconBitmap::Anim icon;
-};
+using SectionItem = SettingsPage::MenuItem;
 
 struct SectionContent {
   const SectionItem* items;
   uint8_t itemCount;
-};
-
-const SectionItem kSettingsItems[] = {
-    {"重启设备", "Restart Device",
-     {reinterpret_cast<const uint8_t*>(&restart_frames[0][0]), RESTART_FRAME_BYTES,
-      RESTART_FRAME_WIDTH, RESTART_FRAME_HEIGHT, RESTART_FRAME_DELAY, RESTART_FRAME_COUNT}},
-    {"语言", "Language",
-     {reinterpret_cast<const uint8_t*>(&language_frames[0][0]), LANGUAGE_FRAME_BYTES,
-      LANGUAGE_FRAME_WIDTH, LANGUAGE_FRAME_HEIGHT, LANGUAGE_FRAME_DELAY, LANGUAGE_FRAME_COUNT}},
-    {"恢复默认设置", "Reset to Defaults",
-     {reinterpret_cast<const uint8_t*>(&reset_frames[0][0]), RESET_FRAME_BYTES,
-      RESET_FRAME_WIDTH, RESET_FRAME_HEIGHT, RESET_FRAME_DELAY, RESET_FRAME_COUNT}},
-    {"关于设备", "About Device",
-     {reinterpret_cast<const uint8_t*>(&about_frames[0][0]), ABOUT_FRAME_BYTES,
-      ABOUT_FRAME_WIDTH, ABOUT_FRAME_HEIGHT, ABOUT_FRAME_DELAY, ABOUT_FRAME_COUNT}},
-    {"关于作者", "About Author",
-     {reinterpret_cast<const uint8_t*>(&author_frames[0][0]), AUTHOR_FRAME_BYTES,
-      AUTHOR_FRAME_WIDTH, AUTHOR_FRAME_HEIGHT, AUTHOR_FRAME_DELAY, AUTHOR_FRAME_COUNT}},
 };
 
 const SectionItem kMusicItems[] = {
@@ -123,10 +97,6 @@ const SectionItem kClockItems[] = {
 };
 
 const SectionItem kWirelessItems[] = {
-    {"WiFi连接", "Wi-Fi",
-     {reinterpret_cast<const uint8_t*>(&wificonnet_frames[0][0]), WIFICONNET_FRAME_BYTES,
-      WIFICONNET_FRAME_WIDTH, WIFICONNET_FRAME_HEIGHT, WIFICONNET_FRAME_DELAY,
-      WIFICONNET_FRAME_COUNT}},
     {"蓝牙连接", "Bluetooth",
      {reinterpret_cast<const uint8_t*>(&bluetoothconnet_frames[0][0]),
       BLUETOOTHCONNET_FRAME_BYTES, BLUETOOTHCONNET_FRAME_WIDTH, BLUETOOTHCONNET_FRAME_HEIGHT,
@@ -137,20 +107,47 @@ const SectionItem kWirelessItems[] = {
 };
 
 const SectionContent kSectionContents[] = {
-    {kSettingsItems, static_cast<uint8_t>(sizeof(kSettingsItems) / sizeof(kSettingsItems[0]))},
     {kMusicItems, static_cast<uint8_t>(sizeof(kMusicItems) / sizeof(kMusicItems[0]))},
     {kReaderItems, static_cast<uint8_t>(sizeof(kReaderItems) / sizeof(kReaderItems[0]))},
     {kClockItems, static_cast<uint8_t>(sizeof(kClockItems) / sizeof(kClockItems[0]))},
     {kWirelessItems, static_cast<uint8_t>(sizeof(kWirelessItems) / sizeof(kWirelessItems[0]))},
 };
 
-const SectionContent& sectionContentFor(uint8_t homeFocus) {
+SectionContent sectionContentFor(uint8_t homeFocus, const SettingsPage& settingsPage) {
+  if (homeFocus == SettingsPage::kHomeIndex) {
+    return {settingsPage.menuItems(), settingsPage.menuItemCount()};
+  }
+
   const size_t count = sizeof(kSectionContents) / sizeof(kSectionContents[0]);
-  return kSectionContents[homeFocus % count];
+  const size_t index = (static_cast<size_t>(homeFocus) + count - 1U) % count;
+  return kSectionContents[index];
 }
 
 const char* labelForLanguage(const SectionItem& item, HomePage::Language language) {
   return (language == HomePage::Language::Zh) ? item.labelZh : item.labelEn;
+}
+
+uint8_t sectionPageCount(uint8_t itemCount) {
+  if (itemCount == 0) {
+    return 1;
+  }
+  return static_cast<uint8_t>((itemCount + kSectionPageSize - 1) / kSectionPageSize);
+}
+
+uint8_t sectionPageStart(uint8_t itemCount, uint8_t selectedIndex) {
+  if (itemCount == 0) {
+    return 0;
+  }
+  const uint8_t selected = static_cast<uint8_t>(selectedIndex % itemCount);
+  return static_cast<uint8_t>((selected / kSectionPageSize) * kSectionPageSize);
+}
+
+uint8_t sectionVisibleCount(uint8_t itemCount, uint8_t pageStart) {
+  if (itemCount == 0 || pageStart >= itemCount) {
+    return 0;
+  }
+  const uint8_t left = static_cast<uint8_t>(itemCount - pageStart);
+  return left > kSectionPageSize ? kSectionPageSize : left;
 }
 
 struct SectionListLayout {
@@ -304,10 +301,16 @@ bool UiManager::begin() {
   if (!homePage_.begin()) {
     return false;
   }
+  if (!wifiProvisionService_.begin()) {
+    return false;
+  }
+  sdCardService_.begin();
+  rtcReady_ = rtcDriver_.begin();
 
   initDeviceInfoCache();
   language_ = HomePage::Language::Zh;
   homePage_.setLanguage(language_);
+  syncHomeClockFromRtc(nowMs);
   state_ = UiState::Home;
   transitionStartMs_ = millis();
   sectionFocusIndex_ = 0;
@@ -315,7 +318,7 @@ bool UiManager::begin() {
   sectionAnimToIndex_ = 0;
   sectionAnimStartMs_ = transitionStartMs_;
   lastSectionIconFrame_ = 0;
-  popupKind_ = PopupKind::RestartConfirm;
+  popupKind_ = SettingsPage::PopupKind::RestartConfirm;
   popupSelectPrimary_ = false;
   lastPopupFrame_ = 0;
   sectionAnimActive_ = false;
@@ -337,10 +340,24 @@ void UiManager::initDeviceInfoCache() {
     snprintf(flashTotalText_, sizeof(flashTotalText_), "Flash空间：%u B",
              static_cast<unsigned>(flashBytes));
   }
+
+  refreshSdStatus();
 }
 
 void UiManager::tick() {
   const uint32_t nowMs = millis();
+  wifiProvisionService_.tick(nowMs);
+  if (wifiProvisionService_.consumeChanged()) {
+    needsRedraw_ = true;
+  }
+  if (wifiProvisionService_.consumeTimeSyncRequest()) {
+    if (!startNtpSync(nowMs)) {
+      wifiProvisionService_.finishOnlineSession();
+      needsRedraw_ = true;
+    }
+  }
+  processNtpSync(nowMs);
+  syncHomeClockFromRtc(nowMs);
   const InputEdges edges = pollInputEdges();
   updateState(edges, nowMs);
 
@@ -423,6 +440,9 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
 
     case UiState::ToDetailTransition: {
       if (nowMs - transitionStartMs_ >= kDetailTransitionMs) {
+        if (settingsPage_.isAboutDeviceSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
+          refreshSdStatus();
+        }
         state_ = UiState::Detail;
         needsRedraw_ = true;
       }
@@ -438,7 +458,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
     }
 
     case UiState::Section: {
-      const SectionContent& content = sectionContentFor(homePage_.focusIndex());
+      const SectionContent content = sectionContentFor(homePage_.focusIndex(), settingsPage_);
       if (sectionAnimActive_ && nowMs - sectionAnimStartMs_ >= kSectionFocusSlideMs) {
         sectionAnimActive_ = false;
         needsRedraw_ = true;
@@ -462,19 +482,12 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         needsRedraw_ = true;
       } else if (edges.ok) {
         sectionAnimActive_ = false;
-        const bool shouldOpenRestartPopup =
-            (homePage_.focusIndex() == kSettingsHomeIndex) &&
-            (sectionFocusIndex_ == kSettingsRestartItemIndex);
-        const bool shouldOpenLanguagePopup =
-            (homePage_.focusIndex() == kSettingsHomeIndex) &&
-            (sectionFocusIndex_ == kSettingsLanguageItemIndex);
-        if (shouldOpenRestartPopup || shouldOpenLanguagePopup) {
+        popupKind_ = settingsPage_.popupForSelection(homePage_.focusIndex(), sectionFocusIndex_);
+        if (popupKind_ != SettingsPage::PopupKind::None) {
           state_ = UiState::Popup;
-          if (shouldOpenRestartPopup) {
-            popupKind_ = PopupKind::RestartConfirm;
+          if (popupKind_ == SettingsPage::PopupKind::RestartConfirm) {
             popupSelectPrimary_ = false;  // default "No"
           } else {
-            popupKind_ = PopupKind::LanguageSelect;
             popupSelectPrimary_ = (language_ == HomePage::Language::Zh);
           }
         } else {
@@ -495,7 +508,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         popupSelectPrimary_ = false;
         needsRedraw_ = true;
       } else if (edges.ok) {
-        if (popupKind_ == PopupKind::RestartConfirm) {
+        if (popupKind_ == SettingsPage::PopupKind::RestartConfirm) {
           if (popupSelectPrimary_) {
             ESP.restart();
           } else {
@@ -514,12 +527,21 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
 
     case UiState::Detail: {
       if (edges.left) {
+        settingsPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
+                                       wifiProvisionService_);
         state_ = UiState::ToSectionFromDetailTransition;
         transitionStartMs_ = nowMs;
         needsRedraw_ = true;
-      } else if (isAboutDeviceDetail() && (edges.up || edges.down || edges.right || edges.ok)) {
-        detailPageIndex_ = static_cast<uint8_t>((detailPageIndex_ + 1) % 2U);
+      } else if (settingsPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
+                                                 edges.ok, nowMs, wifiProvisionService_)) {
         needsRedraw_ = true;
+      } else if (edges.up || edges.down || edges.right || edges.ok) {
+        const uint8_t pageCount =
+            settingsPage_.detailPageCount(homePage_.focusIndex(), sectionFocusIndex_);
+        if (pageCount > 1U) {
+          detailPageIndex_ = static_cast<uint8_t>((detailPageIndex_ + 1U) % pageCount);
+          needsRedraw_ = true;
+        }
       }
       break;
     }
@@ -557,7 +579,7 @@ bool UiManager::shouldRedraw(uint32_t nowMs) const {
       return true;
     }
 
-    const SectionContent& content = sectionContentFor(homePage_.focusIndex());
+    const SectionContent content = sectionContentFor(homePage_.focusIndex(), settingsPage_);
     if (content.itemCount > 0) {
       const uint8_t selected = static_cast<uint8_t>(sectionFocusIndex_ % content.itemCount);
       const uint16_t frame = IconBitmap::frameAt(content.items[selected].icon, nowMs);
@@ -704,10 +726,11 @@ void UiManager::render(uint32_t nowMs) {
       iconOffsetX = easeInCubic(0, width, t);
     }
 
-    const SectionContent& content = sectionContentFor(homePage_.focusIndex());
-    const uint8_t rowCount = content.itemCount > kMaxSectionItemsForAnim
-                                 ? kMaxSectionItemsForAnim
-                                 : content.itemCount;
+    const SectionContent content = sectionContentFor(homePage_.focusIndex(), settingsPage_);
+    const uint8_t selected =
+        content.itemCount == 0 ? 0 : static_cast<uint8_t>(sectionFocusIndex_ % content.itemCount);
+    const uint8_t pageStart = sectionPageStart(content.itemCount, selected);
+    const uint8_t rowCount = sectionVisibleCount(content.itemCount, pageStart);
     int16_t rowOffsets[kMaxSectionItemsForAnim] = {0};
     if (rowCount > 0) {
       const uint32_t rowWindow = kDetailForwardRowsEndMs - kDetailForwardRowsStartMs;
@@ -733,8 +756,8 @@ void UiManager::render(uint32_t nowMs) {
         rowOffsets[i] = easeInCubic(0, width, t);
       }
     }
-    const int16_t focusOffsetX =
-        (sectionFocusIndex_ < rowCount) ? rowOffsets[sectionFocusIndex_] : 0;
+    const uint8_t selectedRow = static_cast<uint8_t>(selected - pageStart);
+    const int16_t focusOffsetX = (selectedRow < rowCount) ? rowOffsets[selectedRow] : 0;
 
     int16_t detailOffsetY = height;
     if (elapsed >= kDetailForwardDetailStartMs) {
@@ -760,10 +783,11 @@ void UiManager::render(uint32_t nowMs) {
       detailOffsetY = easeInCubic(0, height, t);
     }
 
-    const SectionContent& content = sectionContentFor(homePage_.focusIndex());
-    const uint8_t rowCount = content.itemCount > kMaxSectionItemsForAnim
-                                 ? kMaxSectionItemsForAnim
-                                 : content.itemCount;
+    const SectionContent content = sectionContentFor(homePage_.focusIndex(), settingsPage_);
+    const uint8_t selected =
+        content.itemCount == 0 ? 0 : static_cast<uint8_t>(sectionFocusIndex_ % content.itemCount);
+    const uint8_t pageStart = sectionPageStart(content.itemCount, selected);
+    const uint8_t rowCount = sectionVisibleCount(content.itemCount, pageStart);
     int16_t rowOffsets[kMaxSectionItemsForAnim] = {0};
     if (rowCount > 0) {
       const uint32_t rowWindow = kDetailBackRowsEndMs - kDetailBackRowsStartMs;
@@ -790,8 +814,8 @@ void UiManager::render(uint32_t nowMs) {
         rowOffsets[i] = easeOutCubic(width, 0, t);
       }
     }
-    const int16_t focusOffsetX =
-        (sectionFocusIndex_ < rowCount) ? rowOffsets[sectionFocusIndex_] : 0;
+    const uint8_t selectedRow = static_cast<uint8_t>(selected - pageStart);
+    const int16_t focusOffsetX = (selectedRow < rowCount) ? rowOffsets[selectedRow] : 0;
 
     int16_t iconOffsetX = width;
     if (elapsed >= kDetailBackIconStartMs) {
@@ -818,15 +842,28 @@ void UiManager::render(uint32_t nowMs) {
 }
 
 void UiManager::startSectionFocusAnimation(uint8_t toIndex, uint32_t nowMs) {
+  const SectionContent content = sectionContentFor(homePage_.focusIndex(), settingsPage_);
+  if (content.itemCount == 0) {
+    sectionAnimActive_ = false;
+    sectionFocusIndex_ = 0;
+    return;
+  }
+
   if (sectionAnimActive_) {
     sectionFocusIndex_ = sectionAnimToIndex_;
   }
 
-  sectionAnimFromIndex_ = sectionFocusIndex_;
-  sectionAnimToIndex_ = toIndex;
-  sectionFocusIndex_ = toIndex;
+  const uint8_t normalizedFrom = static_cast<uint8_t>(sectionFocusIndex_ % content.itemCount);
+  const uint8_t normalizedTo = static_cast<uint8_t>(toIndex % content.itemCount);
+  const uint8_t fromPage = sectionPageStart(content.itemCount, normalizedFrom);
+  const uint8_t toPage = sectionPageStart(content.itemCount, normalizedTo);
+
+  sectionAnimFromIndex_ = normalizedFrom;
+  sectionAnimToIndex_ = normalizedTo;
+  sectionFocusIndex_ = normalizedTo;
   sectionAnimStartMs_ = nowMs;
-  sectionAnimActive_ = (sectionAnimFromIndex_ != sectionAnimToIndex_);
+  sectionAnimActive_ =
+      (sectionAnimFromIndex_ != sectionAnimToIndex_) && (fromPage == toPage);
 }
 
 void UiManager::renderSection(int16_t xOffset, int16_t yOffset, uint32_t nowMs,
@@ -837,7 +874,7 @@ void UiManager::renderSection(int16_t xOffset, int16_t yOffset, uint32_t nowMs,
   const int16_t width = static_cast<int16_t>(display_.width());
   const int16_t height = static_cast<int16_t>(display_.height());
   const uint8_t focus = homePage_.focusIndex();
-  const SectionContent& content = sectionContentFor(focus);
+  const SectionContent content = sectionContentFor(focus, settingsPage_);
   const uint8_t itemCount = content.itemCount;
   const SectionListLayout layout = makeSectionListLayout(xOffset, yOffset, width, height);
 
@@ -851,20 +888,27 @@ void UiManager::renderSection(int16_t xOffset, int16_t yOffset, uint32_t nowMs,
   }
 
   const uint8_t selected = static_cast<uint8_t>(sectionFocusIndex_ % itemCount);
+  const uint8_t pageStart = sectionPageStart(itemCount, selected);
+  const uint8_t visibleCount = sectionVisibleCount(itemCount, pageStart);
+  const uint8_t selectedRow = static_cast<uint8_t>(selected - pageStart);
   const uint8_t fromIndex = static_cast<uint8_t>(sectionAnimFromIndex_ % itemCount);
   const uint8_t toIndex = static_cast<uint8_t>(sectionAnimToIndex_ % itemCount);
+  const uint8_t fromRow = sectionAnimActive_ ? static_cast<uint8_t>(fromIndex - pageStart)
+                                             : selectedRow;
+  const uint8_t toRow = sectionAnimActive_ ? static_cast<uint8_t>(toIndex - pageStart)
+                                           : selectedRow;
 
   const int16_t fromLabelW =
       text.getUTF8Width(labelForLanguage(content.items[fromIndex], language_));
   const int16_t toLabelW =
       text.getUTF8Width(labelForLanguage(content.items[toIndex], language_));
-  const SectionRowLayout fromRow = makeSectionRowLayout(layout, fromLabelW, fromIndex);
-  const SectionRowLayout toRow = makeSectionRowLayout(layout, toLabelW, toIndex);
+  const SectionRowLayout fromLayout = makeSectionRowLayout(layout, fromLabelW, fromRow);
+  const SectionRowLayout toLayout = makeSectionRowLayout(layout, toLabelW, toRow);
 
-  int16_t boxLeft = toRow.boxLeft;
-  int16_t boxTop = toRow.boxTop;
-  int16_t boxRight = toRow.boxRight;
-  int16_t boxBottom = toRow.boxBottom;
+  int16_t boxLeft = toLayout.boxLeft;
+  int16_t boxTop = toLayout.boxTop;
+  int16_t boxRight = toLayout.boxRight;
+  int16_t boxBottom = toLayout.boxBottom;
   float sectionAnimT = 1.0f;
 
   if (sectionAnimActive_) {
@@ -874,10 +918,10 @@ void UiManager::renderSection(int16_t xOffset, int16_t yOffset, uint32_t nowMs,
                        : static_cast<float>(elapsed) /
                              static_cast<float>(kSectionFocusSlideMs == 0 ? 1
                                                                           : kSectionFocusSlideMs);
-    boxLeft = easeOutCubic(fromRow.boxLeft, toRow.boxLeft, sectionAnimT);
-    boxTop = easeOutCubic(fromRow.boxTop, toRow.boxTop, sectionAnimT);
-    boxRight = easeOutCubic(fromRow.boxRight, toRow.boxRight, sectionAnimT);
-    boxBottom = easeOutCubic(fromRow.boxBottom, toRow.boxBottom, sectionAnimT);
+    boxLeft = easeOutCubic(fromLayout.boxLeft, toLayout.boxLeft, sectionAnimT);
+    boxTop = easeOutCubic(fromLayout.boxTop, toLayout.boxTop, sectionAnimT);
+    boxRight = easeOutCubic(fromLayout.boxRight, toLayout.boxRight, sectionAnimT);
+    boxBottom = easeOutCubic(fromLayout.boxBottom, toLayout.boxBottom, sectionAnimT);
   }
 
   boxLeft = static_cast<int16_t>(boxLeft + focusBoxExtraOffsetX);
@@ -886,19 +930,58 @@ void UiManager::renderSection(int16_t xOffset, int16_t yOffset, uint32_t nowMs,
   drawFilledRoundRect(canvas, boxLeft, boxTop, boxRight, boxBottom, layout.focusRadius,
                       ST7305_COLOR_BLACK);
 
-  for (uint8_t i = 0; i < itemCount; ++i) {
-    const char* label = labelForLanguage(content.items[i], language_);
+  for (uint8_t row = 0; row < visibleCount; ++row) {
+    const uint8_t itemIndex = static_cast<uint8_t>(pageStart + row);
+    const char* label = labelForLanguage(content.items[itemIndex], language_);
     const int16_t labelW = text.getUTF8Width(label);
-    const SectionRowLayout row = makeSectionRowLayout(layout, labelW, i);
-    const bool isSelected = (i == selected);
+    const SectionRowLayout rowLayout = makeSectionRowLayout(layout, labelW, row);
+    const bool isSelected = (itemIndex == selected);
     int16_t rowExtraOffsetX = 0;
-    if (rowExtraOffsets != nullptr && i < rowExtraCount) {
-      rowExtraOffsetX = rowExtraOffsets[i];
+    if (rowExtraOffsets != nullptr && row < rowExtraCount) {
+      rowExtraOffsetX = rowExtraOffsets[row];
     }
 
     applySectionItemTextStyle(text, isSelected);
-    text.drawUTF8(static_cast<int16_t>(layout.listX + rowExtraOffsetX), row.baselineY, label);
+    text.drawUTF8(static_cast<int16_t>(layout.listX + rowExtraOffsetX), rowLayout.baselineY,
+                  label);
   }
+
+  const uint8_t pages = sectionPageCount(itemCount);
+  const uint8_t currentPage = static_cast<uint8_t>(pageStart / kSectionPageSize);
+  const int16_t progressX = static_cast<int16_t>(layout.iconX - 14);
+  const int16_t progressY = static_cast<int16_t>(yOffset + 18);
+  const int16_t progressW = 4;
+  const int16_t progressH = static_cast<int16_t>(height - 36);
+  canvas.drawRectangle(progressX, progressY, static_cast<int16_t>(progressX + progressW - 1),
+                       static_cast<int16_t>(progressY + progressH - 1), ST7305_COLOR_BLACK);
+  int16_t thumbH = progressH;
+  if (itemCount > 0) {
+    thumbH = static_cast<int16_t>(progressH / itemCount);
+  }
+  if (thumbH < 4) {
+    thumbH = 4;
+  }
+  if (thumbH > progressH) {
+    thumbH = progressH;
+  }
+  int16_t thumbY = progressY;
+  if (itemCount > 0 && progressH > thumbH) {
+    const int16_t travel = static_cast<int16_t>(progressH - thumbH);
+    thumbY = static_cast<int16_t>(
+        progressY + (static_cast<int32_t>(travel) * selected) / itemCount);
+  }
+  canvas.drawFilledRectangle(progressX, thumbY, static_cast<int16_t>(progressX + progressW - 1),
+                             static_cast<int16_t>(thumbY + thumbH - 1), ST7305_COLOR_BLACK);
+
+  char pageText[8];
+  snprintf(pageText, sizeof(pageText), "%u/%u", static_cast<unsigned>(currentPage + 1),
+           static_cast<unsigned>(pages));
+  const int16_t pageTextW = text.getUTF8Width(pageText);
+  const int16_t pageBaselineY = static_cast<int16_t>(yOffset + height - 8);
+  const int16_t pageCenterX = static_cast<int16_t>((layout.listX + progressX - 1) / 2);
+  text.setForegroundColor(ST7305_COLOR_BLACK);
+  text.setBackgroundColor(ST7305_COLOR_WHITE);
+  text.drawUTF8(static_cast<int16_t>(pageCenterX - pageTextW / 2), pageBaselineY, pageText);
 
   const SectionItem& selectedItem = content.items[selected];
   const uint16_t iconFrame = IconBitmap::frameAt(selectedItem.icon, nowMs);
@@ -1011,62 +1094,13 @@ void UiManager::renderTwoOptionPopup(const char* title, const char* primaryLabel
 }
 
 void UiManager::renderPopup(uint32_t nowMs) {
-  if (popupKind_ == PopupKind::RestartConfirm) {
-    renderTwoOptionPopup(language_ == HomePage::Language::Zh ? "重启设备?" : "Restart Device?",
-                         language_ == HomePage::Language::Zh ? "是" : "Yes",
-                         language_ == HomePage::Language::Zh ? "否" : "No", nowMs);
+  if (popupKind_ == SettingsPage::PopupKind::None) {
     return;
   }
 
-  renderTwoOptionPopup(language_ == HomePage::Language::Zh ? "语言" : "Language", "中",
-                       "En", nowMs);
-}
-
-bool UiManager::isAboutDeviceDetail() const {
-  return homePage_.focusIndex() == kSettingsHomeIndex &&
-         sectionFocusIndex_ == kSettingsAboutDeviceItemIndex;
-}
-
-void UiManager::renderDetailHeader(const char* title, int16_t yOffset) {
-  auto& canvas = display_.canvas();
-  auto& text = display_.text();
-  const int16_t width = static_cast<int16_t>(display_.width());
-
-  canvas.drawFilledRectangle(0, yOffset, width - 1,
-                             static_cast<int16_t>(yOffset + kDetailHeaderHeight - 1),
-                             ST7305_COLOR_BLACK);
-
-  text.setFont(chinese_font_all);
-  text.setForegroundColor(ST7305_COLOR_WHITE);
-  text.setBackgroundColor(ST7305_COLOR_BLACK);
-  text.setFontMode(0);
-  const int16_t titleW = text.getUTF8Width(title);
-  const int16_t titleX = static_cast<int16_t>((width - titleW) / 2);
-  text.drawUTF8(titleX, static_cast<int16_t>(yOffset + 22), title);
-
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.setFontMode(1);
-}
-
-void UiManager::renderAboutDeviceDetail(int16_t yOffset) {
-  auto& text = display_.text();
-  renderDetailHeader("OpenBread Normal One", yOffset);
-
-  const char* const kPage0Lines[4] = {"设备名称：My device", "固件版本：V0.01",
-                                      deviceIdText_, "屏幕尺寸：2.9黑白反射屏"};
-  const char* const kPage1Lines[4] = {"IP地址：", "处理器：ESP32 S3", "SD卡容量：",
-                                      flashTotalText_};
-  const int16_t kLineY[4] = {55, 87, 119, 151};
-  const char* const* lines = (detailPageIndex_ == 0) ? kPage0Lines : kPage1Lines;
-
-  text.setFont(chinese_font_all);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setFontMode(1);
-  for (uint8_t i = 0; i < 4; ++i) {
-    text.drawUTF8(9, static_cast<int16_t>(yOffset + kLineY[i]), lines[i]);
-  }
+  renderTwoOptionPopup(settingsPage_.popupTitle(popupKind_, language_),
+                       settingsPage_.popupPrimaryLabel(popupKind_, language_),
+                       settingsPage_.popupSecondaryLabel(popupKind_, language_), nowMs);
 }
 
 void UiManager::renderDetail(int16_t yOffset) {
@@ -1075,8 +1109,10 @@ void UiManager::renderDetail(int16_t yOffset) {
   const int16_t width = static_cast<int16_t>(display_.width());
   const int16_t height = static_cast<int16_t>(display_.height());
 
-  if (isAboutDeviceDetail()) {
-    renderAboutDeviceDetail(yOffset);
+  if (settingsPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, detailPageIndex_,
+                                 yOffset, display_, language_, deviceIdText_, flashTotalText_,
+                                 sdStatusText_,
+                                 wifiProvisionService_)) {
     return;
   }
 
@@ -1098,6 +1134,96 @@ void UiManager::renderDetail(int16_t yOffset) {
 
   canvas.drawRectangle(4, static_cast<int16_t>(yOffset + 32), width - 5,
                        static_cast<int16_t>(yOffset + height - 5), ST7305_COLOR_BLACK);
+}
+
+void UiManager::refreshSdStatus() {
+  const SdCardService::Status status = sdCardService_.refresh();
+  if (status == SdCardService::Status::NotInserted) {
+    snprintf(sdStatusText_, sizeof(sdStatusText_), "SD卡：未插入");
+    return;
+  }
+
+  if (status == SdCardService::Status::ReinsertNeeded) {
+    snprintf(sdStatusText_, sizeof(sdStatusText_), "SD卡：重新插拔SD卡");
+    return;
+  }
+
+  const double freeGb =
+      static_cast<double>(sdCardService_.freeBytes()) / (1024.0 * 1024.0 * 1024.0);
+  const double totalGb =
+      static_cast<double>(sdCardService_.totalBytes()) / (1024.0 * 1024.0 * 1024.0);
+  snprintf(sdStatusText_, sizeof(sdStatusText_), "SD卡：%.1fG可用/%.1fG总容量", freeGb, totalGb);
+}
+
+void UiManager::syncHomeClockFromRtc(uint32_t nowMs) {
+  if (!rtcReady_) {
+    return;
+  }
+  if ((nowMs - lastRtcReadMs_) < kRtcReadIntervalMs) {
+    return;
+  }
+  lastRtcReadMs_ = nowMs;
+
+  RtcDriver::DateTime rtcNow;
+  if (!rtcDriver_.read(rtcNow)) {
+    return;
+  }
+
+  HomePage::ClockData clock;
+  clock.second = rtcNow.second;
+  clock.minute = rtcNow.minute;
+  clock.hour = rtcNow.hour;
+  clock.day = rtcNow.day;
+  clock.weekday = rtcNow.weekday;
+  clock.month = rtcNow.month;
+  clock.year = static_cast<uint16_t>(2000U + rtcNow.year);
+  clock.valid = true;
+  homePage_.setClockData(clock);
+  needsRedraw_ = true;
+}
+
+bool UiManager::startNtpSync(uint32_t nowMs) {
+  if (!rtcReady_) {
+    return false;
+  }
+  configTime(kNtpUtcOffsetSeconds, kNtpDaylightOffsetSeconds, "pool.ntp.org",
+             "time.nist.gov");
+  ntpSyncStartMs_ = nowMs;
+  ntpSyncActive_ = true;
+  return true;
+}
+
+void UiManager::processNtpSync(uint32_t nowMs) {
+  if (!ntpSyncActive_ || !rtcReady_) {
+    return;
+  }
+
+  const time_t epoch = time(nullptr);
+  if (epoch > 1700000000) {
+    struct tm localTm;
+    if (localtime_r(&epoch, &localTm) != nullptr) {
+      RtcDriver::DateTime rtcSet;
+      rtcSet.second = static_cast<uint8_t>(localTm.tm_sec);
+      rtcSet.minute = static_cast<uint8_t>(localTm.tm_min);
+      rtcSet.hour = static_cast<uint8_t>(localTm.tm_hour);
+      rtcSet.day = static_cast<uint8_t>(localTm.tm_mday);
+      rtcSet.weekday = static_cast<uint8_t>(localTm.tm_wday);
+      rtcSet.month = static_cast<uint8_t>(localTm.tm_mon + 1);
+      rtcSet.year = static_cast<uint8_t>(localTm.tm_year >= 100 ? (localTm.tm_year - 100) : 0);
+      (void)rtcDriver_.write(rtcSet);
+      syncHomeClockFromRtc(nowMs);
+    }
+    ntpSyncActive_ = false;
+    wifiProvisionService_.finishOnlineSession();
+    needsRedraw_ = true;
+    return;
+  }
+
+  if ((nowMs - ntpSyncStartMs_) >= kNtpSyncTimeoutMs) {
+    ntpSyncActive_ = false;
+    wifiProvisionService_.finishOnlineSession();
+    needsRedraw_ = true;
+  }
 }
 
 bool UiManager::isPressed(uint8_t pin) const { return digitalRead(pin) == LOW; }
