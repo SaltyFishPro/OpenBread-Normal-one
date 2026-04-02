@@ -4,6 +4,7 @@
 
 #include "../bsp/DisplayMonoTft.h"
 #include "../bsp/RtcDriver.h"
+#include "../services/OtaService.h"
 #include "../services/WifiProvisionService.h"
 #include "Render1bpp.h"
 #include "pages/HomePage.h"
@@ -69,6 +70,7 @@ private:
   Render1bpp renderer_;
   HomePage homePage_;
   SettingsPage settingsPage_;
+  OtaService otaService_;
   WifiProvisionService wifiProvisionService_;
   SdCardService sdCardService_;
   RtcDriver rtcDriver_;

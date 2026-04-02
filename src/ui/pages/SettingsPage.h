@@ -7,6 +7,7 @@
 
 class DisplayMonoTft;
 class WifiProvisionService;
+class OtaService;
 
 class SettingsPage {
 public:
@@ -25,24 +26,27 @@ public:
   static constexpr uint8_t kHomeIndex = 0;
   static constexpr uint8_t kRestartItemIndex = 0;
   static constexpr uint8_t kLanguageItemIndex = 1;
+  static constexpr uint8_t kOtaItemIndex = 2;
   static constexpr uint8_t kWifiProvisionItemIndex = 3;
   static constexpr uint8_t kAboutDeviceItemIndex = 5;
 
   PopupKind popupForSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
   bool isAboutDeviceSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
+  bool isOtaSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
   bool isWifiProvisionSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
   uint8_t detailPageCount(uint8_t homeFocus, uint8_t sectionFocus) const;
   bool handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool okEdge,
-                         uint32_t nowMs, WifiProvisionService& wifi) const;
+                         uint32_t nowMs, WifiProvisionService& wifi,
+                         OtaService& ota) const;
   bool handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus,
-                        WifiProvisionService& wifi) const;
+                        WifiProvisionService& wifi, OtaService& ota) const;
   const MenuItem* menuItems() const;
   uint8_t menuItemCount() const;
   bool renderDetail(uint8_t homeFocus, uint8_t sectionFocus, uint8_t detailPageIndex,
                     int16_t yOffset, DisplayMonoTft& display, HomePage::Language language,
                     const char* deviceIdText, const char* flashTotalText,
                     const char* sdStatusText,
-                    const WifiProvisionService& wifi) const;
+                    const WifiProvisionService& wifi, const OtaService& ota) const;
 
   const char* popupTitle(PopupKind kind, HomePage::Language language) const;
   const char* popupPrimaryLabel(PopupKind kind, HomePage::Language language) const;

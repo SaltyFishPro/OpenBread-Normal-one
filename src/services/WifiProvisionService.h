@@ -42,6 +42,7 @@ public:
 
   const char* apSsid() const;
   const char* targetSsid() const;
+  const char* targetPass() const;
   const char* staIp() const;
 
 private:

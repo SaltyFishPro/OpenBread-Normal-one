@@ -32,6 +32,8 @@ src/
     DacDriver.h/.cpp
   services/
     SettingsService.h/.cpp
+    WifiProvisionService.h/.cpp
+    OtaService.h/.cpp
     ReaderService.h/.cpp
     MusicService.h/.cpp
     AlarmService.h/.cpp
@@ -242,6 +244,20 @@ src/
 - [ ] `Section/Detail` 仍为占位内容，尚未接入各业务页（Music/Reader/Alarm/Remote/Settings）的真实数据与交互。
 
 ## 7. 功能模块职责
+### 7.0 OtaService（已落地）
+- Manifest 检查：拉取并校验 `product/channel/build/version/url/sha256/size`。
+- 升级判定：仅当 `remote.build > local.build` 才进入可升级状态。
+- 下载流程：分块下载固件到 OTA 分区，不整包占用 RAM。
+- 完整性校验：下载后执行 SHA256 全量比对，不匹配则中止。
+- 应用流程：`ReadyToApply` 下用户确认后重启生效。
+- 启动后核验：重启后对比目标版本并记录 post-apply verify 结果。
+
+### 7.0a WifiProvisionService（已落地）
+- 配网 Portal 生命周期管理（开启/连接/超时/取消）。
+- 配网成功信息缓存（SSID/IP）与 UI 状态同步。
+- 支持连接成功后按需重开配网热点。
+- 与 OTA 联网会话隔离，避免误关 OTA WiFi 会话。
+
 ### 7.1 SettingsService
 - 管理系统设置：音量、震动强度、时间制式、主题参数、遥控配置。
 - 持久化策略：写入 NVS 或文件系统配置文件。
@@ -310,6 +326,7 @@ src/
 ## 13. 里程碑定义
 - M1：架构骨架可编译，主循环+状态机+事件总线跑通。
 - M2：UI 首页 + 设置页 + 基础输入完整联通。
+- M2.5：WiFi 配网 + OTA 全链路（检查、下载校验、应用重启、重启后核验）打通。
 - M3：阅读模块（SD 读取 + 分页 + 书签）可用。
 - M4：音乐模块（文件索引 + DAC 控制）可用。
 - M5：闹钟（RTC + 响铃 + 震动）可用。

@@ -50,8 +50,9 @@ void WifiProvisionService::tick(uint32_t nowMs) {
     startConnecting(nowMs);
   }
 
-  // Late-success fallback: DHCP may complete after connect timeout classification.
-  if (state_ != State::Connected && (WiFi.status() == WL_CONNECTED || hasStaIp())) {
+  // Only accept station success while this service is actively connecting.
+  // This avoids stealing externally managed sessions (for example OTA checks).
+  if (state_ == State::Connecting && (WiFi.status() == WL_CONNECTED || hasStaIp())) {
     finishProvisionSuccess();
     return;
   }
@@ -138,10 +139,9 @@ void WifiProvisionService::cancelProvision() {
 }
 
 void WifiProvisionService::finishOnlineSession() {
-  wifiLog("online session finished, radio off");
-  memset(staIp_, 0, sizeof(staIp_));
+  wifiLog("online session finished, radio off, keep connected state");
   cleanupRadio(false);
-  setState(State::Idle, Error::None);
+  setState(State::Connected, Error::None);
 }
 
 WifiProvisionService::State WifiProvisionService::state() const { return state_; }
@@ -153,7 +153,8 @@ bool WifiProvisionService::isPortalActive() const {
 }
 
 bool WifiProvisionService::canStartPortal() const {
-  return state_ == State::Idle || state_ == State::Failed || state_ == State::PortalTimeout;
+  return state_ == State::Idle || state_ == State::Connected || state_ == State::Failed ||
+         state_ == State::PortalTimeout;
 }
 
 bool WifiProvisionService::consumeChanged() {
@@ -171,6 +172,8 @@ bool WifiProvisionService::consumeTimeSyncRequest() {
 const char* WifiProvisionService::apSsid() const { return apSsid_; }
 
 const char* WifiProvisionService::targetSsid() const { return targetSsid_; }
+
+const char* WifiProvisionService::targetPass() const { return targetPass_; }
 
 const char* WifiProvisionService::staIp() const { return staIp_; }
 

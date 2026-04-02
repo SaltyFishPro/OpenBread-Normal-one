@@ -304,6 +304,9 @@ bool UiManager::begin() {
   if (!wifiProvisionService_.begin()) {
     return false;
   }
+  if (!otaService_.begin()) {
+    return false;
+  }
   sdCardService_.begin();
   rtcReady_ = rtcDriver_.begin();
 
@@ -346,6 +349,10 @@ void UiManager::initDeviceInfoCache() {
 
 void UiManager::tick() {
   const uint32_t nowMs = millis();
+  otaService_.tick(nowMs);
+  if (otaService_.consumeChanged()) {
+    needsRedraw_ = true;
+  }
   wifiProvisionService_.tick(nowMs);
   if (wifiProvisionService_.consumeChanged()) {
     needsRedraw_ = true;
@@ -528,12 +535,13 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
     case UiState::Detail: {
       if (edges.left) {
         settingsPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
-                                       wifiProvisionService_);
+                                       wifiProvisionService_, otaService_);
         state_ = UiState::ToSectionFromDetailTransition;
         transitionStartMs_ = nowMs;
         needsRedraw_ = true;
       } else if (settingsPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
-                                                 edges.ok, nowMs, wifiProvisionService_)) {
+                                                 edges.ok, nowMs, wifiProvisionService_,
+                                                 otaService_)) {
         needsRedraw_ = true;
       } else if (edges.up || edges.down || edges.right || edges.ok) {
         const uint8_t pageCount =
@@ -1111,8 +1119,7 @@ void UiManager::renderDetail(int16_t yOffset) {
 
   if (settingsPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, detailPageIndex_,
                                  yOffset, display_, language_, deviceIdText_, flashTotalText_,
-                                 sdStatusText_,
-                                 wifiProvisionService_)) {
+                                 sdStatusText_, wifiProvisionService_, otaService_)) {
     return;
   }
 

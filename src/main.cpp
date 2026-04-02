@@ -4,6 +4,10 @@
 
 App app;
 
-void setup() { app.begin(); }
+void setup() {
+  Serial.begin(115200);
+  delay(300);
+  app.begin();
+}
 
 void loop() { app.tick(); }
