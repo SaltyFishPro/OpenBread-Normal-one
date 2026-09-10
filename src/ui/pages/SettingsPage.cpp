@@ -4,14 +4,13 @@
 #include "../../bsp/DisplayMonoTft.h"
 #include "../../services/OtaService.h"
 #include "../../services/WifiProvisionService.h"
-#include "../assets/submenu_icon/about.h"
-#include "../assets/submenu_icon/author.h"
-#include "../assets/submenu_icon/language.h"
-#include "../assets/submenu_icon/reset.h"
-#include "../assets/submenu_icon/restart.h"
-#include "../assets/submenu_icon/wificonnet.h"
-#if __has_include("../assets/submenu_icon/ota.h")
-#include "../assets/submenu_icon/ota.h"
+#include "../assets/submenu/about.h"
+#include "../assets/submenu/author.h"
+#include "../assets/submenu/reset.h"
+#include "../assets/submenu/restart.h"
+#include "../assets/submenu/wificonnet.h"
+#if __has_include("../assets/submenu/ota.h")
+#include "../assets/submenu/ota.h"
 #define OB_HAS_OTA_ICON 1
 #else
 #define OB_HAS_OTA_ICON 0
@@ -42,14 +41,14 @@ const SettingsPage::MenuItem kSettingsItems[] = {
     {"重启设备", "Restart Device",
      {reinterpret_cast<const uint8_t*>(&restart_frames[0][0]), RESTART_FRAME_BYTES,
       RESTART_FRAME_WIDTH, RESTART_FRAME_HEIGHT, RESTART_FRAME_DELAY, RESTART_FRAME_COUNT}},
-    {"语言", "Language",
-     {reinterpret_cast<const uint8_t*>(&language_frames[0][0]), LANGUAGE_FRAME_BYTES,
-      LANGUAGE_FRAME_WIDTH, LANGUAGE_FRAME_HEIGHT, LANGUAGE_FRAME_DELAY, LANGUAGE_FRAME_COUNT}},
     {"OTA更新", "OTA Update", kSettingsOtaIcon},
     {"WiFi配网", "WiFi Provision",
      {reinterpret_cast<const uint8_t*>(&wificonnet_frames[0][0]), WIFICONNET_FRAME_BYTES,
       WIFICONNET_FRAME_WIDTH, WIFICONNET_FRAME_HEIGHT, WIFICONNET_FRAME_DELAY,
       WIFICONNET_FRAME_COUNT}},
+    {"设备自检", "Device Self Test",
+     {reinterpret_cast<const uint8_t*>(&reset_frames[0][0]), RESET_FRAME_BYTES,
+      RESET_FRAME_WIDTH, RESET_FRAME_HEIGHT, RESET_FRAME_DELAY, RESET_FRAME_COUNT}},
     {"恢复默认设置", "Reset to Defaults",
      {reinterpret_cast<const uint8_t*>(&reset_frames[0][0]), RESET_FRAME_BYTES,
       RESET_FRAME_WIDTH, RESET_FRAME_HEIGHT, RESET_FRAME_DELAY, RESET_FRAME_COUNT}},
@@ -472,7 +471,7 @@ void renderOtaDetail(DisplayMonoTft& display, HomePage::Language language, const
   } else if (otaState == OtaService::State::Downloading ||
              otaState == OtaService::State::Verifying) {
     text.drawUTF8(8, static_cast<int16_t>(yOffset + height - 10),
-                  zh ? "LEFT: 返回  OK: 忽略" : "LEFT: Back  OK: Ignore");
+                  zh ? "LEFT: 返回/取消  OK: 等待" : "LEFT: Back/Cancel  OK: Wait");
   } else {
     text.drawUTF8(8, static_cast<int16_t>(yOffset + height - 10),
                   zh ? "LEFT: 返回  OK: 检查" : "LEFT: Back  OK: Check");
@@ -499,9 +498,6 @@ SettingsPage::PopupKind SettingsPage::popupForSelection(uint8_t homeFocus,
   if (sectionFocus == kRestartItemIndex) {
     return PopupKind::RestartConfirm;
   }
-  if (sectionFocus == kLanguageItemIndex) {
-    return PopupKind::LanguageSelect;
-  }
   return PopupKind::None;
 }
 
@@ -517,17 +513,24 @@ bool SettingsPage::isWifiProvisionSelection(uint8_t homeFocus, uint8_t sectionFo
   return homeFocus == kHomeIndex && sectionFocus == kWifiProvisionItemIndex;
 }
 
+bool SettingsPage::isDeviceSelfTestSelection(uint8_t homeFocus, uint8_t sectionFocus) const {
+  return homeFocus == kHomeIndex && sectionFocus == kDeviceSelfTestItemIndex;
+}
+
 uint8_t SettingsPage::detailPageCount(uint8_t homeFocus, uint8_t sectionFocus) const {
   if (isWifiProvisionSelection(homeFocus, sectionFocus) ||
-      isOtaSelection(homeFocus, sectionFocus)) {
+      isOtaSelection(homeFocus, sectionFocus) ||
+      isDeviceSelfTestSelection(homeFocus, sectionFocus)) {
     return 1U;
   }
   return isAboutDeviceSelection(homeFocus, sectionFocus) ? 2U : 1U;
 }
 
-bool SettingsPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool okEdge,
-                                     uint32_t nowMs, WifiProvisionService& wifi,
-                                     OtaService& ota) const {
+bool SettingsPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, uint8_t detailPageIndex,
+                                     bool okEdge,
+                                      uint32_t nowMs, WifiProvisionService& wifi,
+                                      OtaService& ota) const {
+  (void)detailPageIndex;
   if (!okEdge) {
     return false;
   }
@@ -537,6 +540,9 @@ bool SettingsPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bo
       ota.requestDownload(nowMs);
     } else if (ota.state() == OtaService::State::ReadyToApply) {
       ota.requestApply();
+    } else if (ota.state() == OtaService::State::Downloading ||
+               ota.state() == OtaService::State::Verifying) {
+      return true;
     } else {
       ota.requestCheck(nowMs);
     }
@@ -551,7 +557,7 @@ bool SettingsPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bo
 }
 
 bool SettingsPage::handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus,
-                                    WifiProvisionService& wifi, OtaService& ota) const {
+                                     WifiProvisionService& wifi, OtaService& ota) const {
   if (isOtaSelection(homeFocus, sectionFocus)) {
     ota.cancel();
     return true;
@@ -574,7 +580,7 @@ uint8_t SettingsPage::menuItemCount() const {
 bool SettingsPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, uint8_t detailPageIndex,
                                 int16_t yOffset, DisplayMonoTft& display,
                                 HomePage::Language language, const char* deviceIdText,
-                                const char* flashTotalText, const char* sdStatusText,
+                                 const char* flashTotalText, const char* sdStatusText,
                                 const WifiProvisionService& wifi,
                                 const OtaService& ota) const {
   if (isOtaSelection(homeFocus, sectionFocus)) {
@@ -596,34 +602,23 @@ bool SettingsPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, uint8_t
   return true;
 }
 
-const char* SettingsPage::popupTitle(PopupKind kind, HomePage::Language language) const {
+const char* SettingsPage::popupTitle(PopupKind kind) const {
   if (kind == PopupKind::RestartConfirm) {
-    return (language == HomePage::Language::Zh) ? "重启设备?" : "Restart Device?";
-  }
-  if (kind == PopupKind::LanguageSelect) {
-    return (language == HomePage::Language::Zh) ? "语言" : "Language";
+    return "重启设备?";
   }
   return "";
 }
 
-const char* SettingsPage::popupPrimaryLabel(PopupKind kind,
-                                            HomePage::Language language) const {
+const char* SettingsPage::popupPrimaryLabel(PopupKind kind) const {
   if (kind == PopupKind::RestartConfirm) {
-    return (language == HomePage::Language::Zh) ? "是" : "Yes";
-  }
-  if (kind == PopupKind::LanguageSelect) {
-    return "Zh";
+    return "是";
   }
   return "";
 }
 
-const char* SettingsPage::popupSecondaryLabel(PopupKind kind,
-                                              HomePage::Language language) const {
+const char* SettingsPage::popupSecondaryLabel(PopupKind kind) const {
   if (kind == PopupKind::RestartConfirm) {
-    return (language == HomePage::Language::Zh) ? "否" : "No";
-  }
-  if (kind == PopupKind::LanguageSelect) {
-    return "En";
+    return "否";
   }
   return "";
 }

@@ -2,16 +2,16 @@
 
 #include <cstdio>
 
-#include "../DateUtils.h"
 #include "../IconBitmap.h"
 #include "../Segment7Font.h"
 #include "../ThemeMono.h"
-#include "../assets/UI_background.h"
-#include "../assets/icons8-book.h"
-#include "../assets/icons8-clock.h"
-#include "../assets/icons8-itunes.h"
-#include "../assets/icons8-settings.h"
-#include "../assets/icons8-wifi.h"
+#include "../assets/games/icons8_games.h"
+#include "../assets/main_menu/icons8-book.h"
+#include "../assets/main_menu/icons8-clock.h"
+#include "../assets/main_menu/icons8-itunes.h"
+#include "../assets/main_menu/icons8-settings.h"
+#include "../assets/main_menu/icons8-wifi.h"
+#include "../assets/ui/UI_background.h"
 
 namespace {
 constexpr int16_t kWheelFrameWidth = 190;
@@ -23,9 +23,6 @@ constexpr int16_t kWheelFramePaddingY = 8;
 constexpr int16_t kMenuClipTop = 10;
 constexpr int16_t kMenuClipBottom = 160;
 constexpr int16_t kMenuLabelHeight = 13;
-constexpr uint16_t kEpochYear = 2026;
-constexpr uint8_t kEpochWeekday = 4;  // 2026-01-01 is Thursday (SUN=0).
-
 struct CardRect {
   int16_t x1;
   int16_t y1;
@@ -79,7 +76,7 @@ constexpr DateCardStyle kDateCardStyle = {
     6,
     -2};
 
-const IconBitmap::Anim kMenuIcons[5] = {
+const IconBitmap::Anim kMenuIcons[6] = {
     {reinterpret_cast<const uint8_t*>(&setting_frames[0][0]), SETTING_FRAME_BYTES,
      SETTING_FRAME_WIDTH, SETTING_FRAME_HEIGHT, SETTING_FRAME_DELAY, SETTING_FRAME_COUNT},
     {reinterpret_cast<const uint8_t*>(&itunes_frames[0][0]), ITUNES_FRAME_BYTES,
@@ -90,6 +87,9 @@ const IconBitmap::Anim kMenuIcons[5] = {
      CLOCK_FRAME_WIDTH, CLOCK_FRAME_HEIGHT, CLOCK_FRAME_DELAY, CLOCK_FRAME_COUNT},
     {reinterpret_cast<const uint8_t*>(&wifi_frames[0][0]), WIFI_FRAME_BYTES,
      WIFI_FRAME_WIDTH, WIFI_FRAME_HEIGHT, WIFI_FRAME_DELAY, WIFI_FRAME_COUNT},
+    {reinterpret_cast<const uint8_t*>(&icons8_games_frames[0][0]), ICONS8_GAMES_FRAME_BYTES,
+     ICONS8_GAMES_FRAME_WIDTH, ICONS8_GAMES_FRAME_HEIGHT, ICONS8_GAMES_FRAME_DELAY,
+     ICONS8_GAMES_FRAME_COUNT},
 };
 
 const IconBitmap::Anim kHomeBackground = {
@@ -100,8 +100,7 @@ const IconBitmap::Anim kHomeBackground = {
     UI_BACKGROUND_FRAME_DELAY,
     UI_BACKGROUND_FRAME_COUNT};
 
-const char* const kMenuNamesZh[5] = {"设置", "音乐", "阅读", "时钟", "无线功能"};
-const char* const kMenuNamesEn[5] = {"Settings", "Music", "Reader", "Clock", "Wireless"};
+const char* const kMenuNamesZh[6] = {"设置", "音乐", "阅读", "时钟", "无线功能", "游戏"};
 
 bool clipRectToDisplay(ST7305_2p9_BW_DisplayDriver& canvas, int16_t& x1, int16_t& y1,
                        int16_t& x2, int16_t& y2) {
@@ -187,15 +186,15 @@ void drawHomeTimePreview(ST7305_2p9_BW_DisplayDriver& canvas, uint32_t nowMs, in
   if (clockData.valid) {
     hour = clockData.hour;
     minute = clockData.minute;
-  } else {
-    const uint32_t totalSeconds = nowMs / 1000U;
-    hour = static_cast<uint8_t>((totalSeconds / 3600U) % 24U);
-    minute = static_cast<uint8_t>((totalSeconds / 60U) % 60U);
   }
 
   char hhmm[6];
-  snprintf(hhmm, sizeof(hhmm), "%02u:%02u", static_cast<unsigned>(hour),
-           static_cast<unsigned>(minute));
+  if (clockData.valid) {
+    snprintf(hhmm, sizeof(hhmm), "%02u:%02u", static_cast<unsigned>(hour),
+             static_cast<unsigned>(minute));
+  } else {
+    snprintf(hhmm, sizeof(hhmm), "--:--");
+  }
 
   const Segment7Font::Style& style = kTimeCardStyle.digitStyle;
 
@@ -247,16 +246,24 @@ void drawHomeDatePreview(ST7305_2p9_BW_DisplayDriver& canvas, U8G2_FOR_ST73XX& t
     month = clockData.month;
     day = clockData.day;
     weekday = clockData.weekday;
-  } else {
-    const uint32_t totalSeconds = nowMs / 1000U;
-    const uint32_t days = totalSeconds / 86400U;
-    DateUtils::daysToDate(days, kEpochYear, kEpochWeekday, year, month, day, weekday);
   }
 
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setForegroundColor(ST7305_COLOR_WHITE);
   text.setFontMode(1);
   text.setFont(u8g2_font_6x12_mf);
+
+  if (!clockData.valid) {
+    const char* placeholder = "NOT SET";
+    const int16_t textW = text.getUTF8Width(placeholder);
+    const int16_t textX = static_cast<int16_t>(boxX1 + ((boxX2 - boxX1 + 1) - textW) / 2);
+    const int16_t textY = static_cast<int16_t>(boxY1 + ((boxY2 - boxY1 + 1) / 2) + 5);
+    text.drawUTF8(textX, textY, placeholder);
+    text.setBackgroundColor(ST7305_COLOR_WHITE);
+    text.setForegroundColor(ST7305_COLOR_BLACK);
+    text.setFontMode(1);
+    return;
+  }
 
   const int16_t chipTop = static_cast<int16_t>(boxY1 + kDateCardStyle.chipTopOffset);
   const int16_t chipBottom = static_cast<int16_t>(chipTop + kDateCardStyle.chipHeight);
@@ -316,11 +323,16 @@ bool HomePage::begin() {
   animToOffsetY_ = 0;
   animStartMs_ = millis();
   lastFocusFrame_ = 0;
+  lastBackgroundFrame_ = 0;
+  lastInteractionMs_ = animStartMs_;
+  animationTimeMs_ = animStartMs_;
   return true;
 }
 
 bool HomePage::handleInput(bool upEdge, bool downEdge, bool okEdge, uint32_t nowMs) {
   if (okEdge && slideState_ == SlideState::Idle) {
+    lastInteractionMs_ = nowMs;
+    animationTimeMs_ = nowMs;
     return true;
   }
 
@@ -334,6 +346,9 @@ bool HomePage::handleInput(bool upEdge, bool downEdge, bool okEdge, uint32_t now
   if (direction == 0) {
     return false;
   }
+
+  lastInteractionMs_ = nowMs;
+  animationTimeMs_ = nowMs;
 
   if (slideState_ == SlideState::Sliding) {
     focusIndex_ = targetIndex_;
@@ -355,6 +370,10 @@ void HomePage::beginSlide(int8_t direction, uint32_t nowMs) {
 }
 
 void HomePage::update(uint32_t nowMs) {
+  if (slideState_ == SlideState::Sliding || isInteractiveAnimationWindow(nowMs)) {
+    animationTimeMs_ = nowMs;
+  }
+
   if (slideState_ != SlideState::Sliding) {
     return;
   }
@@ -381,24 +400,38 @@ int16_t HomePage::currentMenuOffset(uint32_t nowMs) const {
 }
 
 bool HomePage::hasAnimationTick(uint32_t nowMs) const {
-  const IconBitmap::Anim& anim = kMenuIcons[focusIndex_];
-  if (anim.frameCount == 0 || anim.frameDelayMs == 0) {
+  if (!isAnimationActive(nowMs)) {
     return false;
   }
-  const uint16_t frame = IconBitmap::frameAt(anim, nowMs);
-  return frame != lastFocusFrame_;
+
+  const uint32_t animNowMs = animationRenderTime(nowMs);
+  const IconBitmap::Anim& anim = kMenuIcons[focusIndex_];
+  if (anim.frameCount == 0 || anim.frameDelayMs == 0) {
+    const uint16_t bgFrame = IconBitmap::frameAt(kHomeBackground, animNowMs);
+    return bgFrame != lastBackgroundFrame_;
+  }
+
+  const uint16_t frame = IconBitmap::frameAt(anim, animNowMs);
+  if (frame != lastFocusFrame_) {
+    return true;
+  }
+
+  const uint16_t bgFrame = IconBitmap::frameAt(kHomeBackground, animNowMs);
+  return bgFrame != lastBackgroundFrame_;
+}
+
+bool HomePage::isAnimationActive(uint32_t nowMs) const {
+  return slideState_ == SlideState::Sliding || isInteractiveAnimationWindow(nowMs);
 }
 
 uint8_t HomePage::focusIndex() const { return focusIndex_; }
 
 const char* HomePage::menuLabel(uint8_t idx) const {
   const uint8_t safe = static_cast<uint8_t>(idx % kMenuCount);
-  return (language_ == Language::Zh) ? kMenuNamesZh[safe] : kMenuNamesEn[safe];
+  return kMenuNamesZh[safe];
 }
 
 const char* HomePage::focusName() const { return menuLabel(focusIndex_); }
-
-void HomePage::setLanguage(Language language) { language_ = language; }
 
 void HomePage::setClockData(const ClockData& data) { clockData_ = data; }
 
@@ -418,8 +451,15 @@ void HomePage::renderTransition(DisplayMonoTft& display, int16_t backgroundOffse
   const int16_t frameBaseX = static_cast<int16_t>(
       menuBaseOffsetX + width - kWheelFrameWidth - kWheelFrameRightMargin);
   const int16_t centerY = static_cast<int16_t>(height / 2);
+  const bool transitionVisualActive =
+      (backgroundOffsetX != menuBaseOffsetX) || (menuUpExtraOffsetX != 0) ||
+      (menuFocusExtraOffsetX != 0) || (menuDownExtraOffsetX != 0);
+  const uint32_t animNowMs = (slideState_ == SlideState::Sliding || transitionVisualActive)
+                                 ? nowMs
+                                 : animationRenderTime(nowMs);
 
-  const uint16_t bgFrame = IconBitmap::frameAt(kHomeBackground, nowMs);
+  const uint16_t bgFrame = IconBitmap::frameAt(kHomeBackground, animNowMs);
+  lastBackgroundFrame_ = bgFrame;
   IconBitmap::drawFrame(canvas, kHomeBackground, bgFrame, backgroundOffsetX, 0, width,
                         height, false, 0, static_cast<int16_t>(height - 1));
   drawHomeTimePreview(canvas, nowMs, backgroundOffsetX, clockData_);
@@ -475,7 +515,7 @@ void HomePage::renderTransition(DisplayMonoTft& display, int16_t backgroundOffse
                            ST7305_COLOR_BLACK);
     }
 
-    const uint16_t frame = IconBitmap::frameAt(anim, nowMs);
+    const uint16_t frame = IconBitmap::frameAt(anim, animNowMs);
     if (isFocus) {
       lastFocusFrame_ = frame;
     }
@@ -510,6 +550,14 @@ int16_t HomePage::easeOutCubic(int16_t from, int16_t to, float t) const {
   const float inv = 1.0f - t;
   const float eased = 1.0f - (inv * inv * inv);
   return static_cast<int16_t>(from + (to - from) * eased);
+}
+
+bool HomePage::isInteractiveAnimationWindow(uint32_t nowMs) const {
+  return (nowMs - lastInteractionMs_) < kIdleAnimationTimeoutMs;
+}
+
+uint32_t HomePage::animationRenderTime(uint32_t nowMs) const {
+  return isAnimationActive(nowMs) ? nowMs : animationTimeMs_;
 }
 
 

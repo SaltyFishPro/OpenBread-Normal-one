@@ -1,21 +1,22 @@
 ﻿#include "UiManager.h"
 
 #include <cstdio>
-#include <time.h>
 
 #include "../bsp/BoardConfig.h"
 #include "IconBitmap.h"
 #include "ThemeMono.h"
 #include "../services/SdCardService.h"
-#include "assets/submenu_icon/bluetoothconnet.h"
-#include "assets/submenu_icon/desktopclock.h"
-#include "assets/submenu_icon/likemusic.h"
-#include "assets/submenu_icon/musiclist.h"
-#include "assets/submenu_icon/remote.h"
-#include "assets/submenu_icon/teleprompter.h"
-#include "assets/submenu_icon/timer.h"
-#include "assets/submenu_icon/vocabularybook.h"
-#include "assets/pop_up_window.h"
+#include "assets/games/icons8-airplanewars.h"
+#include "assets/games/icons8-tapthewoodenfish.h"
+#include "assets/submenu/bluetoothconnet.h"
+#include "assets/submenu/desktopclock.h"
+#include "assets/submenu/likemusic.h"
+#include "assets/submenu/musiclist.h"
+#include "assets/submenu/remote.h"
+#include "assets/submenu/teleprompter.h"
+#include "assets/submenu/timer.h"
+#include "assets/submenu/vocabularybook.h"
+#include "assets/ui/pop_up_window.h"
 
 namespace {
 constexpr uint32_t kSectionTransitionMs = 600;
@@ -38,6 +39,7 @@ constexpr uint32_t kDetailBackRowsStartMs = 180;
 constexpr uint32_t kDetailBackRowsEndMs = 340;
 constexpr uint32_t kDetailBackIconStartMs = 300;
 constexpr uint32_t kButtonDebounceMs = 25;
+constexpr uint32_t kButtonLongPressMs = 650;
 constexpr uint32_t kSectionFocusSlideMs = 170;
 constexpr uint8_t kSectionPageSize = 5;
 constexpr uint8_t kMaxSectionItemsForAnim = 8;
@@ -46,10 +48,8 @@ constexpr int16_t kRestartPopupOptionGap = 16;
 constexpr int16_t kRestartPopupTitleTopOffset = 35;
 constexpr int16_t kRestartPopupOptionBottomMargin = 8;
 constexpr int16_t kRestartPopupOptionPadY = 4;
-constexpr uint32_t kNtpSyncTimeoutMs = 15000;
-constexpr uint32_t kRtcReadIntervalMs = 1000;
-constexpr long kNtpUtcOffsetSeconds = 8 * 3600;
-constexpr int kNtpDaylightOffsetSeconds = 0;
+constexpr uint32_t kHighFrameIntervalMs = 16;
+constexpr HomePage::Language kUiLanguage = HomePage::Language::Zh;
 
 const IconBitmap::Anim kRestartPopupWindow = {
     reinterpret_cast<const uint8_t*>(&pop_up_window_frames[0][0]),
@@ -94,6 +94,10 @@ const SectionItem kClockItems[] = {
     {"计时器", "Timer",
      {reinterpret_cast<const uint8_t*>(&timer_frames[0][0]), TIMER_FRAME_BYTES,
       TIMER_FRAME_WIDTH, TIMER_FRAME_HEIGHT, TIMER_FRAME_DELAY, TIMER_FRAME_COUNT}},
+    {"时间校准", "Time Setup",
+     {reinterpret_cast<const uint8_t*>(&desktopclock_frames[0][0]), DESKTOPCLOCK_FRAME_BYTES,
+      DESKTOPCLOCK_FRAME_WIDTH, DESKTOPCLOCK_FRAME_HEIGHT, DESKTOPCLOCK_FRAME_DELAY,
+      DESKTOPCLOCK_FRAME_COUNT}},
 };
 
 const SectionItem kWirelessItems[] = {
@@ -106,11 +110,25 @@ const SectionItem kWirelessItems[] = {
       REMOTE_FRAME_WIDTH, REMOTE_FRAME_HEIGHT, REMOTE_FRAME_DELAY, REMOTE_FRAME_COUNT}},
 };
 
+const SectionItem kGamesItems[] = {
+    {"敲木鱼", "Tap Wooden Fish",
+     {reinterpret_cast<const uint8_t*>(&icons8_tapthewoodenfish_frames[0][0]),
+      ICONS8_TAPTHEWOODENFISH_FRAME_BYTES, ICONS8_TAPTHEWOODENFISH_FRAME_WIDTH,
+      ICONS8_TAPTHEWOODENFISH_FRAME_HEIGHT, ICONS8_TAPTHEWOODENFISH_FRAME_DELAY,
+      ICONS8_TAPTHEWOODENFISH_FRAME_COUNT}},
+    {"飞机世界大战", "Airplane World War",
+     {reinterpret_cast<const uint8_t*>(&icons8_airplanewars_frames[0][0]),
+      ICONS8_AIRPLANEWARS_FRAME_BYTES, ICONS8_AIRPLANEWARS_FRAME_WIDTH,
+      ICONS8_AIRPLANEWARS_FRAME_HEIGHT, ICONS8_AIRPLANEWARS_FRAME_DELAY,
+      ICONS8_AIRPLANEWARS_FRAME_COUNT}},
+};
+
 const SectionContent kSectionContents[] = {
     {kMusicItems, static_cast<uint8_t>(sizeof(kMusicItems) / sizeof(kMusicItems[0]))},
     {kReaderItems, static_cast<uint8_t>(sizeof(kReaderItems) / sizeof(kReaderItems[0]))},
     {kClockItems, static_cast<uint8_t>(sizeof(kClockItems) / sizeof(kClockItems[0]))},
     {kWirelessItems, static_cast<uint8_t>(sizeof(kWirelessItems) / sizeof(kWirelessItems[0]))},
+    {kGamesItems, static_cast<uint8_t>(sizeof(kGamesItems) / sizeof(kGamesItems[0]))},
 };
 
 SectionContent sectionContentFor(uint8_t homeFocus, const SettingsPage& settingsPage) {
@@ -121,10 +139,6 @@ SectionContent sectionContentFor(uint8_t homeFocus, const SettingsPage& settings
   const size_t count = sizeof(kSectionContents) / sizeof(kSectionContents[0]);
   const size_t index = (static_cast<size_t>(homeFocus) + count - 1U) % count;
   return kSectionContents[index];
-}
-
-const char* labelForLanguage(const SectionItem& item, HomePage::Language language) {
-  return (language == HomePage::Language::Zh) ? item.labelZh : item.labelEn;
 }
 
 uint8_t sectionPageCount(uint8_t itemCount) {
@@ -295,10 +309,22 @@ bool UiManager::begin() {
   if (!display_.begin()) {
     return false;
   }
+  if (!peripheralPower_.begin()) {
+    return false;
+  }
+  if (!motorDriver_.begin()) {
+    return false;
+  }
   if (!renderer_.begin()) {
     return false;
   }
   if (!homePage_.begin()) {
+    return false;
+  }
+  if (!bluetoothService_.begin()) {
+    return false;
+  }
+  if (!remoteService_.begin()) {
     return false;
   }
   if (!wifiProvisionService_.begin()) {
@@ -307,13 +333,27 @@ bool UiManager::begin() {
   if (!otaService_.begin()) {
     return false;
   }
+  if (!musicService_.begin()) {
+    return false;
+  }
+  if (!readerService_.begin()) {
+    return false;
+  }
+  if (!iicScanService_.begin()) {
+    return false;
+  }
   sdCardService_.begin();
-  rtcReady_ = rtcDriver_.begin();
+  (void)rtcDriver_.begin();
+  if (!rtcTestService_.begin(rtcDriver_)) {
+    return false;
+  }
+  if (!timeService_.begin(rtcDriver_)) {
+    // Keep booting even when RTC is unavailable; UI will show time as invalid.
+  }
+  (void)imuTestService_.begin();
 
   initDeviceInfoCache();
-  language_ = HomePage::Language::Zh;
-  homePage_.setLanguage(language_);
-  syncHomeClockFromRtc(nowMs);
+  syncHomeClockFromTimeService();
   state_ = UiState::Home;
   transitionStartMs_ = millis();
   sectionFocusIndex_ = 0;
@@ -321,9 +361,12 @@ bool UiManager::begin() {
   sectionAnimToIndex_ = 0;
   sectionAnimStartMs_ = transitionStartMs_;
   lastSectionIconFrame_ = 0;
+  lastSectionInteractionMs_ = transitionStartMs_;
+  sectionAnimationTimeMs_ = transitionStartMs_;
   popupKind_ = SettingsPage::PopupKind::RestartConfirm;
   popupSelectPrimary_ = false;
   lastPopupFrame_ = 0;
+  lastRenderMs_ = 0;
   sectionAnimActive_ = false;
   needsRedraw_ = true;
   return true;
@@ -349,22 +392,46 @@ void UiManager::initDeviceInfoCache() {
 
 void UiManager::tick() {
   const uint32_t nowMs = millis();
+  const bool staticReaderDetail =
+      state_ == UiState::Detail &&
+      readerPage_.isStaticWordDetail(homePage_.focusIndex(), sectionFocusIndex_);
+
+  rtcTestService_.tick(nowMs);
+  if (rtcTestService_.consumeChanged()) {
+    needsRedraw_ = true;
+  }
+  imuTestService_.tick(nowMs);
+  if (imuTestService_.consumeChanged()) needsRedraw_ = true;
+  if (!iicScanService_.isBusy() && !rtcTestService_.isBusy() && !imuTestService_.isBusy()) {
+    timeService_.tick(nowMs);
+  }
+  syncHomeClockFromTimeService();
+  if (timeService_.consumeChanged() && !staticReaderDetail) {
+    needsRedraw_ = true;
+  }
+  bluetoothService_.tick(nowMs);
+  if (bluetoothService_.consumeChanged() && !staticReaderDetail) {
+    needsRedraw_ = true;
+  }
   otaService_.tick(nowMs);
-  if (otaService_.consumeChanged()) {
+  if (otaService_.consumeChanged() && !staticReaderDetail) {
     needsRedraw_ = true;
   }
   wifiProvisionService_.tick(nowMs);
-  if (wifiProvisionService_.consumeChanged()) {
+  if (wifiProvisionService_.consumeChanged() && !staticReaderDetail) {
     needsRedraw_ = true;
   }
-  if (wifiProvisionService_.consumeTimeSyncRequest()) {
-    if (!startNtpSync(nowMs)) {
-      wifiProvisionService_.finishOnlineSession();
-      needsRedraw_ = true;
-    }
+  if (readerService_.consumeChanged()) {
+    needsRedraw_ = true;
   }
-  processNtpSync(nowMs);
-  syncHomeClockFromRtc(nowMs);
+  musicService_.tick(nowMs);
+  if (musicService_.consumeChanged() && !staticReaderDetail) {
+    needsRedraw_ = true;
+  }
+  iicScanService_.tick(nowMs);
+  if (iicScanService_.consumeChanged()) {
+    needsRedraw_ = true;
+  }
   const InputEdges edges = pollInputEdges();
   updateState(edges, nowMs);
 
@@ -373,41 +440,56 @@ void UiManager::tick() {
   }
 
   render(nowMs);
+  lastRenderMs_ = nowMs;
   needsRedraw_ = false;
 }
 
 UiManager::InputEdges UiManager::pollInputEdges() {
   InputEdges edges;
   const uint32_t nowMs = millis();
+  static bool leftLongReported = false;
 
-  auto risingEdgeDebounced = [&](ButtonEdge& button) -> bool {
+  auto updateDebounced = [&](ButtonEdge& button, bool& changed) -> bool {
     const bool rawPressed = isPressed(button.pin);
     if (rawPressed != button.lastRawPressed) {
       button.lastRawPressed = rawPressed;
       button.lastRawChangeMs = nowMs;
     }
 
+    changed = false;
     const bool stableEnough = (nowMs - button.lastRawChangeMs) >= kButtonDebounceMs;
     if (stableEnough && button.stablePressed != button.lastRawPressed) {
       const bool prevStable = button.stablePressed;
       button.stablePressed = button.lastRawPressed;
+      changed = true;
       return button.stablePressed && !prevStable;
     }
 
     return false;
   };
 
-  edges.left = risingEdgeDebounced(buttons_[0]);
-  edges.right = risingEdgeDebounced(buttons_[1]);
-  edges.up = risingEdgeDebounced(buttons_[2]);
-  edges.down = risingEdgeDebounced(buttons_[3]);
-  edges.ok = risingEdgeDebounced(buttons_[4]);
+  bool ignoredChanged = false;
+  (void)updateDebounced(buttons_[0], ignoredChanged);
+  if (ignoredChanged && !buttons_[0].stablePressed) {
+    edges.left = !leftLongReported;
+    leftLongReported = false;
+  }
+  if (buttons_[0].stablePressed && !leftLongReported &&
+      (nowMs - buttons_[0].lastRawChangeMs) >= kButtonLongPressMs) {
+    edges.leftLong = true;
+    leftLongReported = true;
+  }
+  edges.right = updateDebounced(buttons_[1], ignoredChanged);
+  edges.up = updateDebounced(buttons_[2], ignoredChanged);
+  edges.down = updateDebounced(buttons_[3], ignoredChanged);
+  edges.ok = updateDebounced(buttons_[4], edges.okChanged);
+  edges.okPressed = buttons_[4].stablePressed;
 
   return edges;
 }
 
 void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
-  if (edges.left || edges.right || edges.up || edges.down || edges.ok) {
+  if (edges.left || edges.leftLong || edges.right || edges.up || edges.down || edges.ok) {
     needsRedraw_ = true;
   }
 
@@ -450,6 +532,13 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         if (settingsPage_.isAboutDeviceSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
           refreshSdStatus();
         }
+        if (settingsPage_.isDeviceSelfTestSelection(homePage_.focusIndex(),
+                                                    sectionFocusIndex_)) {
+          deviceSelfTestPage_.reset();
+        }
+        musicPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_, musicService_,
+                                     sdCardService_);
+        readerPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_);
         state_ = UiState::Detail;
         needsRedraw_ = true;
       }
@@ -466,39 +555,44 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
 
     case UiState::Section: {
       const SectionContent content = sectionContentFor(homePage_.focusIndex(), settingsPage_);
+      if (sectionAnimActive_ || isSectionAnimationActive(nowMs)) {
+        sectionAnimationTimeMs_ = nowMs;
+      }
       if (sectionAnimActive_ && nowMs - sectionAnimStartMs_ >= kSectionFocusSlideMs) {
         sectionAnimActive_ = false;
         needsRedraw_ = true;
       }
 
       if (content.itemCount > 0 && edges.up) {
+        lastSectionInteractionMs_ = nowMs;
         const uint8_t next = (sectionFocusIndex_ == 0)
                                  ? static_cast<uint8_t>(content.itemCount - 1)
                                  : static_cast<uint8_t>(sectionFocusIndex_ - 1);
         startSectionFocusAnimation(next, nowMs);
         needsRedraw_ = true;
       } else if (content.itemCount > 0 && edges.down) {
+        lastSectionInteractionMs_ = nowMs;
         const uint8_t next =
             static_cast<uint8_t>((sectionFocusIndex_ + 1) % content.itemCount);
         startSectionFocusAnimation(next, nowMs);
         needsRedraw_ = true;
       } else if (edges.left) {
+        lastSectionInteractionMs_ = nowMs;
         sectionAnimActive_ = false;
+        remotePage_.handleSectionExit(homePage_.focusIndex(), bluetoothService_);
         state_ = UiState::ToHomeTransition;
         transitionStartMs_ = nowMs;
         needsRedraw_ = true;
       } else if (edges.ok) {
+        lastSectionInteractionMs_ = nowMs;
         sectionAnimActive_ = false;
         popupKind_ = settingsPage_.popupForSelection(homePage_.focusIndex(), sectionFocusIndex_);
         if (popupKind_ != SettingsPage::PopupKind::None) {
           state_ = UiState::Popup;
-          if (popupKind_ == SettingsPage::PopupKind::RestartConfirm) {
-            popupSelectPrimary_ = false;  // default "No"
-          } else {
-            popupSelectPrimary_ = (language_ == HomePage::Language::Zh);
-          }
+          popupSelectPrimary_ = false;  // default "否"
         } else {
           detailPageIndex_ = 0;
+          musicPage_.resetState(homePage_.focusIndex(), sectionFocusIndex_);
           state_ = UiState::ToDetailTransition;
           transitionStartMs_ = nowMs;
         }
@@ -522,33 +616,119 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
             state_ = UiState::Section;
             needsRedraw_ = true;
           }
-        } else {
-          language_ = popupSelectPrimary_ ? HomePage::Language::Zh : HomePage::Language::En;
-          homePage_.setLanguage(language_);
-          state_ = UiState::Section;
-          needsRedraw_ = true;
         }
       }
       break;
     }
 
     case UiState::Detail: {
-      if (edges.left) {
-        settingsPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
-                                       wifiProvisionService_, otaService_);
-        state_ = UiState::ToSectionFromDetailTransition;
-        transitionStartMs_ = nowMs;
+      const bool isSelfTest = settingsPage_.isDeviceSelfTestSelection(
+          homePage_.focusIndex(), sectionFocusIndex_);
+      const DeviceSelfTestPage::ButtonState selfTestButtons = {
+          buttons_[0].stablePressed, buttons_[1].stablePressed, buttons_[2].stablePressed,
+          buttons_[3].stablePressed, buttons_[4].stablePressed};
+      if (isSelfTest &&
+          deviceSelfTestPage_.handleInput(edges.left, edges.leftLong, edges.up, edges.down,
+                                          edges.ok, selfTestButtons, nowMs, iicScanService_,
+                                          rtcTestService_, sdCardService_, imuTestService_,
+                                          powerDiagnosticService_, peripheralPower_)) {
         needsRedraw_ = true;
-      } else if (settingsPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
-                                                 edges.ok, nowMs, wifiProvisionService_,
-                                                 otaService_)) {
-        needsRedraw_ = true;
-      } else if (edges.up || edges.down || edges.right || edges.ok) {
-        const uint8_t pageCount =
-            settingsPage_.detailPageCount(homePage_.focusIndex(), sectionFocusIndex_);
-        if (pageCount > 1U) {
-          detailPageIndex_ = static_cast<uint8_t>((detailPageIndex_ + 1U) % pageCount);
+      } else if (edges.leftLong) {
+        if (musicPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
+                                        musicService_, sdCardService_)) {
           needsRedraw_ = true;
+        } else if (gamesPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_)) {
+          needsRedraw_ = true;
+        } else if (remotePage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
+                                                bluetoothService_)) {
+          needsRedraw_ = true;
+        } else if (clockPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
+                                               timeService_)) {
+          needsRedraw_ = true;
+        } else if (readerPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
+                                                readerService_)) {
+          needsRedraw_ = true;
+        } else {
+          settingsPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
+                                          wifiProvisionService_, otaService_);
+          state_ = UiState::ToSectionFromDetailTransition;
+          transitionStartMs_ = nowMs;
+          needsRedraw_ = true;
+        }
+      } else if (musicPage_.isMusicListSelection(homePage_.focusIndex(), sectionFocusIndex_) &&
+          musicPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
+                                       edges.left, edges.right, edges.up, edges.down, edges.ok, nowMs,
+                                       musicService_)) {
+        needsRedraw_ = true;
+      } else if (edges.left) {
+        if (musicPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
+                                        musicService_, sdCardService_)) {
+          needsRedraw_ = true;
+        } else if (gamesPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_)) {
+          needsRedraw_ = true;
+        } else if (remotePage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
+                                                bluetoothService_)) {
+          needsRedraw_ = true;
+        } else if (clockPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
+                                               timeService_)) {
+          needsRedraw_ = true;
+        } else if (readerPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
+                                                true, edges.right, edges.up, edges.down,
+                                                edges.ok, readerService_, sdCardService_)) {
+          needsRedraw_ = true;
+        } else if (readerPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
+                                                readerService_)) {
+          needsRedraw_ = true;
+        } else {
+          settingsPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
+                                         wifiProvisionService_, otaService_);
+          state_ = UiState::ToSectionFromDetailTransition;
+          transitionStartMs_ = nowMs;
+          needsRedraw_ = true;
+        }
+      } else if (musicPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
+                                              false, edges.right, edges.up, edges.down, edges.ok, nowMs,
+                                              musicService_)) {
+        needsRedraw_ = true;
+      } else if (gamesPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
+                                              edges.ok, edges.okPressed, edges.okChanged,
+                                              nowMs)) {
+        needsRedraw_ = true;
+        } else if (remotePage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
+                                               edges.ok, nowMs, bluetoothService_,
+                                               remoteService_)) {
+          needsRedraw_ = true;
+      } else if (clockPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
+                                              edges.up, edges.down, edges.ok, nowMs, timeService_,
+                                              wifiProvisionService_)) {
+        needsRedraw_ = true;
+      } else if (readerPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
+                                               false, edges.right, edges.up, edges.down,
+                                               edges.ok, readerService_, sdCardService_)) {
+        needsRedraw_ = true;
+      } else {
+        if (settingsPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
+                                             detailPageIndex_,
+                                             edges.ok, nowMs, wifiProvisionService_, otaService_)) {
+          needsRedraw_ = true;
+        } else if (edges.up || edges.down || edges.right || edges.ok) {
+          uint8_t pageCount = clockPage_.detailPageCount(homePage_.focusIndex(), sectionFocusIndex_);
+          if (pageCount == 0U) {
+            pageCount = musicPage_.detailPageCount(homePage_.focusIndex(), sectionFocusIndex_);
+          }
+          if (pageCount == 0U) {
+            pageCount = remotePage_.detailPageCount(homePage_.focusIndex(), sectionFocusIndex_);
+          }
+          if (pageCount == 0U) {
+            pageCount = settingsPage_.detailPageCount(homePage_.focusIndex(), sectionFocusIndex_);
+          }
+          if (pageCount == 0U) {
+            pageCount = 1U;
+          }
+          if (pageCount > 1U) {
+            detailPageIndex_ = static_cast<uint8_t>((detailPageIndex_ + 1U) % pageCount);
+            needsRedraw_ = true;
+          }
         }
       }
       break;
@@ -557,6 +737,11 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
 }
 
 bool UiManager::shouldRedraw(uint32_t nowMs) const {
+  const uint32_t frameIntervalMs = targetFrameIntervalMs(nowMs);
+  if (frameIntervalMs > 0 && !needsRedraw_ && (nowMs - lastRenderMs_) < frameIntervalMs) {
+    return false;
+  }
+
   if (needsRedraw_) {
     return true;
   }
@@ -588,9 +773,10 @@ bool UiManager::shouldRedraw(uint32_t nowMs) const {
     }
 
     const SectionContent content = sectionContentFor(homePage_.focusIndex(), settingsPage_);
-    if (content.itemCount > 0) {
+    if (content.itemCount > 0 && isSectionAnimationActive(nowMs)) {
       const uint8_t selected = static_cast<uint8_t>(sectionFocusIndex_ % content.itemCount);
-      const uint16_t frame = IconBitmap::frameAt(content.items[selected].icon, nowMs);
+      const uint16_t frame =
+          IconBitmap::frameAt(content.items[selected].icon, sectionAnimationRenderTime(nowMs));
       if (frame != lastSectionIconFrame_) {
         return true;
       }
@@ -603,13 +789,88 @@ bool UiManager::shouldRedraw(uint32_t nowMs) const {
     }
   }
 
+  if (state_ == UiState::Detail &&
+      musicPage_.needsAnimationFrame(homePage_.focusIndex(), sectionFocusIndex_, nowMs)) {
+    return true;
+  }
+
+  if (state_ == UiState::Detail &&
+      settingsPage_.isDeviceSelfTestSelection(homePage_.focusIndex(), sectionFocusIndex_) &&
+      deviceSelfTestPage_.needsAnimationFrame()) {
+    return true;
+  }
+
   return false;
 }
 
+uint32_t UiManager::targetFrameIntervalMs(uint32_t nowMs) const {
+  if (state_ == UiState::ToSectionTransition || state_ == UiState::ToHomeTransition ||
+      state_ == UiState::ToDetailTransition ||
+      state_ == UiState::ToSectionFromDetailTransition) {
+    return kHighFrameIntervalMs;
+  }
+
+  if (state_ == UiState::Home && homePage_.isSliding()) {
+    return kHighFrameIntervalMs;
+  }
+
+  if (state_ == UiState::Section && sectionAnimActive_) {
+    return kHighFrameIntervalMs;
+  }
+
+  if (state_ == UiState::Detail &&
+      musicPage_.isMusicListSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
+    return musicPage_.detailFrameIntervalMs(homePage_.focusIndex(), sectionFocusIndex_);
+  }
+
+  if (state_ == UiState::Detail &&
+      settingsPage_.isDeviceSelfTestSelection(homePage_.focusIndex(), sectionFocusIndex_) &&
+      deviceSelfTestPage_.needsAnimationFrame()) {
+    return 0;
+  }
+
+  (void)nowMs;
+  return 0;
+}
+
 void UiManager::render(uint32_t nowMs) {
+  const bool navOnlyMusicFrame =
+      state_ == UiState::Detail && !needsRedraw_ &&
+      musicPage_.needsNavAnimationFrame(homePage_.focusIndex(), sectionFocusIndex_, nowMs);
+  const bool listOnlyMusicFrame =
+      state_ == UiState::Detail && !needsRedraw_ && !navOnlyMusicFrame &&
+      musicPage_.needsListAnimationFrame(homePage_.focusIndex(), sectionFocusIndex_, nowMs);
+
   renderer_.beginFrame();
-  renderer_.markDirty(0, 0, static_cast<int16_t>(display_.width() - 1),
-                      static_cast<int16_t>(display_.height() - 1));
+  if (navOnlyMusicFrame) {
+    renderer_.markDirty(0, 112, static_cast<int16_t>(display_.width() - 1),
+                        static_cast<int16_t>(display_.height() - 1));
+  } else if (listOnlyMusicFrame) {
+    renderer_.markDirty(0, 0, static_cast<int16_t>(display_.width() - 1), 111);
+  } else {
+    renderer_.markDirty(0, 0, static_cast<int16_t>(display_.width() - 1),
+                        static_cast<int16_t>(display_.height() - 1));
+  }
+
+  if (navOnlyMusicFrame) {
+    if (musicPage_.renderDetailNavOnly(homePage_.focusIndex(), sectionFocusIndex_, 0, display_,
+                                       kUiLanguage, nowMs)) {
+      if (renderer_.hasDirty()) {
+        display_.present();
+      }
+      return;
+    }
+  }
+
+  if (listOnlyMusicFrame) {
+    if (musicPage_.renderDetailListOnly(homePage_.focusIndex(), sectionFocusIndex_, display_,
+                                        kUiLanguage, musicService_, nowMs)) {
+      if (renderer_.hasDirty()) {
+        display_.present();
+      }
+      return;
+    }
+  }
 
   display_.clear();
 
@@ -907,9 +1168,9 @@ void UiManager::renderSection(int16_t xOffset, int16_t yOffset, uint32_t nowMs,
                                            : selectedRow;
 
   const int16_t fromLabelW =
-      text.getUTF8Width(labelForLanguage(content.items[fromIndex], language_));
+      text.getUTF8Width(content.items[fromIndex].labelZh);
   const int16_t toLabelW =
-      text.getUTF8Width(labelForLanguage(content.items[toIndex], language_));
+      text.getUTF8Width(content.items[toIndex].labelZh);
   const SectionRowLayout fromLayout = makeSectionRowLayout(layout, fromLabelW, fromRow);
   const SectionRowLayout toLayout = makeSectionRowLayout(layout, toLabelW, toRow);
 
@@ -940,7 +1201,7 @@ void UiManager::renderSection(int16_t xOffset, int16_t yOffset, uint32_t nowMs,
 
   for (uint8_t row = 0; row < visibleCount; ++row) {
     const uint8_t itemIndex = static_cast<uint8_t>(pageStart + row);
-    const char* label = labelForLanguage(content.items[itemIndex], language_);
+    const char* label = content.items[itemIndex].labelZh;
     const int16_t labelW = text.getUTF8Width(label);
     const SectionRowLayout rowLayout = makeSectionRowLayout(layout, labelW, row);
     const bool isSelected = (itemIndex == selected);
@@ -992,7 +1253,12 @@ void UiManager::renderSection(int16_t xOffset, int16_t yOffset, uint32_t nowMs,
   text.drawUTF8(static_cast<int16_t>(pageCenterX - pageTextW / 2), pageBaselineY, pageText);
 
   const SectionItem& selectedItem = content.items[selected];
-  const uint16_t iconFrame = IconBitmap::frameAt(selectedItem.icon, nowMs);
+  const bool sectionTransitionActive =
+      (xOffset != 0) || (yOffset != 0) || (iconExtraOffsetX != 0) ||
+      (rowExtraOffsets != nullptr) || (focusBoxExtraOffsetX != 0);
+  const uint32_t iconNowMs =
+      (sectionAnimActive_ || sectionTransitionActive) ? nowMs : sectionAnimationRenderTime(nowMs);
+  const uint16_t iconFrame = IconBitmap::frameAt(selectedItem.icon, iconNowMs);
   lastSectionIconFrame_ = iconFrame;
   const int16_t iconBaseX = static_cast<int16_t>(layout.iconX + iconExtraOffsetX);
   int16_t iconDrawX = iconBaseX;
@@ -1027,6 +1293,14 @@ void UiManager::renderSection(int16_t xOffset, int16_t yOffset, uint32_t nowMs,
 
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setFontMode(1);
+}
+
+bool UiManager::isSectionAnimationActive(uint32_t nowMs) const {
+  return (nowMs - lastSectionInteractionMs_) < kSectionIdleAnimationTimeoutMs;
+}
+
+uint32_t UiManager::sectionAnimationRenderTime(uint32_t nowMs) const {
+  return isSectionAnimationActive(nowMs) ? nowMs : sectionAnimationTimeMs_;
 }
 
 void UiManager::renderTwoOptionPopup(const char* title, const char* primaryLabel,
@@ -1106,9 +1380,9 @@ void UiManager::renderPopup(uint32_t nowMs) {
     return;
   }
 
-  renderTwoOptionPopup(settingsPage_.popupTitle(popupKind_, language_),
-                       settingsPage_.popupPrimaryLabel(popupKind_, language_),
-                       settingsPage_.popupSecondaryLabel(popupKind_, language_), nowMs);
+  renderTwoOptionPopup(settingsPage_.popupTitle(popupKind_),
+                       settingsPage_.popupPrimaryLabel(popupKind_),
+                       settingsPage_.popupSecondaryLabel(popupKind_), nowMs);
 }
 
 void UiManager::renderDetail(int16_t yOffset) {
@@ -1117,8 +1391,43 @@ void UiManager::renderDetail(int16_t yOffset) {
   const int16_t width = static_cast<int16_t>(display_.width());
   const int16_t height = static_cast<int16_t>(display_.height());
 
+  if (yOffset < height) {
+    canvas.drawFilledRectangle(0, yOffset, width - 1, height - 1, ST7305_COLOR_WHITE);
+  }
+
+  if (settingsPage_.isDeviceSelfTestSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
+    deviceSelfTestPage_.render(display_, yOffset, millis(), iicScanService_, rtcTestService_,
+                               sdCardService_, imuTestService_, powerDiagnosticService_);
+    return;
+  }
+
+  if (gamesPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
+                              kUiLanguage)) {
+    return;
+  }
+
+  if (musicPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
+                              kUiLanguage, musicService_, millis())) {
+    return;
+  }
+
+  if (readerPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
+                               kUiLanguage, readerService_)) {
+    return;
+  }
+
+  if (remotePage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
+                               kUiLanguage, bluetoothService_, remoteService_)) {
+    return;
+  }
+
+  if (clockPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
+                              kUiLanguage, timeService_)) {
+    return;
+  }
+
   if (settingsPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, detailPageIndex_,
-                                 yOffset, display_, language_, deviceIdText_, flashTotalText_,
+                                 yOffset, display_, kUiLanguage, deviceIdText_, flashTotalText_,
                                  sdStatusText_, wifiProvisionService_, otaService_)) {
     return;
   }
@@ -1128,16 +1437,12 @@ void UiManager::renderDetail(int16_t yOffset) {
                              ST7305_COLOR_BLACK);
   text.setFont(chinese_font_all);
   text.setForegroundColor(ST7305_COLOR_WHITE);
-  text.drawUTF8(6, static_cast<int16_t>(yOffset + 24),
-                language_ == HomePage::Language::Zh ? "详情页" : "Details");
+  text.drawUTF8(6, static_cast<int16_t>(yOffset + 24), "详情页");
 
   text.setForegroundColor(ST7305_COLOR_BLACK);
   text.drawUTF8(8, static_cast<int16_t>(yOffset + 62), homePage_.focusName());
-  text.drawUTF8(8, static_cast<int16_t>(yOffset + 92),
-                language_ == HomePage::Language::Zh ? "详情内容开发中"
-                                                    : "Detail content WIP");
-  text.drawUTF8(width - 92, static_cast<int16_t>(yOffset + height - 10),
-                language_ == HomePage::Language::Zh ? "LEFT: 返回" : "LEFT: Back");
+  text.drawUTF8(8, static_cast<int16_t>(yOffset + 92), "详情内容开发中");
+  text.drawUTF8(width - 92, static_cast<int16_t>(yOffset + height - 10), "LEFT: 返回");
 
   canvas.drawRectangle(4, static_cast<int16_t>(yOffset + 32), width - 5,
                        static_cast<int16_t>(yOffset + height - 5), ST7305_COLOR_BLACK);
@@ -1162,75 +1467,22 @@ void UiManager::refreshSdStatus() {
   snprintf(sdStatusText_, sizeof(sdStatusText_), "SD卡：%.1fG可用/%.1fG总容量", freeGb, totalGb);
 }
 
-void UiManager::syncHomeClockFromRtc(uint32_t nowMs) {
-  if (!rtcReady_) {
-    return;
-  }
-  if ((nowMs - lastRtcReadMs_) < kRtcReadIntervalMs) {
-    return;
-  }
-  lastRtcReadMs_ = nowMs;
-
-  RtcDriver::DateTime rtcNow;
-  if (!rtcDriver_.read(rtcNow)) {
-    return;
-  }
-
+void UiManager::syncHomeClockFromTimeService() {
+  const TimeService::Snapshot& snapshot = timeService_.snapshot();
   HomePage::ClockData clock;
-  clock.second = rtcNow.second;
-  clock.minute = rtcNow.minute;
-  clock.hour = rtcNow.hour;
-  clock.day = rtcNow.day;
-  clock.weekday = rtcNow.weekday;
-  clock.month = rtcNow.month;
-  clock.year = static_cast<uint16_t>(2000U + rtcNow.year);
-  clock.valid = true;
+  if (snapshot.valid) {
+    clock.second = snapshot.now.second;
+    clock.minute = snapshot.now.minute;
+    clock.hour = snapshot.now.hour;
+    clock.day = snapshot.now.day;
+    clock.weekday = snapshot.now.weekday;
+    clock.month = snapshot.now.month;
+    clock.year = snapshot.now.year;
+    clock.valid = true;
+  } else {
+    clock.valid = false;
+  }
   homePage_.setClockData(clock);
-  needsRedraw_ = true;
-}
-
-bool UiManager::startNtpSync(uint32_t nowMs) {
-  if (!rtcReady_) {
-    return false;
-  }
-  configTime(kNtpUtcOffsetSeconds, kNtpDaylightOffsetSeconds, "pool.ntp.org",
-             "time.nist.gov");
-  ntpSyncStartMs_ = nowMs;
-  ntpSyncActive_ = true;
-  return true;
-}
-
-void UiManager::processNtpSync(uint32_t nowMs) {
-  if (!ntpSyncActive_ || !rtcReady_) {
-    return;
-  }
-
-  const time_t epoch = time(nullptr);
-  if (epoch > 1700000000) {
-    struct tm localTm;
-    if (localtime_r(&epoch, &localTm) != nullptr) {
-      RtcDriver::DateTime rtcSet;
-      rtcSet.second = static_cast<uint8_t>(localTm.tm_sec);
-      rtcSet.minute = static_cast<uint8_t>(localTm.tm_min);
-      rtcSet.hour = static_cast<uint8_t>(localTm.tm_hour);
-      rtcSet.day = static_cast<uint8_t>(localTm.tm_mday);
-      rtcSet.weekday = static_cast<uint8_t>(localTm.tm_wday);
-      rtcSet.month = static_cast<uint8_t>(localTm.tm_mon + 1);
-      rtcSet.year = static_cast<uint8_t>(localTm.tm_year >= 100 ? (localTm.tm_year - 100) : 0);
-      (void)rtcDriver_.write(rtcSet);
-      syncHomeClockFromRtc(nowMs);
-    }
-    ntpSyncActive_ = false;
-    wifiProvisionService_.finishOnlineSession();
-    needsRedraw_ = true;
-    return;
-  }
-
-  if ((nowMs - ntpSyncStartMs_) >= kNtpSyncTimeoutMs) {
-    ntpSyncActive_ = false;
-    wifiProvisionService_.finishOnlineSession();
-    needsRedraw_ = true;
-  }
 }
 
 bool UiManager::isPressed(uint8_t pin) const { return digitalRead(pin) == LOW; }

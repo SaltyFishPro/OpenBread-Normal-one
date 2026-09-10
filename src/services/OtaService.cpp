@@ -1,11 +1,8 @@
 #include "OtaService.h"
 
-#include <HTTPClient.h>
 #include <Preferences.h>
 #include <Update.h>
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <mbedtls/sha256.h>
 
 #include <cctype>
 #include <cstdarg>
@@ -65,8 +62,10 @@ bool OtaService::begin() {
   memset(staSsid_, 0, sizeof(staSsid_));
   memset(staPass_, 0, sizeof(staPass_));
   memset(&manifest_, 0, sizeof(manifest_));
+  mbedtls_sha256_init(&shaCtx_);
   lastHttpStatus_ = 0;
   clearProgress();
+  cleanupDownloadSession();
   phase_ = CheckPhase::None;
   pendingAction_ = Action::None;
   hasPostApplyResult_ = false;
@@ -97,7 +96,7 @@ void OtaService::tick(uint32_t nowMs) {
       otaLog("wifi connected for %s, ip=%u.%u.%u.%u",
              pendingAction_ == Action::DownloadFirmware ? "download" : "manifest check", ip[0],
              ip[1], ip[2], ip[3]);
-      phase_ = (pendingAction_ == Action::DownloadFirmware) ? CheckPhase::DownloadFirmware
+      phase_ = (pendingAction_ == Action::DownloadFirmware) ? CheckPhase::StartDownload
                                                             : CheckPhase::FetchManifest;
       actionStartMs_ = nowMs;
       return;
@@ -112,6 +111,7 @@ void OtaService::tick(uint32_t nowMs) {
     }
 
     otaErr("wifi connect timeout status=%s", wifiStatusText(wifiStatus));
+    cleanupDownloadSession();
     cleanupRadio();
     phase_ = CheckPhase::None;
     pendingAction_ = Action::None;
@@ -119,42 +119,68 @@ void OtaService::tick(uint32_t nowMs) {
     return;
   }
 
-  if (phase_ != CheckPhase::FetchManifest) {
-    if (phase_ == CheckPhase::DownloadFirmware) {
-      if (downloadAndVerifyFirmware()) {
-        setState(State::ReadyToApply, Error::None);
+  if (phase_ == CheckPhase::FetchManifest) {
+    if (fetchAndValidateManifest()) {
+      if (manifest_.build > FirmwareInfo::kBuild) {
+        otaLog("update available local=%lu remote=%lu version=%s",
+               static_cast<unsigned long>(FirmwareInfo::kBuild),
+               static_cast<unsigned long>(manifest_.build), manifest_.version);
+        setState(State::UpdateAvailable, Error::None);
+      } else {
+        otaLog("already up-to-date local=%lu remote=%lu",
+               static_cast<unsigned long>(FirmwareInfo::kBuild),
+               static_cast<unsigned long>(manifest_.build));
+        setState(State::UpToDate, Error::None);
       }
-      cleanupRadio();
-      phase_ = CheckPhase::None;
-      pendingAction_ = Action::None;
-      return;
     }
 
-    otaErr("invalid check phase");
     cleanupRadio();
     phase_ = CheckPhase::None;
     pendingAction_ = Action::None;
-    setState(State::Error, Error::Unknown);
     return;
   }
 
-  if (fetchAndValidateManifest()) {
-    if (manifest_.build > FirmwareInfo::kBuild) {
-      otaLog("update available local=%lu remote=%lu version=%s",
-             static_cast<unsigned long>(FirmwareInfo::kBuild),
-             static_cast<unsigned long>(manifest_.build), manifest_.version);
-      setState(State::UpdateAvailable, Error::None);
+  if (phase_ == CheckPhase::StartDownload) {
+    if (beginDownloadSession()) {
+      phase_ = CheckPhase::DownloadChunk;
     } else {
-      otaLog("already up-to-date local=%lu remote=%lu",
-             static_cast<unsigned long>(FirmwareInfo::kBuild),
-             static_cast<unsigned long>(manifest_.build));
-      setState(State::UpToDate, Error::None);
+      cleanupRadio();
+      phase_ = CheckPhase::None;
+      pendingAction_ = Action::None;
     }
+    return;
   }
 
+  if (phase_ == CheckPhase::DownloadChunk) {
+    if (processDownloadChunk()) {
+      phase_ = CheckPhase::FinalizeDownload;
+      return;
+    }
+
+    if (!downloadSessionActive_) {
+      cleanupRadio();
+      phase_ = CheckPhase::None;
+      pendingAction_ = Action::None;
+    }
+    return;
+  }
+
+  if (phase_ == CheckPhase::FinalizeDownload) {
+    if (finalizeDownloadSession()) {
+      setState(State::ReadyToApply, Error::None);
+    }
+    cleanupRadio();
+    phase_ = CheckPhase::None;
+    pendingAction_ = Action::None;
+    return;
+  }
+
+  otaErr("invalid check phase");
+  cleanupDownloadSession();
   cleanupRadio();
   phase_ = CheckPhase::None;
   pendingAction_ = Action::None;
+  setState(State::Error, Error::Unknown);
 }
 
 bool OtaService::requestCheck(uint32_t nowMs) {
@@ -172,6 +198,7 @@ bool OtaService::requestCheck(uint32_t nowMs) {
   memset(&manifest_, 0, sizeof(manifest_));
   lastHttpStatus_ = 0;
   clearProgress();
+  cleanupDownloadSession();
 
   WiFi.disconnect(false, false);
   WiFi.mode(WIFI_STA);
@@ -216,6 +243,7 @@ bool OtaService::requestDownload(uint32_t nowMs) {
 
   lastHttpStatus_ = 0;
   clearProgress();
+  cleanupDownloadSession();
   totalBytes_ = manifest_.size;
 
   WiFi.disconnect(false, false);
@@ -265,6 +293,7 @@ void OtaService::cancel() {
     return;
   }
   otaLog("ota action canceled by user");
+  cleanupDownloadSession();
   cleanupRadio();
   phase_ = CheckPhase::None;
   pendingAction_ = Action::None;
@@ -454,15 +483,13 @@ bool OtaService::fetchAndValidateManifest() {
   }
 
   if (strcmp(parsed.product, FirmwareInfo::kProduct) != 0) {
-    otaErr("product mismatch remote=%s local=%s", parsed.product,
-           FirmwareInfo::kProduct);
+    otaErr("product mismatch remote=%s local=%s", parsed.product, FirmwareInfo::kProduct);
     setState(State::Error, Error::ProductMismatch);
     return false;
   }
 
   if (strcmp(parsed.channel, FirmwareInfo::kChannel) != 0) {
-    otaErr("channel mismatch remote=%s local=%s", parsed.channel,
-           FirmwareInfo::kChannel);
+    otaErr("channel mismatch remote=%s local=%s", parsed.channel, FirmwareInfo::kChannel);
     setState(State::Error, Error::ChannelMismatch);
     return false;
   }
@@ -495,144 +522,169 @@ bool OtaService::fetchAndValidateManifest() {
   return true;
 }
 
-bool OtaService::downloadAndVerifyFirmware() {
-  WiFiClientSecure client;
-  client.setInsecure();
-
-  HTTPClient http;
-  http.setTimeout(kHttpTimeoutMs);
-  if (!http.begin(client, manifest_.firmwareUrl)) {
+bool OtaService::beginDownloadSession() {
+  cleanupDownloadSession();
+  downloadClient_.setInsecure();
+  downloadHttp_.setTimeout(kHttpTimeoutMs);
+  if (!downloadHttp_.begin(downloadClient_, manifest_.firmwareUrl)) {
     otaErr("firmware http begin failed");
     setState(State::Error, Error::DownloadFailed);
     return false;
   }
 
-  const int httpCode = http.GET();
+  const int httpCode = downloadHttp_.GET();
   lastHttpStatus_ = httpCode;
   if (httpCode != HTTP_CODE_OK) {
     otaErr("firmware http status=%d", httpCode);
-    http.end();
+    cleanupDownloadSession();
     setState(State::Error, (httpCode < 0) ? Error::DownloadFailed : Error::HttpStatusInvalid);
     return false;
   }
 
-  const int contentLength = http.getSize();
+  const int contentLength = downloadHttp_.getSize();
   if (contentLength > 0 && static_cast<uint32_t>(contentLength) != manifest_.size) {
     otaErr("firmware size mismatch header=%d manifest=%lu", contentLength,
            static_cast<unsigned long>(manifest_.size));
-    http.end();
+    cleanupDownloadSession();
     setState(State::Error, Error::SizeInvalid);
     return false;
   }
 
   if (!Update.begin(manifest_.size, U_FLASH)) {
     otaErr("update begin failed err=%u", static_cast<unsigned>(Update.getError()));
-    http.end();
+    cleanupDownloadSession();
     setState(State::Error, Error::UpdateBeginFailed);
     return false;
   }
 
-  setState(State::Downloading, Error::None);
-  WiFiClient* stream = http.getStreamPtr();
-  uint8_t buf[1024];
-  size_t remaining = manifest_.size;
-
-  mbedtls_sha256_context shaCtx;
-  mbedtls_sha256_init(&shaCtx);
-  mbedtls_sha256_starts(&shaCtx, 0);
-
+  mbedtls_sha256_starts(&shaCtx_, 0);
+  shaActive_ = true;
+  downloadSessionActive_ = true;
+  downloadRemaining_ = manifest_.size;
   clearProgress();
   totalBytes_ = manifest_.size;
+  setState(State::Downloading, Error::None);
+  otaLog("download session opened size=%lu", static_cast<unsigned long>(manifest_.size));
+  return true;
+}
 
-  while (remaining > 0) {
-    const int available = stream->available();
-    if (available <= 0) {
-      if (!http.connected()) {
-        otaErr("download interrupted at %lu/%lu", static_cast<unsigned long>(downloadedBytes_),
-               static_cast<unsigned long>(manifest_.size));
-        Update.abort();
-        mbedtls_sha256_free(&shaCtx);
-        http.end();
-        setState(State::Error, Error::DownloadFailed);
-        return false;
-      }
-      delay(1);
-      continue;
-    }
+bool OtaService::processDownloadChunk() {
+  if (!downloadSessionActive_) {
+    return false;
+  }
 
-    size_t toRead = static_cast<size_t>(available);
-    if (toRead > sizeof(buf)) {
-      toRead = sizeof(buf);
-    }
-    if (toRead > remaining) {
-      toRead = remaining;
-    }
+  WiFiClient* stream = downloadHttp_.getStreamPtr();
+  if (stream == nullptr) {
+    otaErr("download stream unavailable");
+    abortDownloadSession(Error::DownloadFailed);
+    return false;
+  }
 
-    const int readLen = stream->readBytes(buf, toRead);
-    if (readLen <= 0) {
-      otaErr("download read failed");
-      Update.abort();
-      mbedtls_sha256_free(&shaCtx);
-      http.end();
-      setState(State::Error, Error::DownloadFailed);
-      return false;
-    }
-
-    if (Update.write(buf, static_cast<size_t>(readLen)) != static_cast<size_t>(readLen)) {
-      otaErr("update write failed err=%u", static_cast<unsigned>(Update.getError()));
-      Update.abort();
-      mbedtls_sha256_free(&shaCtx);
-      http.end();
-      setState(State::Error, Error::UpdateWriteFailed);
-      return false;
-    }
-
-    mbedtls_sha256_update(&shaCtx, buf, static_cast<size_t>(readLen));
-    downloadedBytes_ += static_cast<uint32_t>(readLen);
-    remaining -= static_cast<size_t>(readLen);
-
-    const uint8_t step = static_cast<uint8_t>(progressPercent() / 10U);
-    if (step > lastProgressStep_) {
-      lastProgressStep_ = step;
-      otaLog("download progress=%u%% (%lu/%lu)", static_cast<unsigned>(progressPercent()),
-             static_cast<unsigned long>(downloadedBytes_),
+  const int available = stream->available();
+  if (available <= 0) {
+    if (!downloadHttp_.connected()) {
+      otaErr("download interrupted at %lu/%lu", static_cast<unsigned long>(downloadedBytes_),
              static_cast<unsigned long>(manifest_.size));
+      abortDownloadSession(Error::DownloadFailed);
     }
-    yield();
+    return false;
+  }
+
+  uint8_t buf[1024];
+  size_t toRead = static_cast<size_t>(available);
+  if (toRead > sizeof(buf)) {
+    toRead = sizeof(buf);
+  }
+  if (toRead > downloadRemaining_) {
+    toRead = downloadRemaining_;
+  }
+
+  const int readLen = stream->readBytes(buf, toRead);
+  if (readLen <= 0) {
+    otaErr("download read failed");
+    abortDownloadSession(Error::DownloadFailed);
+    return false;
+  }
+
+  if (Update.write(buf, static_cast<size_t>(readLen)) != static_cast<size_t>(readLen)) {
+    otaErr("update write failed err=%u", static_cast<unsigned>(Update.getError()));
+    abortDownloadSession(Error::UpdateWriteFailed);
+    return false;
+  }
+
+  mbedtls_sha256_update(&shaCtx_, buf, static_cast<size_t>(readLen));
+  downloadedBytes_ += static_cast<uint32_t>(readLen);
+  downloadRemaining_ -= static_cast<size_t>(readLen);
+
+  const uint8_t step = static_cast<uint8_t>(progressPercent() / 10U);
+  if (step > lastProgressStep_) {
+    lastProgressStep_ = step;
+    otaLog("download progress=%u%% (%lu/%lu)", static_cast<unsigned>(progressPercent()),
+           static_cast<unsigned long>(downloadedBytes_),
+           static_cast<unsigned long>(manifest_.size));
+  }
+
+  yield();
+  return downloadRemaining_ == 0;
+}
+
+bool OtaService::finalizeDownloadSession() {
+  if (!downloadSessionActive_ || !shaActive_) {
+    setState(State::Error, Error::Unknown);
+    cleanupDownloadSession();
+    return false;
   }
 
   setState(State::Verifying, Error::None);
+
   uint8_t hash[32] = {0};
   char hashHex[65] = {0};
-  mbedtls_sha256_finish(&shaCtx, hash);
-  mbedtls_sha256_free(&shaCtx);
+  mbedtls_sha256_finish(&shaCtx_, hash);
+  shaActive_ = false;
 
   if (!toHexSha256(hash, sizeof(hash), hashHex, sizeof(hashHex))) {
     otaErr("sha256 hex conversion failed");
-    Update.abort();
-    http.end();
-    setState(State::Error, Error::ShaInvalid);
+    abortDownloadSession(Error::ShaInvalid);
     return false;
   }
 
   if (strcasecmp(hashHex, manifest_.sha256) != 0) {
     otaErr("sha256 mismatch expected=%s actual=%s", manifest_.sha256, hashHex);
-    Update.abort();
-    http.end();
-    setState(State::Error, Error::ShaMismatch);
+    abortDownloadSession(Error::ShaMismatch);
     return false;
   }
 
   if (!Update.end(false)) {
     otaErr("update finalize failed err=%u", static_cast<unsigned>(Update.getError()));
-    http.end();
+    cleanupDownloadSession();
     setState(State::Error, Error::UpdateFinalizeFailed);
     return false;
   }
 
   otaLog("firmware stored and verified, ready to apply on reboot");
-  http.end();
+  cleanupDownloadSession();
   return true;
+}
+
+void OtaService::cleanupDownloadSession() {
+  if (downloadSessionActive_) {
+    downloadHttp_.end();
+    downloadSessionActive_ = false;
+  }
+
+  if (shaActive_) {
+    mbedtls_sha256_free(&shaCtx_);
+    mbedtls_sha256_init(&shaCtx_);
+    shaActive_ = false;
+  }
+
+  downloadRemaining_ = 0;
+}
+
+void OtaService::abortDownloadSession(Error err) {
+  Update.abort();
+  cleanupDownloadSession();
+  setState(State::Error, err);
 }
 
 bool OtaService::parseStringField(const char* json, const char* key, char* out,

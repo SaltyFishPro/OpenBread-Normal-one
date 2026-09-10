@@ -4,6 +4,9 @@
 #include <ST7305_2p9_BW_DisplayDriver.h>
 
 namespace IconBitmap {
+static constexpr uint16_t kRleFrameBytesFlag = 0x8000U;
+static constexpr uint16_t kFrameBytesMask = 0x7FFFU;
+
 struct Anim {
   const uint8_t* frames = nullptr;
   uint16_t frameBytes = 0;

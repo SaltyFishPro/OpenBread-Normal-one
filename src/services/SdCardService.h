@@ -14,13 +14,16 @@ public:
 
   bool begin();
   Status refresh();
+  void end();
   Status status() const;
   uint64_t totalBytes() const;
   uint64_t freeBytes() const;
+  bool rootReadable() const;
 
 private:
   SdCardDriver driver_;
   Status status_ = Status::ReinsertNeeded;
   uint64_t totalBytes_ = 0;
   uint64_t freeBytes_ = 0;
+  bool rootReadable_ = false;
 };

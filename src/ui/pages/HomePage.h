@@ -6,7 +6,7 @@
 
 class HomePage {
 public:
-  enum class Language : uint8_t { Zh, En };
+  enum class Language : uint8_t { Zh };
   struct ClockData {
     uint8_t second = 0;
     uint8_t minute = 0;
@@ -29,9 +29,9 @@ public:
 
   bool isSliding() const;
   bool hasAnimationTick(uint32_t nowMs) const;
+  bool isAnimationActive(uint32_t nowMs) const;
   uint8_t focusIndex() const;
   const char* focusName() const;
-  void setLanguage(Language language);
   void setClockData(const ClockData& data);
 
 private:
@@ -41,6 +41,8 @@ private:
   int16_t currentMenuOffset(uint32_t nowMs) const;
   int16_t easeOutCubic(int16_t from, int16_t to, float t) const;
   void beginSlide(int8_t direction, uint32_t nowMs);
+  bool isInteractiveAnimationWindow(uint32_t nowMs) const;
+  uint32_t animationRenderTime(uint32_t nowMs) const;
 
   SlideState slideState_ = SlideState::Idle;
   uint8_t focusIndex_ = 0;
@@ -51,8 +53,11 @@ private:
   uint32_t animStartMs_ = 0;
 
   uint16_t lastFocusFrame_ = 0;
-  Language language_ = Language::Zh;
+  uint16_t lastBackgroundFrame_ = 0;
+  uint32_t lastInteractionMs_ = 0;
+  uint32_t animationTimeMs_ = 0;
   ClockData clockData_;
 
-  static constexpr uint8_t kMenuCount = 5;
+  static constexpr uint8_t kMenuCount = 6;
+  static constexpr uint32_t kIdleAnimationTimeoutMs = 4000;
 };

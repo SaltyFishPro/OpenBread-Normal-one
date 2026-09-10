@@ -11,7 +11,7 @@ OpenBread 是一个基于 ESP32-S3 的 2.9 寸单色反射屏便携设备固件�
 - 基础页面路由（Home / Section / Detail）
 - Settings 子菜单图标联动（Focus item 对应右侧大图标）
 - Settings 弹窗（Popup）：`重启设备` 确认窗口（Yes/No）
-- Language 切换（中文 / English，保持 U8G2 font 不变）
+- UI 固定使用中文，避免多语言文本造成布局溢出
 - 关于设备（About Device）两页详情（含 Device ID、Flash total capacity）
 - 子菜单 <-> 详情页分段转场动画（Section <-> Detail）
 - WiFi 配网（Portal/连接/状态反馈）
@@ -53,7 +53,7 @@ OpenBread 是一个基于 ESP32-S3 的 2.9 寸单色反射屏便携设备固件�
 |---|---|---|---|---|
 | P0 | UI 过渡动画 | 进行中 | 继续微调主菜单->子菜单与返回动画节奏，清理边缘闪烁/错位 | 转场稳定、节奏统一 |
 | P0 | Section/Detail 页面 | 进行中 | 扩展更多真实 Detail 内容并完善分页/数据读取 | 可进入真实业务流程 |
-| P1 | Settings | 进行中 | 继续补齐设置项持久化（Language、Device 信息、存储状态） | 设置可保存、重启可恢复 |
+| P1 | Settings | 进行中 | 继续补齐设备信息与存储状态 | 设置状态清晰、重启后保持一致 |
 | P1 | Reader | 未完成 | 建立分页、书签与文本加载流程 | 可连续翻页阅读 |
 | P1 | Music | 未完成 | 建立曲库索引、播放状态与 UI 联动 | 可播放/暂停/切歌 |
 | P2 | Alarm | 未完成 | 接 RTC 与闹钟计划管理，打通提示链路 | 可创建并触发闹钟 |
@@ -71,7 +71,7 @@ src/
   data/       # 模型与存储占位
 ```
 
-详细设计请见 [`PROJECT_OUTLINE.md`](PROJECT_OUTLINE.md)。
+详细设计请见 [`docs/PROJECT_OUTLINE.md`](docs/PROJECT_OUTLINE.md)。
 
 ## 本地开发
 

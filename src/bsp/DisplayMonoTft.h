@@ -12,6 +12,9 @@ public:
   bool begin();
   void clear();
   void present();
+  void prepareForSleepKeepDisplay();
+  void prepareForSleep();
+  void restoreAfterSleep();
   int width() const;
   int height() const;
 

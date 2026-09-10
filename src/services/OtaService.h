@@ -1,6 +1,9 @@
 #pragma once
 
 #include <Arduino.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
+#include <mbedtls/sha256.h>
 
 class OtaService {
 public:
@@ -77,7 +80,9 @@ private:
     None,
     Connect,
     FetchManifest,
-    DownloadFirmware
+    StartDownload,
+    DownloadChunk,
+    FinalizeDownload
   };
 
   enum class Action : uint8_t {
@@ -101,10 +106,14 @@ private:
   bool isHttpsUrl(const char* value) const;
   bool hasStaIp() const;
   const char* wifiStatusText(uint8_t status) const;
-  bool downloadAndVerifyFirmware();
   void clearProgress();
   bool toHexSha256(const uint8_t* hash, size_t hashLen, char* out, size_t outLen) const;
   void loadAndVerifyPostApplyResult();
+  bool beginDownloadSession();
+  bool processDownloadChunk();
+  bool finalizeDownloadSession();
+  void cleanupDownloadSession();
+  void abortDownloadSession(Error err);
 
   State state_ = State::Idle;
   Error error_ = Error::None;
@@ -121,6 +130,12 @@ private:
   bool hasPostApplyResult_ = false;
   bool postApplySucceeded_ = false;
   char postApplyMessage_[96] = {0};
+  bool downloadSessionActive_ = false;
+  bool shaActive_ = false;
+  HTTPClient downloadHttp_;
+  WiFiClientSecure downloadClient_;
+  mbedtls_sha256_context shaCtx_{};
+  size_t downloadRemaining_ = 0;
 
   char staSsid_[33] = {0};
   char staPass_[65] = {0};

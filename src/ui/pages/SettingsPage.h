@@ -19,23 +19,24 @@ public:
 
   enum class PopupKind : uint8_t {
     None,
-    RestartConfirm,
-    LanguageSelect
+    RestartConfirm
   };
 
   static constexpr uint8_t kHomeIndex = 0;
   static constexpr uint8_t kRestartItemIndex = 0;
-  static constexpr uint8_t kLanguageItemIndex = 1;
-  static constexpr uint8_t kOtaItemIndex = 2;
-  static constexpr uint8_t kWifiProvisionItemIndex = 3;
+  static constexpr uint8_t kOtaItemIndex = 1;
+  static constexpr uint8_t kWifiProvisionItemIndex = 2;
+  static constexpr uint8_t kDeviceSelfTestItemIndex = 3;
   static constexpr uint8_t kAboutDeviceItemIndex = 5;
 
   PopupKind popupForSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
   bool isAboutDeviceSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
   bool isOtaSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
   bool isWifiProvisionSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
+  bool isDeviceSelfTestSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
   uint8_t detailPageCount(uint8_t homeFocus, uint8_t sectionFocus) const;
-  bool handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool okEdge,
+  bool handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, uint8_t detailPageIndex,
+                         bool okEdge,
                          uint32_t nowMs, WifiProvisionService& wifi,
                          OtaService& ota) const;
   bool handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus,
@@ -48,7 +49,7 @@ public:
                     const char* sdStatusText,
                     const WifiProvisionService& wifi, const OtaService& ota) const;
 
-  const char* popupTitle(PopupKind kind, HomePage::Language language) const;
-  const char* popupPrimaryLabel(PopupKind kind, HomePage::Language language) const;
-  const char* popupSecondaryLabel(PopupKind kind, HomePage::Language language) const;
+  const char* popupTitle(PopupKind kind) const;
+  const char* popupPrimaryLabel(PopupKind kind) const;
+  const char* popupSecondaryLabel(PopupKind kind) const;
 };

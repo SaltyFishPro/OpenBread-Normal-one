@@ -36,6 +36,19 @@ void DisplayMonoTft::clear() { display_.clearDisplay(); }
 
 void DisplayMonoTft::present() { display_.display(); }
 
+void DisplayMonoTft::prepareForSleepKeepDisplay() { display_.Low_Power_Mode(); }
+
+void DisplayMonoTft::prepareForSleep() {
+  display_.display_on(false);
+  display_.Low_Power_Mode();
+}
+
+void DisplayMonoTft::restoreAfterSleep() {
+  display_.High_Power_Mode();
+  display_.display_on(true);
+  display_.display_Inversion(false);
+}
+
 int DisplayMonoTft::width() const { return display_.getDisplayWidth(); }
 
 int DisplayMonoTft::height() const { return display_.getDisplayHeight(); }

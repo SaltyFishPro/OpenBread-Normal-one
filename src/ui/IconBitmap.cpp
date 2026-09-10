@@ -3,6 +3,45 @@
 #include "../bsp/BoardConfig.h"
 
 namespace {
+void decodeRleSpan(const uint8_t* frame, uint16_t encodedBytes, uint16_t spanOffset,
+                   uint16_t spanLen, uint8_t* out) {
+  for (uint16_t i = 0; i < spanLen; ++i) {
+    out[i] = 0;
+  }
+
+  const uint16_t spanEnd = static_cast<uint16_t>(spanOffset + spanLen);
+  uint16_t decodedOffset = 0;
+  uint16_t encodedOffset = 0;
+  while (encodedOffset + 1U < encodedBytes) {
+    const uint8_t runLen = pgm_read_byte(frame + encodedOffset);
+    const uint8_t runValue = pgm_read_byte(frame + encodedOffset + 1U);
+    if (runLen == 0) {
+      break;
+    }
+
+    const uint16_t runEnd = static_cast<uint16_t>(decodedOffset + runLen);
+    if (runEnd > spanOffset && decodedOffset < spanEnd) {
+      uint16_t copyStart = decodedOffset;
+      if (copyStart < spanOffset) {
+        copyStart = spanOffset;
+      }
+      uint16_t copyEnd = runEnd;
+      if (copyEnd > spanEnd) {
+        copyEnd = spanEnd;
+      }
+      for (uint16_t pos = copyStart; pos < copyEnd; ++pos) {
+        out[pos - spanOffset] = runValue;
+      }
+    }
+
+    if (runEnd >= spanEnd) {
+      return;
+    }
+    decodedOffset = runEnd;
+    encodedOffset = static_cast<uint16_t>(encodedOffset + 2U);
+  }
+}
+
 void writeLogicalPixel(ST7305_2p9_BW_DisplayDriver& canvas, int16_t lx, int16_t ly,
                        bool colorOn) {
   int16_t rx = lx;
@@ -48,8 +87,12 @@ void drawFrame(ST7305_2p9_BW_DisplayDriver& canvas, const Anim& anim, uint16_t f
   }
 
   const uint16_t idx = static_cast<uint16_t>(frameIndex % anim.frameCount);
-  const uint8_t* frame = anim.frames + (static_cast<size_t>(idx) * anim.frameBytes);
+  const bool rleEncoded = (anim.frameBytes & kRleFrameBytesFlag) != 0;
+  const uint16_t frameBytes = static_cast<uint16_t>(anim.frameBytes & kFrameBytesMask);
+  const uint8_t* frame = anim.frames + (static_cast<size_t>(idx) * frameBytes);
   const uint16_t srcStride = (anim.frameWidth + 7U) / 8U;
+  uint8_t decodedRow[64];
+  uint16_t cachedRow = 0xFFFFU;
 
   for (int16_t dy = 0; dy < dstH; ++dy) {
     const int16_t py = static_cast<int16_t>(dstY + dy);
@@ -59,12 +102,27 @@ void drawFrame(ST7305_2p9_BW_DisplayDriver& canvas, const Anim& anim, uint16_t f
 
     const uint16_t sy = static_cast<uint16_t>((static_cast<uint32_t>(dy) * anim.frameHeight) /
                                               static_cast<uint16_t>(dstH));
+    const uint16_t rowOffset = static_cast<uint16_t>(sy * srcStride);
+    if (rleEncoded && cachedRow != sy) {
+      if (srcStride > sizeof(decodedRow)) {
+        return;
+      }
+      decodeRleSpan(frame, frameBytes, rowOffset, srcStride, decodedRow);
+      cachedRow = sy;
+    }
+
     for (int16_t dx = 0; dx < dstW; ++dx) {
       const uint16_t sx = static_cast<uint16_t>((static_cast<uint32_t>(dx) * anim.frameWidth) /
                                                 static_cast<uint16_t>(dstW));
-      const uint16_t byteIndex = static_cast<uint16_t>(sy * srcStride + (sx >> 3));
+      const uint16_t byteIndex = static_cast<uint16_t>(sx >> 3);
       const uint8_t bitMask = static_cast<uint8_t>(0x80U >> (sx & 0x7U));
-      const bool on = (pgm_read_byte(frame + byteIndex) & bitMask) != 0;
+      uint8_t sourceByte = 0;
+      if (rleEncoded) {
+        sourceByte = decodedRow[byteIndex];
+      } else {
+        sourceByte = pgm_read_byte(frame + rowOffset + byteIndex);
+      }
+      const bool on = (sourceByte & bitMask) != 0;
       writeLogicalPixel(canvas, static_cast<int16_t>(dstX + dx), py, invert ? !on : on);
     }
   }
