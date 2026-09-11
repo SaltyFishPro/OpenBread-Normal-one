@@ -1,6 +1,7 @@
 #include "DisplayMonoTft.h"
 
 #include <SPI.h>
+#include <driver/gpio.h>
 
 #include "BoardConfig.h"
 
@@ -12,6 +13,24 @@ const ST73xxPins kDisplayPins = {
     BoardConfig::kPinSdin,
     BoardConfig::kPinRst,
 };
+
+constexpr int kDisplaySleepPins[] = {
+    BoardConfig::kPinSdin,
+    BoardConfig::kPinSclk,
+    BoardConfig::kPinCs,
+    BoardConfig::kPinDc,
+    BoardConfig::kPinRst,
+};
+
+void holdDisplayPins(bool hold) {
+  for (int pin : kDisplaySleepPins) {
+    if (hold) {
+      gpio_hold_en(static_cast<gpio_num_t>(pin));
+    } else {
+      gpio_hold_dis(static_cast<gpio_num_t>(pin));
+    }
+  }
+}
 }  // namespace
 
 DisplayMonoTft::DisplayMonoTft() : display_(kDisplayPins, SPI) {}
@@ -36,7 +55,10 @@ void DisplayMonoTft::clear() { display_.clearDisplay(); }
 
 void DisplayMonoTft::present() { display_.display(); }
 
-void DisplayMonoTft::prepareForSleepKeepDisplay() { display_.Low_Power_Mode(); }
+void DisplayMonoTft::prepareForSleepKeepDisplay() {
+  display_.Low_Power_Mode();
+  holdDisplayPins(true);
+}
 
 void DisplayMonoTft::prepareForSleep() {
   display_.display_on(false);
@@ -44,6 +66,8 @@ void DisplayMonoTft::prepareForSleep() {
 }
 
 void DisplayMonoTft::restoreAfterSleep() {
+  holdDisplayPins(false);
+  SPI.begin(BoardConfig::kPinSclk, -1, BoardConfig::kPinSdin, BoardConfig::kPinCs);
   display_.High_Power_Mode();
   display_.display_on(true);
   display_.display_Inversion(false);

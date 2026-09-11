@@ -83,6 +83,9 @@ private:
   void refreshSdStatus();
   bool isSectionAnimationActive(uint32_t nowMs) const;
   uint32_t sectionAnimationRenderTime(uint32_t nowMs) const;
+  void enterSleep(uint32_t nowMs);
+  bool isSleepAllowed() const;
+  void resetButtonDebounceState();
   int16_t easeInCubic(int16_t from, int16_t to, float t) const;
   bool isPressed(uint8_t pin) const;
   int16_t easeOutCubic(int16_t from, int16_t to, float t) const;
@@ -132,6 +135,8 @@ private:
   uint32_t lastRenderMs_ = 0;
   bool sectionAnimActive_ = false;
   bool needsRedraw_ = true;
+  bool leftLongReported_ = false;
+  uint32_t lastActivityMs_ = 0;
 
   ButtonEdge buttons_[5] = {
       {0, false, false, 0},

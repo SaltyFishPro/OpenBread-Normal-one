@@ -3,6 +3,9 @@
 #include <cstdio>
 
 #include "../bsp/BoardConfig.h"
+#include <cstdarg>
+#include <driver/gpio.h>
+#include <esp_sleep.h>
 #include "IconBitmap.h"
 #include "ThemeMono.h"
 #include "../services/SdCardService.h"
@@ -19,6 +22,28 @@
 #include "assets/ui/pop_up_window.h"
 
 namespace {
+#ifndef OB_SLEEP_LOG_ENABLED
+#define OB_SLEEP_LOG_ENABLED 1
+#endif
+
+constexpr uint32_t kAutoSleepTimeoutMs = 20000;
+
+void sleepLog(const char* fmt, ...) {
+#if OB_SLEEP_LOG_ENABLED
+  if (!Serial) {
+    return;
+  }
+  Serial.print("[SLEEP] ");
+  va_list args;
+  va_start(args, fmt);
+  Serial.vprintf(fmt, args);
+  va_end(args);
+  Serial.println();
+#else
+  (void)fmt;
+#endif
+}
+
 constexpr uint32_t kSectionTransitionMs = 600;
 constexpr uint32_t kForwardBgEndMs = 90;
 constexpr uint32_t kForwardMenuStartMs = 70;
@@ -355,6 +380,8 @@ bool UiManager::begin() {
   initDeviceInfoCache();
   syncHomeClockFromTimeService();
   state_ = UiState::Home;
+  lastActivityMs_ = millis();
+  leftLongReported_ = false;
   transitionStartMs_ = millis();
   sectionFocusIndex_ = 0;
   sectionAnimFromIndex_ = 0;
@@ -447,7 +474,6 @@ void UiManager::tick() {
 UiManager::InputEdges UiManager::pollInputEdges() {
   InputEdges edges;
   const uint32_t nowMs = millis();
-  static bool leftLongReported = false;
 
   auto updateDebounced = [&](ButtonEdge& button, bool& changed) -> bool {
     const bool rawPressed = isPressed(button.pin);
@@ -471,13 +497,13 @@ UiManager::InputEdges UiManager::pollInputEdges() {
   bool ignoredChanged = false;
   (void)updateDebounced(buttons_[0], ignoredChanged);
   if (ignoredChanged && !buttons_[0].stablePressed) {
-    edges.left = !leftLongReported;
-    leftLongReported = false;
+    edges.left = !leftLongReported_;
+    leftLongReported_ = false;
   }
-  if (buttons_[0].stablePressed && !leftLongReported &&
+  if (buttons_[0].stablePressed && !leftLongReported_ &&
       (nowMs - buttons_[0].lastRawChangeMs) >= kButtonLongPressMs) {
     edges.leftLong = true;
-    leftLongReported = true;
+    leftLongReported_ = true;
   }
   edges.right = updateDebounced(buttons_[1], ignoredChanged);
   edges.up = updateDebounced(buttons_[2], ignoredChanged);
@@ -491,6 +517,7 @@ UiManager::InputEdges UiManager::pollInputEdges() {
 void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
   if (edges.left || edges.leftLong || edges.right || edges.up || edges.down || edges.ok) {
     needsRedraw_ = true;
+    lastActivityMs_ = nowMs;
   }
 
   switch (state_) {
@@ -506,6 +533,10 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         sectionAnimActive_ = false;
         state_ = UiState::ToSectionTransition;
         transitionStartMs_ = nowMs;
+        needsRedraw_ = true;
+      }
+      if (isSleepAllowed() && (nowMs - lastActivityMs_) >= kAutoSleepTimeoutMs) {
+        enterSleep(nowMs);
         needsRedraw_ = true;
       }
       break;
@@ -1483,6 +1514,72 @@ void UiManager::syncHomeClockFromTimeService() {
     clock.valid = false;
   }
   homePage_.setClockData(clock);
+}
+
+bool UiManager::isSleepAllowed() const {
+  if (state_ != UiState::Home) {
+    return false;
+  }
+  if (iicScanService_.isBusy() || rtcTestService_.isBusy() || imuTestService_.isBusy()) {
+    return false;
+  }
+  if (bluetoothService_.state() != BluetoothService::State::Off) {
+    return false;
+  }
+  if (wifiProvisionService_.state() != WifiProvisionService::State::Idle) {
+    return false;
+  }
+  if (otaService_.state() != OtaService::State::Idle) {
+    return false;
+  }
+  if (musicService_.playbackState() != MusicService::PlaybackState::Stopped) {
+    return false;
+  }
+  if (timeService_.snapshot().syncState == TimeService::SyncState::Syncing) {
+    return false;
+  }
+  return true;
+}
+
+void UiManager::resetButtonDebounceState() {
+  const uint32_t nowMs = millis();
+  for (auto& button : buttons_) {
+    const bool pressed = isPressed(button.pin);
+    button.lastRawPressed = pressed;
+    button.stablePressed = pressed;
+    button.lastRawChangeMs = nowMs;
+  }
+  leftLongReported_ = buttons_[0].stablePressed;
+}
+
+void UiManager::enterSleep(uint32_t nowMs) {
+  const uint32_t idleMs = nowMs - lastActivityMs_;
+  sleepLog("enter home auto-sleep idle=%lums", static_cast<unsigned long>(idleMs));
+
+  display_.prepareForSleepKeepDisplay();
+  peripheralPower_.setSensorEnabled(false);
+  sdCardService_.end();
+
+  for (const auto& button : buttons_) {
+    gpio_wakeup_enable(static_cast<gpio_num_t>(button.pin), GPIO_INTR_LOW_LEVEL);
+  }
+  esp_sleep_enable_gpio_wakeup();
+  const esp_err_t sleepErr = esp_light_sleep_start();
+
+  const uint32_t wakeNowMs = millis();
+  display_.restoreAfterSleep();
+  peripheralPower_.setSensorEnabled(true);
+  resetButtonDebounceState();
+  timeService_.tick(wakeNowMs);
+  syncHomeClockFromTimeService();
+  lastActivityMs_ = wakeNowMs;
+  lastRenderMs_ = wakeNowMs;
+  needsRedraw_ = true;
+  if (sleepErr != ESP_OK) {
+    sleepLog("light sleep rejected err=%d", static_cast<int>(sleepErr));
+  } else {
+    sleepLog("wake from home auto-sleep cause=%d", static_cast<int>(esp_sleep_get_wakeup_cause()));
+  }
 }
 
 bool UiManager::isPressed(uint8_t pin) const { return digitalRead(pin) == LOW; }
