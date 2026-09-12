@@ -23,6 +23,8 @@ constexpr int16_t kWheelFramePaddingY = 8;
 constexpr int16_t kMenuClipTop = 10;
 constexpr int16_t kMenuClipBottom = 160;
 constexpr int16_t kMenuLabelHeight = 13;
+constexpr uint16_t kUncalibratedFrameDelayMs = 220;
+constexpr uint8_t kUncalibratedFrameCount = 6;
 struct CardRect {
   int16_t x1;
   int16_t y1;
@@ -181,12 +183,54 @@ void drawHomeTimePreview(ST7305_2p9_BW_DisplayDriver& canvas, uint32_t nowMs, in
                         static_cast<int16_t>(boxY1 + 1), static_cast<int16_t>(boxX2 - 1),
                         static_cast<int16_t>(boxY2 - 1), ST7305_COLOR_BLACK);
 
-  uint8_t hour = 0;
-  uint8_t minute = 0;
-  if (clockData.valid) {
-    hour = clockData.hour;
-    minute = clockData.minute;
+  if (!clockData.valid) {
+    const uint16_t frame = static_cast<uint16_t>(
+        (nowMs / kUncalibratedFrameDelayMs) % kUncalibratedFrameCount);
+    const int16_t bob = (frame == 1 || frame == 2) ? -2 : ((frame == 4) ? 1 : 0);
+    const int16_t breadX = static_cast<int16_t>(boxX1 + 42);
+    const int16_t breadY = static_cast<int16_t>(boxY1 + 9 + bob);
+    const int16_t clockX = static_cast<int16_t>(boxX1 + 91);
+    const int16_t clockY = static_cast<int16_t>(boxY1 + 23);
+
+    // A compact pixel character keeps the invalid-time state warm without
+    // adding a bitmap asset or a large animation buffer.
+    if (boxX1 >= 0 && boxY1 >= 0 && boxX2 < canvas.getDisplayWidth() &&
+        boxY2 < canvas.getDisplayHeight()) {
+      canvas.drawFilledRectangle(static_cast<uint>(breadX - 12),
+                                 static_cast<uint>(breadY + 8),
+                                 static_cast<uint>(breadX + 12),
+                                 static_cast<uint>(breadY + 24), ST7305_COLOR_WHITE);
+      canvas.drawFilledCircle(breadX - 6, breadY + 8, 8, ST7305_COLOR_WHITE);
+      canvas.drawFilledCircle(breadX + 6, breadY + 8, 8, ST7305_COLOR_WHITE);
+      canvas.drawFilledRectangle(static_cast<uint>(breadX - 8),
+                                 static_cast<uint>(breadY + 24),
+                                 static_cast<uint>(breadX - 3),
+                                 static_cast<uint>(breadY + 28), ST7305_COLOR_WHITE);
+      canvas.drawFilledRectangle(static_cast<uint>(breadX + 3),
+                                 static_cast<uint>(breadY + 24),
+                                 static_cast<uint>(breadX + 8),
+                                 static_cast<uint>(breadY + 28), ST7305_COLOR_WHITE);
+
+      canvas.drawFilledCircle(breadX - 5, breadY + 9, 2, ST7305_COLOR_BLACK);
+      canvas.drawFilledCircle(breadX + 5, breadY + 9, 2, ST7305_COLOR_BLACK);
+      canvas.drawLine(breadX - 4, breadY + 17, breadX + 4, breadY + 17,
+                      ST7305_COLOR_BLACK);
+
+      canvas.drawLine(breadX + 11, breadY + 16, clockX - 11, clockY,
+                      ST7305_COLOR_WHITE);
+      canvas.drawCircle(clockX, clockY, 11, ST7305_COLOR_WHITE);
+      const int16_t handX = static_cast<int16_t>(clockX + ((frame == 3 || frame == 4) ? 5 : 0));
+      const int16_t handY = static_cast<int16_t>(clockY - ((frame == 3 || frame == 4) ? 5 : 7));
+      canvas.drawLine(clockX, clockY, handX, handY, ST7305_COLOR_WHITE);
+      canvas.drawLine(clockX, clockY, static_cast<int16_t>(clockX - 5),
+                      static_cast<int16_t>(clockY + 3), ST7305_COLOR_WHITE);
+      canvas.drawFilledCircle(clockX, clockY, 2, ST7305_COLOR_WHITE);
+    }
+    return;
   }
+
+  const uint8_t hour = clockData.hour;
+  const uint8_t minute = clockData.minute;
 
   char hhmm[6];
   if (clockData.valid) {
@@ -254,7 +298,8 @@ void drawHomeDatePreview(ST7305_2p9_BW_DisplayDriver& canvas, U8G2_FOR_ST73XX& t
   text.setFont(u8g2_font_6x12_mf);
 
   if (!clockData.valid) {
-    const char* placeholder = "NOT SET";
+    text.setFont(chinese_font_all);
+    const char* placeholder = "时间需校准";
     const int16_t textW = text.getUTF8Width(placeholder);
     const int16_t textX = static_cast<int16_t>(boxX1 + ((boxX2 - boxX1 + 1) - textW) / 2);
     const int16_t textY = static_cast<int16_t>(boxY1 + ((boxY2 - boxY1 + 1) / 2) + 5);
@@ -324,6 +369,7 @@ bool HomePage::begin() {
   animStartMs_ = millis();
   lastFocusFrame_ = 0;
   lastBackgroundFrame_ = 0;
+  lastUncalibratedFrame_ = 0;
   lastInteractionMs_ = animStartMs_;
   animationTimeMs_ = animStartMs_;
   return true;
@@ -400,6 +446,14 @@ int16_t HomePage::currentMenuOffset(uint32_t nowMs) const {
 }
 
 bool HomePage::hasAnimationTick(uint32_t nowMs) const {
+  if (!clockData_.valid) {
+    const uint16_t frame = static_cast<uint16_t>(
+        (nowMs / kUncalibratedFrameDelayMs) % kUncalibratedFrameCount);
+    if (frame != lastUncalibratedFrame_) {
+      return true;
+    }
+  }
+
   if (!isAnimationActive(nowMs)) {
     return false;
   }
@@ -463,6 +517,10 @@ void HomePage::renderTransition(DisplayMonoTft& display, int16_t backgroundOffse
   IconBitmap::drawFrame(canvas, kHomeBackground, bgFrame, backgroundOffsetX, 0, width,
                         height, false, 0, static_cast<int16_t>(height - 1));
   drawHomeTimePreview(canvas, nowMs, backgroundOffsetX, clockData_);
+  if (!clockData_.valid && backgroundOffsetX == 0) {
+    lastUncalibratedFrame_ = static_cast<uint16_t>(
+        (nowMs / kUncalibratedFrameDelayMs) % kUncalibratedFrameCount);
+  }
   drawHomeDatePreview(canvas, text, nowMs, backgroundOffsetX, clockData_);
 
   text.setFont(chinese_font_all);

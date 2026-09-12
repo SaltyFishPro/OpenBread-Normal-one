@@ -54,6 +54,7 @@ private:
 
   uint16_t lastFocusFrame_ = 0;
   uint16_t lastBackgroundFrame_ = 0;
+  uint16_t lastUncalibratedFrame_ = 0;
   uint32_t lastInteractionMs_ = 0;
   uint32_t animationTimeMs_ = 0;
   ClockData clockData_;
