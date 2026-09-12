@@ -2,6 +2,7 @@
 
 #include <Preferences.h>
 #include <WiFi.h>
+#include <esp_sntp.h>
 #include <sys/time.h>
 #include <time.h>
 
@@ -85,6 +86,7 @@ void TimeService::tick(uint32_t nowMs) {
   if (syncPhase_ == SyncPhase::Connect) {
     const wl_status_t status = WiFi.status();
     if (status == WL_CONNECTED) {
+      esp_sntp_set_sync_status(SNTP_SYNC_STATUS_RESET);
       configTime(0, 0, "pool.ntp.org", "time.nist.gov");
       syncPhase_ = SyncPhase::AwaitTime;
       syncStartMs_ = nowMs;
@@ -108,8 +110,11 @@ void TimeService::tick(uint32_t nowMs) {
   }
 
   if (syncPhase_ == SyncPhase::AwaitTime) {
+    const bool synchronized = esp_sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED;
+    // Read the epoch after observing completion, so an arriving NTP reply cannot
+    // make an earlier, stale epoch look like the newly synchronized time.
     const time_t epoch = time(nullptr);
-    if (epoch >= static_cast<time_t>(kMinValidEpoch)) {
+    if (synchronized && epoch >= static_cast<time_t>(kMinValidEpoch)) {
       const DateTime local = epochToLocalDateTime(static_cast<uint32_t>(epoch));
       if (!applyDateTime(local, SyncSource::Ntp, static_cast<uint32_t>(epoch))) {
         setSyncState(SyncState::Failed);
@@ -177,7 +182,8 @@ bool TimeService::setBluetoothTime(const DateTime& dt) {
   return true;
 }
 
-bool TimeService::requestNtpSync(uint32_t nowMs, const char* ssid, const char* pass) {
+bool TimeService::requestNtpSync(uint32_t nowMs, const char* ssid, const char* pass,
+                                 bool reuseConnectedStation) {
   if (syncPhase_ != SyncPhase::None) {
     setError(Error::Busy);
     return false;
@@ -200,10 +206,15 @@ bool TimeService::requestNtpSync(uint32_t nowMs, const char* ssid, const char* p
     strncpy(syncPass_, pass, sizeof(syncPass_) - 1U);
   }
 
-  WiFi.disconnect(false, false);
-  WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);
-  WiFi.begin(syncSsid_, syncPass_);
+  // The provisioning service explicitly hands over its newly connected station.
+  if (reuseConnectedStation && WiFi.status() == WL_CONNECTED) {
+    timeLog("reusing provisioned wifi for ntp");
+  } else {
+    WiFi.disconnect(false, false);
+    WiFi.mode(WIFI_STA);
+    WiFi.setSleep(false);
+    WiFi.begin(syncSsid_, syncPass_);
+  }
 
   syncPhase_ = SyncPhase::Connect;
   syncStartMs_ = nowMs;
@@ -457,8 +468,10 @@ void TimeService::savePersistedState() {
 }
 
 void TimeService::cleanupRadio() {
+  esp_sntp_stop();
   WiFi.disconnect(false, true);
   WiFi.mode(WIFI_OFF);
+  timeLog("ntp session finished, sntp stopped, radio off");
   memset(syncSsid_, 0, sizeof(syncSsid_));
   memset(syncPass_, 0, sizeof(syncPass_));
 }

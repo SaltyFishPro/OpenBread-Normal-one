@@ -18,7 +18,7 @@
 #include "../services/TimeService.h"
 #include "../services/WifiProvisionService.h"
 #include "Render1bpp.h"
-#include "pages/ClockPage.h"
+#include "pages/TimeCalibrationPage.h"
 #include "pages/DeviceSelfTestPage.h"
 #include "pages/GamesPage.h"
 #include "pages/HomePage.h"
@@ -97,7 +97,7 @@ private:
   HomePage homePage_;
   MusicPage musicPage_;
   ReaderPage readerPage_;
-  ClockPage clockPage_;
+  TimeCalibrationPage timeCalibrationPage_;
   DeviceSelfTestPage deviceSelfTestPage_;
   GamesPage gamesPage_;
   RemotePage remotePage_;

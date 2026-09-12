@@ -21,6 +21,11 @@ constexpr uint8_t kRegTimerMode = 0x11;
 constexpr uint8_t kSecondsClockIntegrityLostBit = 0x80;
 constexpr uint8_t kControl2ClockOutputMask = 0x07;
 constexpr uint8_t kControl2ClockOutputOff = 0x07;
+constexpr uint8_t kControl2AlarmInterruptEnableBit = 0x80;
+constexpr uint8_t kControl2AlarmFlagBit = 0x40;
+constexpr uint8_t kControl2MinuteInterruptBit = 0x20;
+constexpr uint8_t kControl2HalfMinuteInterruptBit = 0x10;
+constexpr uint8_t kControl2TimerFlagBit = 0x08;
 
 #ifndef OB_RTC_LOG_ENABLED
 #define OB_RTC_LOG_ENABLED 1
@@ -160,5 +165,67 @@ bool RtcDriver::readDiagnostics(Diagnostics& out) {
     return false;
   }
   out.oscillatorStopped = (seconds & kSecondsClockIntegrityLostBit) != 0U;
+  return true;
+}
+
+bool RtcDriver::setMinuteInterruptEnabled(bool enabled) {
+  if (!ready_) {
+    rtcErr("minute interrupt unavailable: rtc not ready");
+    return false;
+  }
+
+  prepareRtcIicBus(false);
+  uint8_t control2 = 0;
+  if (!rtc_.readRegister(kRegControl2, control2)) {
+    rtcErr("failed to read control2 for minute interrupt");
+    return false;
+  }
+
+  uint8_t next = control2;
+  if (enabled) {
+    next = static_cast<uint8_t>(next | kControl2MinuteInterruptBit);
+    next = static_cast<uint8_t>(next & ~kControl2HalfMinuteInterruptBit);
+    next = static_cast<uint8_t>(next & ~kControl2AlarmInterruptEnableBit);
+    next = static_cast<uint8_t>(next & ~kControl2AlarmFlagBit);
+    next = static_cast<uint8_t>(next & ~kControl2TimerFlagBit);
+    next = static_cast<uint8_t>(
+        (next & ~kControl2ClockOutputMask) | kControl2ClockOutputOff);
+  } else {
+    next = static_cast<uint8_t>(next & ~kControl2MinuteInterruptBit);
+  }
+
+  if (!rtc_.writeRegister(kRegControl2, next)) {
+    rtcErr("failed to write control2 for minute interrupt control2=0x%02X", control2);
+    return false;
+  }
+
+  rtcLog("minute interrupt %s control2=0x%02X->0x%02X",
+         enabled ? "enabled" : "disabled", control2, next);
+  return true;
+}
+
+bool RtcDriver::clearTimerFlag() {
+  if (!ready_) {
+    return false;
+  }
+
+  prepareRtcIicBus(false);
+  uint8_t control2 = 0;
+  if (!rtc_.readRegister(kRegControl2, control2)) {
+    rtcErr("failed to read control2 for timer flag clear");
+    return false;
+  }
+
+  if ((control2 & kControl2TimerFlagBit) == 0U) {
+    return true;
+  }
+
+  const uint8_t cleared = static_cast<uint8_t>(control2 & ~kControl2TimerFlagBit);
+  if (!rtc_.writeRegister(kRegControl2, cleared)) {
+    rtcErr("failed to clear timer flag control2=0x%02X", control2);
+    return false;
+  }
+
+  rtcLog("timer flag cleared control2=0x%02X->0x%02X", control2, cleared);
   return true;
 }

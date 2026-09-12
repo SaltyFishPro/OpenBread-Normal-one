@@ -54,7 +54,8 @@ public:
   void tick(uint32_t nowMs);
 
   bool setBluetoothTime(const DateTime& dt);
-  bool requestNtpSync(uint32_t nowMs, const char* ssid, const char* pass);
+  bool requestNtpSync(uint32_t nowMs, const char* ssid, const char* pass,
+                      bool reuseConnectedStation = false);
   void cancelNtpSync();
 
   const Snapshot& snapshot() const;

@@ -8,6 +8,7 @@
 class DisplayMonoTft;
 class WifiProvisionService;
 class OtaService;
+class TimeService;
 
 class SettingsPage {
 public:
@@ -26,8 +27,9 @@ public:
   static constexpr uint8_t kRestartItemIndex = 0;
   static constexpr uint8_t kOtaItemIndex = 1;
   static constexpr uint8_t kWifiProvisionItemIndex = 2;
-  static constexpr uint8_t kDeviceSelfTestItemIndex = 3;
-  static constexpr uint8_t kAboutDeviceItemIndex = 5;
+  static constexpr uint8_t kTimeCalibrationItemIndex = 3;
+  static constexpr uint8_t kDeviceSelfTestItemIndex = 4;
+  static constexpr uint8_t kAboutDeviceItemIndex = 6;
 
   PopupKind popupForSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
   bool isAboutDeviceSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
@@ -40,14 +42,15 @@ public:
                          uint32_t nowMs, WifiProvisionService& wifi,
                          OtaService& ota) const;
   bool handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus,
-                        WifiProvisionService& wifi, OtaService& ota) const;
+                        WifiProvisionService& wifi, OtaService& ota, TimeService& time) const;
   const MenuItem* menuItems() const;
   uint8_t menuItemCount() const;
   bool renderDetail(uint8_t homeFocus, uint8_t sectionFocus, uint8_t detailPageIndex,
                     int16_t yOffset, DisplayMonoTft& display, HomePage::Language language,
                     const char* deviceIdText, const char* flashTotalText,
                     const char* sdStatusText,
-                    const WifiProvisionService& wifi, const OtaService& ota) const;
+                    const WifiProvisionService& wifi, const OtaService& ota,
+                    const TimeService& time) const;
 
   const char* popupTitle(PopupKind kind) const;
   const char* popupPrimaryLabel(PopupKind kind) const;

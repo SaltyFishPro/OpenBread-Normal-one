@@ -1,4 +1,5 @@
-#include "ClockPage.h"
+#include "TimeCalibrationPage.h"
+#include "SettingsPage.h"
 
 #include <cstdio>
 
@@ -147,17 +148,19 @@ const char* errorTextEn(TimeService::Error err) {
 
 }  // namespace
 
-bool ClockPage::isTimeCalibrationSelection(uint8_t homeFocus, uint8_t sectionFocus) const {
-  return homeFocus == kHomeIndex && sectionFocus == kTimeCalibrationItemIndex;
+bool TimeCalibrationPage::isTimeCalibrationSelection(uint8_t homeFocus, uint8_t sectionFocus) const {
+  return homeFocus == SettingsPage::kHomeIndex &&
+         sectionFocus == SettingsPage::kTimeCalibrationItemIndex;
 }
 
-uint8_t ClockPage::detailPageCount(uint8_t homeFocus, uint8_t sectionFocus) const {
+uint8_t TimeCalibrationPage::detailPageCount(uint8_t homeFocus, uint8_t sectionFocus) const {
   return isTimeCalibrationSelection(homeFocus, sectionFocus) ? 1U : 0U;
 }
 
-bool ClockPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool upEdge,
-                                  bool downEdge, bool okEdge, uint32_t nowMs,
-                                  TimeService& timeService, const WifiProvisionService& wifi) {
+bool TimeCalibrationPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool upEdge,
+                                            bool downEdge, bool okEdge, uint32_t nowMs,
+                                            TimeService& timeService,
+                                            const WifiProvisionService& wifi) {
   if (!isTimeCalibrationSelection(homeFocus, sectionFocus)) {
     return false;
   }
@@ -179,23 +182,23 @@ bool ClockPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool 
   return true;
 }
 
-bool ClockPage::handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus,
-                                 TimeService& timeService) {
+bool TimeCalibrationPage::handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus,
+                                           TimeService& timeService) {
   if (!isTimeCalibrationSelection(homeFocus, sectionFocus)) {
     return false;
   }
 
   if (timeService.snapshot().syncState == TimeService::SyncState::Syncing) {
     timeService.cancelNtpSync();
-    return true;
   }
 
+  // Let UiManager return to Settings with the same Left press.
   return false;
 }
 
-bool ClockPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                             DisplayMonoTft& display, HomePage::Language language,
-                             const TimeService& timeService) const {
+bool TimeCalibrationPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
+                                       DisplayMonoTft& display, HomePage::Language language,
+                                       const TimeService& timeService) const {
   if (!isTimeCalibrationSelection(homeFocus, sectionFocus)) {
     return false;
   }

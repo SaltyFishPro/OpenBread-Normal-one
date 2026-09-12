@@ -5,6 +5,8 @@
 #include <Preferences.h>
 #include <WebServer.h>
 
+class TimeService;
+
 class WifiProvisionService {
 public:
   enum class State : uint8_t {
@@ -13,7 +15,8 @@ public:
     Connecting,
     Connected,
     Failed,
-    PortalTimeout
+    PortalTimeout,
+    SyncingTime
   };
 
   enum class Error : uint8_t {
@@ -26,19 +29,18 @@ public:
   };
 
   bool begin();
-  void tick(uint32_t nowMs);
+  void tick(uint32_t nowMs, TimeService& time);
 
   void startPortal(uint32_t nowMs);
   void stopPortal();
-  void cancelProvision();
-  void finishOnlineSession();
+  void cancelProvision(TimeService& time);
 
   State state() const;
   Error error() const;
   bool isPortalActive() const;
+  bool isRadioActive() const;
   bool canStartPortal() const;
   bool consumeChanged();
-  bool consumeTimeSyncRequest();
 
   const char* apSsid() const;
   const char* targetSsid() const;
@@ -60,7 +62,8 @@ private:
   void saveCredentials();
   void loadCredentials();
   void clearTarget();
-  void finishProvisionSuccess();
+  void finishProvisionSuccess(uint32_t nowMs, TimeService& time);
+  void finishOnlineSession();
   void cleanupRadio(bool keepStation);
   const char* errorText(Error err) const;
 
@@ -75,7 +78,7 @@ private:
   State state_ = State::Idle;
   Error error_ = Error::None;
   bool changed_ = false;
-  bool timeSyncRequested_ = false;
+  bool radioActive_ = false;
   bool routesReady_ = false;
   bool connectPending_ = false;
 

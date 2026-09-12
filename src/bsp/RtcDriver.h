@@ -31,6 +31,8 @@ public:
   bool read(DateTime& out);
   bool write(const DateTime& in);
   bool readDiagnostics(Diagnostics& out);
+  bool setMinuteInterruptEnabled(bool enabled);
+  bool clearTimerFlag();
 
 private:
   Pcf85063Rtc rtc_;

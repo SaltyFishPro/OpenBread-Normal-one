@@ -3,6 +3,8 @@
 #include "../../app/FirmwareInfo.h"
 #include "../../bsp/DisplayMonoTft.h"
 #include "../../services/OtaService.h"
+#include "../../services/TimeService.h"
+#include "../assets/submenu/desktopclock.h"
 #include "../../services/WifiProvisionService.h"
 #include "../assets/submenu/about.h"
 #include "../assets/submenu/author.h"
@@ -46,6 +48,10 @@ const SettingsPage::MenuItem kSettingsItems[] = {
      {reinterpret_cast<const uint8_t*>(&wificonnet_frames[0][0]), WIFICONNET_FRAME_BYTES,
       WIFICONNET_FRAME_WIDTH, WIFICONNET_FRAME_HEIGHT, WIFICONNET_FRAME_DELAY,
       WIFICONNET_FRAME_COUNT}},
+    {"时间校准", "Time Setup",
+     {reinterpret_cast<const uint8_t*>(&desktopclock_frames[0][0]), DESKTOPCLOCK_FRAME_BYTES,
+      DESKTOPCLOCK_FRAME_WIDTH, DESKTOPCLOCK_FRAME_HEIGHT, DESKTOPCLOCK_FRAME_DELAY,
+      DESKTOPCLOCK_FRAME_COUNT}},
     {"设备自检", "Device Self Test",
      {reinterpret_cast<const uint8_t*>(&reset_frames[0][0]), RESET_FRAME_BYTES,
       RESET_FRAME_WIDTH, RESET_FRAME_HEIGHT, RESET_FRAME_DELAY, RESET_FRAME_COUNT}},
@@ -126,8 +132,10 @@ const char* wifiStateTitleZh(WifiProvisionService::State state) {
       return "配网热点已开启";
     case WifiProvisionService::State::Connecting:
       return "正在连接路由器";
+    case WifiProvisionService::State::SyncingTime:
+      return "配网成功，正在校时";
     case WifiProvisionService::State::Connected:
-      return "WiFi连接成功";
+      return "WiFi配网完成";
     case WifiProvisionService::State::PortalTimeout:
       return "配网超时";
     default:
@@ -143,8 +151,10 @@ const char* wifiStateTitleEn(WifiProvisionService::State state) {
       return "Portal Ready";
     case WifiProvisionService::State::Connecting:
       return "Connecting";
+    case WifiProvisionService::State::SyncingTime:
+      return "Syncing Time";
     case WifiProvisionService::State::Connected:
-      return "WiFi Connected";
+      return "WiFi Configured";
     case WifiProvisionService::State::PortalTimeout:
       return "Portal Timeout";
     default:
@@ -187,7 +197,8 @@ const char* wifiErrorTextEn(WifiProvisionService::Error err) {
 }
 
 void renderWifiProvisionDetail(DisplayMonoTft& display, HomePage::Language language,
-                               const WifiProvisionService& wifi, int16_t yOffset) {
+                               const WifiProvisionService& wifi, const TimeService& time,
+                               int16_t yOffset) {
   auto& canvas = display.canvas();
   auto& text = display.text();
   const int16_t width = static_cast<int16_t>(display.width());
@@ -219,16 +230,24 @@ void renderWifiProvisionDetail(DisplayMonoTft& display, HomePage::Language langu
     text.drawUTF8(8, static_cast<int16_t>(yOffset + 58), line1);
     text.drawUTF8(8, static_cast<int16_t>(yOffset + 86),
                   zh ? "正在连接，请稍候" : "Connecting, please wait");
-  } else if (state == WifiProvisionService::State::Connected) {
+  } else if (state == WifiProvisionService::State::Connected ||
+             state == WifiProvisionService::State::SyncingTime) {
     char line1[64];
-    char line2[64];
-    char line3[64];
     snprintf(line1, sizeof(line1), "SSID: %s", wifi.targetSsid());
-    snprintf(line2, sizeof(line2), "PASS: %s", wifi.targetPass());
-    snprintf(line3, sizeof(line3), "IP: %s", wifi.staIp());
     text.drawUTF8(8, static_cast<int16_t>(yOffset + 58), line1);
-    text.drawUTF8(8, static_cast<int16_t>(yOffset + 86), line2);
-    text.drawUTF8(8, static_cast<int16_t>(yOffset + 114), line3);
+    const char* status = zh ? "校时已取消，可在时间校准中重试" : "Time sync canceled; retry in Time Setup";
+    if (state == WifiProvisionService::State::SyncingTime) {
+      status = zh ? "正在自动校准时间，请稍候" : "Synchronizing time, please wait";
+    } else if (time.snapshot().syncState == TimeService::SyncState::Success) {
+      status = zh ? "时间校准成功" : "Time synchronized";
+    } else if (time.snapshot().syncState == TimeService::SyncState::Failed) {
+      status = zh ? "校时失败，请在时间校准中重试" : "Time sync failed; retry in Time Setup";
+    }
+    text.drawUTF8(8, static_cast<int16_t>(yOffset + 86), status);
+    text.drawUTF8(8, static_cast<int16_t>(yOffset + 114),
+                  state == WifiProvisionService::State::SyncingTime
+                      ? (zh ? "校时结束后自动关闭WiFi" : "WiFi turns off after time sync")
+                      : (zh ? "WiFi已关闭，配网信息已保存" : "WiFi off, credentials saved"));
   } else {
     char line1[64];
     snprintf(line1, sizeof(line1), zh ? "失败原因: %s" : "Reason: %s",
@@ -241,6 +260,9 @@ void renderWifiProvisionDetail(DisplayMonoTft& display, HomePage::Language langu
   if (state == WifiProvisionService::State::Connected) {
     text.drawUTF8(8, static_cast<int16_t>(yOffset + height - 10), zh ? "LEFT: 返回  OK: 重新开启配网热点"
                                                                       : "LEFT: Back  OK: Reopen Portal");
+  } else if (state == WifiProvisionService::State::SyncingTime) {
+    text.drawUTF8(8, static_cast<int16_t>(yOffset + height - 10),
+                  zh ? "LEFT: 取消校时并返回" : "LEFT: Cancel and back");
   } else {
     text.drawUTF8(8, static_cast<int16_t>(yOffset + height - 10),
                   zh ? "LEFT: 返回  OK: 操作" : "LEFT: Back  OK: Action");
@@ -557,14 +579,15 @@ bool SettingsPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, ui
 }
 
 bool SettingsPage::handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus,
-                                     WifiProvisionService& wifi, OtaService& ota) const {
+                                     WifiProvisionService& wifi, OtaService& ota,
+                                     TimeService& time) const {
   if (isOtaSelection(homeFocus, sectionFocus)) {
     ota.cancel();
     return true;
   }
 
-  if (isWifiProvisionSelection(homeFocus, sectionFocus) && wifi.isPortalActive()) {
-    wifi.cancelProvision();
+  if (isWifiProvisionSelection(homeFocus, sectionFocus) && wifi.isRadioActive()) {
+    wifi.cancelProvision(time);
     return true;
   }
 
@@ -582,14 +605,14 @@ bool SettingsPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, uint8_t
                                 HomePage::Language language, const char* deviceIdText,
                                  const char* flashTotalText, const char* sdStatusText,
                                 const WifiProvisionService& wifi,
-                                const OtaService& ota) const {
+                                const OtaService& ota, const TimeService& time) const {
   if (isOtaSelection(homeFocus, sectionFocus)) {
     renderOtaDetail(display, language, ota, yOffset);
     return true;
   }
 
   if (isWifiProvisionSelection(homeFocus, sectionFocus)) {
-    renderWifiProvisionDetail(display, language, wifi, yOffset);
+    renderWifiProvisionDetail(display, language, wifi, time, yOffset);
     return true;
   }
 

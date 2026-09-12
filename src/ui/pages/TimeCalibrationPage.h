@@ -8,11 +8,8 @@ class DisplayMonoTft;
 class TimeService;
 class WifiProvisionService;
 
-class ClockPage {
+class TimeCalibrationPage {
 public:
-  static constexpr uint8_t kHomeIndex = 3;
-  static constexpr uint8_t kTimeCalibrationItemIndex = 2;
-
   bool isTimeCalibrationSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
   uint8_t detailPageCount(uint8_t homeFocus, uint8_t sectionFocus) const;
   bool handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool upEdge, bool downEdge,

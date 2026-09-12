@@ -119,10 +119,6 @@ const SectionItem kClockItems[] = {
     {"计时器", "Timer",
      {reinterpret_cast<const uint8_t*>(&timer_frames[0][0]), TIMER_FRAME_BYTES,
       TIMER_FRAME_WIDTH, TIMER_FRAME_HEIGHT, TIMER_FRAME_DELAY, TIMER_FRAME_COUNT}},
-    {"时间校准", "Time Setup",
-     {reinterpret_cast<const uint8_t*>(&desktopclock_frames[0][0]), DESKTOPCLOCK_FRAME_BYTES,
-      DESKTOPCLOCK_FRAME_WIDTH, DESKTOPCLOCK_FRAME_HEIGHT, DESKTOPCLOCK_FRAME_DELAY,
-      DESKTOPCLOCK_FRAME_COUNT}},
 };
 
 const SectionItem kWirelessItems[] = {
@@ -444,7 +440,7 @@ void UiManager::tick() {
   if (otaService_.consumeChanged() && !staticReaderDetail) {
     needsRedraw_ = true;
   }
-  wifiProvisionService_.tick(nowMs);
+  wifiProvisionService_.tick(nowMs, timeService_);
   if (wifiProvisionService_.consumeChanged() && !staticReaderDetail) {
     needsRedraw_ = true;
   }
@@ -673,7 +669,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         } else if (remotePage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                                 bluetoothService_)) {
           needsRedraw_ = true;
-        } else if (clockPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
+        } else if (timeCalibrationPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                                timeService_)) {
           needsRedraw_ = true;
         } else if (readerPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
@@ -681,7 +677,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
           needsRedraw_ = true;
         } else {
           settingsPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
-                                          wifiProvisionService_, otaService_);
+                                          wifiProvisionService_, otaService_, timeService_);
           state_ = UiState::ToSectionFromDetailTransition;
           transitionStartMs_ = nowMs;
           needsRedraw_ = true;
@@ -700,7 +696,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         } else if (remotePage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                                 bluetoothService_)) {
           needsRedraw_ = true;
-        } else if (clockPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
+        } else if (timeCalibrationPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                                timeService_)) {
           needsRedraw_ = true;
         } else if (readerPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
@@ -712,7 +708,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
           needsRedraw_ = true;
         } else {
           settingsPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
-                                         wifiProvisionService_, otaService_);
+                                         wifiProvisionService_, otaService_, timeService_);
           state_ = UiState::ToSectionFromDetailTransition;
           transitionStartMs_ = nowMs;
           needsRedraw_ = true;
@@ -729,7 +725,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
                                                edges.ok, nowMs, bluetoothService_,
                                                remoteService_)) {
           needsRedraw_ = true;
-      } else if (clockPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
+      } else if (timeCalibrationPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
                                               edges.up, edges.down, edges.ok, nowMs, timeService_,
                                               wifiProvisionService_)) {
         needsRedraw_ = true;
@@ -743,7 +739,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
                                              edges.ok, nowMs, wifiProvisionService_, otaService_)) {
           needsRedraw_ = true;
         } else if (edges.up || edges.down || edges.right || edges.ok) {
-          uint8_t pageCount = clockPage_.detailPageCount(homePage_.focusIndex(), sectionFocusIndex_);
+          uint8_t pageCount = timeCalibrationPage_.detailPageCount(homePage_.focusIndex(), sectionFocusIndex_);
           if (pageCount == 0U) {
             pageCount = musicPage_.detailPageCount(homePage_.focusIndex(), sectionFocusIndex_);
           }
@@ -1452,14 +1448,14 @@ void UiManager::renderDetail(int16_t yOffset) {
     return;
   }
 
-  if (clockPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
+  if (timeCalibrationPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
                               kUiLanguage, timeService_)) {
     return;
   }
 
   if (settingsPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, detailPageIndex_,
                                  yOffset, display_, kUiLanguage, deviceIdText_, flashTotalText_,
-                                 sdStatusText_, wifiProvisionService_, otaService_)) {
+                                 sdStatusText_, wifiProvisionService_, otaService_, timeService_)) {
     return;
   }
 
@@ -1526,7 +1522,7 @@ bool UiManager::isSleepAllowed() const {
   if (bluetoothService_.state() != BluetoothService::State::Off) {
     return false;
   }
-  if (wifiProvisionService_.state() != WifiProvisionService::State::Idle) {
+  if (wifiProvisionService_.isRadioActive()) {
     return false;
   }
   if (otaService_.state() != OtaService::State::Idle) {
@@ -1556,30 +1552,96 @@ void UiManager::enterSleep(uint32_t nowMs) {
   const uint32_t idleMs = nowMs - lastActivityMs_;
   sleepLog("enter home auto-sleep idle=%lums", static_cast<unsigned long>(idleMs));
 
+  const bool rtcWakeReady = rtcDriver_.setMinuteInterruptEnabled(true);
+  if (rtcWakeReady) {
+    pinMode(BoardConfig::kPinPcfInt, INPUT_PULLUP);
+    gpio_wakeup_enable(static_cast<gpio_num_t>(BoardConfig::kPinPcfInt),
+                       GPIO_INTR_LOW_LEVEL);
+    sleepLog("rtc minute interrupt wake enabled int_gpio=%d",
+             static_cast<int>(BoardConfig::kPinPcfInt));
+  } else {
+    sleepLog("rtc minute interrupt unavailable; time refresh wake disabled");
+  }
+
   display_.prepareForSleepKeepDisplay();
   peripheralPower_.setSensorEnabled(false);
   sdCardService_.end();
 
-  for (const auto& button : buttons_) {
-    gpio_wakeup_enable(static_cast<gpio_num_t>(button.pin), GPIO_INTR_LOW_LEVEL);
-  }
-  esp_sleep_enable_gpio_wakeup();
-  const esp_err_t sleepErr = esp_light_sleep_start();
+  esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
+  esp_sleep_pd_config(ESP_PD_DOMAIN_MODEM, ESP_PD_OPTION_OFF);
+  sleepLog("power domains off: rtc_periph modem");
 
-  const uint32_t wakeNowMs = millis();
+  bool keepSleeping = true;
+  while (keepSleeping) {
+    for (const auto& button : buttons_) {
+      gpio_wakeup_enable(static_cast<gpio_num_t>(button.pin), GPIO_INTR_LOW_LEVEL);
+    }
+    if (rtcWakeReady) {
+      gpio_wakeup_enable(static_cast<gpio_num_t>(BoardConfig::kPinPcfInt),
+                         GPIO_INTR_LOW_LEVEL);
+      (void)rtcDriver_.clearTimerFlag();
+    }
+    esp_sleep_enable_gpio_wakeup();
+
+    const esp_err_t sleepErr = esp_light_sleep_start();
+    const uint32_t wakeNowMs = millis();
+
+    if (sleepErr != ESP_OK) {
+      sleepLog("light sleep rejected err=%d", static_cast<int>(sleepErr));
+      keepSleeping = false;
+      break;
+    }
+
+    bool buttonPressed = false;
+    for (const auto& button : buttons_) {
+      if (isPressed(button.pin)) {
+        buttonPressed = true;
+        break;
+      }
+    }
+
+    const bool rtcLineLow =
+        rtcWakeReady && (digitalRead(BoardConfig::kPinPcfInt) == LOW);
+
+    if (!buttonPressed && rtcLineLow) {
+      display_.restoreAfterSleep();
+      peripheralPower_.setSensorEnabled(true);
+      timeService_.tick(wakeNowMs);
+      syncHomeClockFromTimeService();
+      needsRedraw_ = true;
+      render(wakeNowMs);
+      lastRenderMs_ = wakeNowMs;
+      needsRedraw_ = false;
+      (void)rtcDriver_.clearTimerFlag();
+      display_.prepareForSleepKeepDisplay();
+      peripheralPower_.setSensorEnabled(false);
+      sleepLog("rtc minute wake at %lums; time refreshed, continue sleep",
+               static_cast<unsigned long>(wakeNowMs));
+      continue;
+    }
+
+    if (buttonPressed) {
+      sleepLog("button wake; exit sleep");
+    } else {
+      sleepLog("unknown wake cause=%d; exit sleep",
+               static_cast<int>(esp_sleep_get_wakeup_cause()));
+    }
+    keepSleeping = false;
+  }
+
   display_.restoreAfterSleep();
   peripheralPower_.setSensorEnabled(true);
-  resetButtonDebounceState();
-  timeService_.tick(wakeNowMs);
-  syncHomeClockFromTimeService();
-  lastActivityMs_ = wakeNowMs;
-  lastRenderMs_ = wakeNowMs;
-  needsRedraw_ = true;
-  if (sleepErr != ESP_OK) {
-    sleepLog("light sleep rejected err=%d", static_cast<int>(sleepErr));
-  } else {
-    sleepLog("wake from home auto-sleep cause=%d", static_cast<int>(esp_sleep_get_wakeup_cause()));
+  if (rtcWakeReady) {
+    (void)rtcDriver_.setMinuteInterruptEnabled(false);
   }
+  const uint32_t exitNowMs = millis();
+  resetButtonDebounceState();
+  timeService_.tick(exitNowMs);
+  syncHomeClockFromTimeService();
+  lastActivityMs_ = exitNowMs;
+  lastRenderMs_ = exitNowMs;
+  needsRedraw_ = true;
+  sleepLog("exit home auto-sleep at %lums", static_cast<unsigned long>(exitNowMs));
 }
 
 bool UiManager::isPressed(uint8_t pin) const { return digitalRead(pin) == LOW; }
