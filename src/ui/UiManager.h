@@ -20,6 +20,7 @@
 #include "Render1bpp.h"
 #include "pages/TimeCalibrationPage.h"
 #include "pages/DeviceSelfTestPage.h"
+#include "pages/FocusClockPage.h"
 #include "pages/GamesPage.h"
 #include "pages/HomePage.h"
 #include "pages/MusicPage.h"
@@ -99,6 +100,7 @@ private:
   ReaderPage readerPage_;
   TimeCalibrationPage timeCalibrationPage_;
   DeviceSelfTestPage deviceSelfTestPage_;
+  FocusClockPage focusClockPage_;
   GamesPage gamesPage_;
   RemotePage remotePage_;
   SettingsPage settingsPage_;

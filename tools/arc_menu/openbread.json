@@ -1,0 +1,18 @@
+{
+  "caption": "功能",
+  "width": 384,
+  "height": 168,
+  "font_size": 18,
+  "fps": 20,
+  "hold_ms": 650,
+  "move_ms": 500,
+  "font": "",
+  "items": [
+    {"label": "设置", "value": "系统"},
+    {"label": "音乐", "value": "12 首"},
+    {"label": "阅读", "value": "词库"},
+    {"label": "时钟", "value": "12:30"},
+    {"label": "无线功能", "value": "关闭"},
+    {"label": "游戏", "value": "2 项"}
+  ]
+}

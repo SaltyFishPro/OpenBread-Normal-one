@@ -11,6 +11,7 @@
 #include "../assets/main_menu/icons8-itunes.h"
 #include "../assets/main_menu/icons8-settings.h"
 #include "../assets/main_menu/icons8-wifi.h"
+#include "../assets/ui/uncalibrated_bread.h"
 #include "../assets/ui/UI_background.h"
 
 namespace {
@@ -23,8 +24,6 @@ constexpr int16_t kWheelFramePaddingY = 8;
 constexpr int16_t kMenuClipTop = 10;
 constexpr int16_t kMenuClipBottom = 160;
 constexpr int16_t kMenuLabelHeight = 13;
-constexpr uint16_t kUncalibratedFrameDelayMs = 220;
-constexpr uint8_t kUncalibratedFrameCount = 6;
 struct CardRect {
   int16_t x1;
   int16_t y1;
@@ -102,7 +101,17 @@ const IconBitmap::Anim kHomeBackground = {
     UI_BACKGROUND_FRAME_DELAY,
     UI_BACKGROUND_FRAME_COUNT};
 
-const char* const kMenuNamesZh[6] = {"设置", "音乐", "阅读", "时钟", "无线功能", "游戏"};
+const IconBitmap::Anim kUncalibratedBread = {
+    reinterpret_cast<const uint8_t*>(&uncalibrated_bread_frames[0][0]),
+    UNCALIBRATED_BREAD_FRAME_BYTES,
+    UNCALIBRATED_BREAD_FRAME_WIDTH,
+    UNCALIBRATED_BREAD_FRAME_HEIGHT,
+    UNCALIBRATED_BREAD_FRAME_DELAY,
+    UNCALIBRATED_BREAD_FRAME_COUNT};
+
+constexpr int16_t kUncalibratedBreadScale = 2;
+
+const char* const kMenuNamesZh[6] = {"设置", "音乐", "阅读", "专注时钟", "无线功能", "游戏"};
 
 bool clipRectToDisplay(ST7305_2p9_BW_DisplayDriver& canvas, int16_t& x1, int16_t& y1,
                        int16_t& x2, int16_t& y2) {
@@ -184,47 +193,17 @@ void drawHomeTimePreview(ST7305_2p9_BW_DisplayDriver& canvas, uint32_t nowMs, in
                         static_cast<int16_t>(boxY2 - 1), ST7305_COLOR_BLACK);
 
   if (!clockData.valid) {
-    const uint16_t frame = static_cast<uint16_t>(
-        (nowMs / kUncalibratedFrameDelayMs) % kUncalibratedFrameCount);
-    const int16_t bob = (frame == 1 || frame == 2) ? -2 : ((frame == 4) ? 1 : 0);
-    const int16_t breadX = static_cast<int16_t>(boxX1 + 42);
-    const int16_t breadY = static_cast<int16_t>(boxY1 + 9 + bob);
-    const int16_t clockX = static_cast<int16_t>(boxX1 + 91);
-    const int16_t clockY = static_cast<int16_t>(boxY1 + 23);
-
-    // A compact pixel character keeps the invalid-time state warm without
-    // adding a bitmap asset or a large animation buffer.
     if (boxX1 >= 0 && boxY1 >= 0 && boxX2 < canvas.getDisplayWidth() &&
         boxY2 < canvas.getDisplayHeight()) {
-      canvas.drawFilledRectangle(static_cast<uint>(breadX - 12),
-                                 static_cast<uint>(breadY + 8),
-                                 static_cast<uint>(breadX + 12),
-                                 static_cast<uint>(breadY + 24), ST7305_COLOR_WHITE);
-      canvas.drawFilledCircle(breadX - 6, breadY + 8, 8, ST7305_COLOR_WHITE);
-      canvas.drawFilledCircle(breadX + 6, breadY + 8, 8, ST7305_COLOR_WHITE);
-      canvas.drawFilledRectangle(static_cast<uint>(breadX - 8),
-                                 static_cast<uint>(breadY + 24),
-                                 static_cast<uint>(breadX - 3),
-                                 static_cast<uint>(breadY + 28), ST7305_COLOR_WHITE);
-      canvas.drawFilledRectangle(static_cast<uint>(breadX + 3),
-                                 static_cast<uint>(breadY + 24),
-                                 static_cast<uint>(breadX + 8),
-                                 static_cast<uint>(breadY + 28), ST7305_COLOR_WHITE);
-
-      canvas.drawFilledCircle(breadX - 5, breadY + 9, 2, ST7305_COLOR_BLACK);
-      canvas.drawFilledCircle(breadX + 5, breadY + 9, 2, ST7305_COLOR_BLACK);
-      canvas.drawLine(breadX - 4, breadY + 17, breadX + 4, breadY + 17,
-                      ST7305_COLOR_BLACK);
-
-      canvas.drawLine(breadX + 11, breadY + 16, clockX - 11, clockY,
-                      ST7305_COLOR_WHITE);
-      canvas.drawCircle(clockX, clockY, 11, ST7305_COLOR_WHITE);
-      const int16_t handX = static_cast<int16_t>(clockX + ((frame == 3 || frame == 4) ? 5 : 0));
-      const int16_t handY = static_cast<int16_t>(clockY - ((frame == 3 || frame == 4) ? 5 : 7));
-      canvas.drawLine(clockX, clockY, handX, handY, ST7305_COLOR_WHITE);
-      canvas.drawLine(clockX, clockY, static_cast<int16_t>(clockX - 5),
-                      static_cast<int16_t>(clockY + 3), ST7305_COLOR_WHITE);
-      canvas.drawFilledCircle(clockX, clockY, 2, ST7305_COLOR_WHITE);
+      const int16_t imageW = static_cast<int16_t>(UNCALIBRATED_BREAD_FRAME_WIDTH *
+                                                   kUncalibratedBreadScale);
+      const int16_t imageH = static_cast<int16_t>(UNCALIBRATED_BREAD_FRAME_HEIGHT *
+                                                   kUncalibratedBreadScale);
+      const int16_t breadX = static_cast<int16_t>(boxX1 + (boxX2 - boxX1 + 1 - imageW) / 2);
+      const int16_t breadY = static_cast<int16_t>(boxY1 + (boxY2 - boxY1 + 1 - imageH) / 2);
+      const uint16_t frame = IconBitmap::frameAt(kUncalibratedBread, nowMs);
+      IconBitmap::drawFrame(canvas, kUncalibratedBread, frame, breadX, breadY, imageW,
+                            imageH, true, boxY1, boxY2);
     }
     return;
   }
@@ -319,7 +298,7 @@ void drawHomeDatePreview(ST7305_2p9_BW_DisplayDriver& canvas, U8G2_FOR_ST73XX& t
                                 ST7305_COLOR_WHITE, ST7305_COLOR_BLACK);
   text.drawUTF8(static_cast<int16_t>(weekChipX1 + kDateCardStyle.chipTextInsetX),
                 static_cast<int16_t>(chipBottom - kDateCardStyle.chipTextBaselineInset),
-                kWeekdayAbbr[weekday]);
+                weekday < 7U ? kWeekdayAbbr[weekday] : "---");
 
   const int16_t monthChipX2 =
       static_cast<int16_t>(boxX2 - kDateCardStyle.monthChipRightInset);
@@ -329,7 +308,7 @@ void drawHomeDatePreview(ST7305_2p9_BW_DisplayDriver& canvas, U8G2_FOR_ST73XX& t
                                 ST7305_COLOR_WHITE, ST7305_COLOR_BLACK);
   text.drawUTF8(static_cast<int16_t>(monthChipX1 + kDateCardStyle.chipTextInsetX),
                 static_cast<int16_t>(chipBottom - kDateCardStyle.chipTextBaselineInset),
-                kMonthAbbr[month - 1]);
+                (month >= 1U && month <= 12U) ? kMonthAbbr[month - 1U] : "---");
 
   char dayText[3];
   snprintf(dayText, sizeof(dayText), "%02u", static_cast<unsigned>(day));
@@ -447,8 +426,7 @@ int16_t HomePage::currentMenuOffset(uint32_t nowMs) const {
 
 bool HomePage::hasAnimationTick(uint32_t nowMs) const {
   if (!clockData_.valid) {
-    const uint16_t frame = static_cast<uint16_t>(
-        (nowMs / kUncalibratedFrameDelayMs) % kUncalibratedFrameCount);
+    const uint16_t frame = IconBitmap::frameAt(kUncalibratedBread, nowMs);
     if (frame != lastUncalibratedFrame_) {
       return true;
     }
@@ -518,8 +496,7 @@ void HomePage::renderTransition(DisplayMonoTft& display, int16_t backgroundOffse
                         height, false, 0, static_cast<int16_t>(height - 1));
   drawHomeTimePreview(canvas, nowMs, backgroundOffsetX, clockData_);
   if (!clockData_.valid && backgroundOffsetX == 0) {
-    lastUncalibratedFrame_ = static_cast<uint16_t>(
-        (nowMs / kUncalibratedFrameDelayMs) % kUncalibratedFrameCount);
+    lastUncalibratedFrame_ = IconBitmap::frameAt(kUncalibratedBread, nowMs);
   }
   drawHomeDatePreview(canvas, text, nowMs, backgroundOffsetX, clockData_);
 

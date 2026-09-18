@@ -265,6 +265,10 @@ void TimeService::updateSnapshotTime(const DateTime& dt, bool valid) {
   if (memcmp(&snapshot_.now, &dt, sizeof(dt)) == 0 && snapshot_.valid == valid) {
     return;
   }
+  if (snapshot_.valid != valid) {
+    timeLog("validity changed %u->%u persisted=%u",
+            snapshot_.valid ? 1U : 0U, valid ? 1U : 0U, persistedValid_ ? 1U : 0U);
+  }
   snapshot_.now = dt;
   snapshot_.valid = valid;
   markChanged();
@@ -272,6 +276,9 @@ void TimeService::updateSnapshotTime(const DateTime& dt, bool valid) {
 
 bool TimeService::refreshFromRtc(bool logStartupRead) {
   if (rtc_ == nullptr || !rtc_->isAvailable()) {
+    if (logStartupRead || snapshot_.valid || snapshot_.error != Error::NoRtc) {
+      timeErr("rtc unavailable; time display disabled");
+    }
     updateSnapshotTime(DateTime{}, false);
     setError(Error::NoRtc);
     return false;
@@ -279,6 +286,9 @@ bool TimeService::refreshFromRtc(bool logStartupRead) {
 
   RtcDriver::DateTime rtcNow;
   if (!rtc_->read(rtcNow)) {
+    if (logStartupRead || snapshot_.valid || snapshot_.error != Error::InvalidRtc) {
+      timeErr("rtc date/time read failed; check I2C bus and RTC power");
+    }
     updateSnapshotTime(DateTime{}, false);
     setError(Error::InvalidRtc);
     return false;
@@ -293,22 +303,15 @@ bool TimeService::refreshFromRtc(bool logStartupRead) {
   dt.month = rtcNow.month;
   dt.year = static_cast<uint16_t>(2000U + rtcNow.year);
 
-  const bool rtcDateValid = validateDateTime(dt);
-  if (logStartupRead) {
-    timeLog("rtc startup read %04u-%02u-%02u %02u:%02u:%02u weekday=%u valid=%u "
-            "clock_lost=%u persisted=%u source=%u",
+  if (logStartupRead || !snapshot_.valid) {
+    timeLog("rtc read accepted %04u-%02u-%02u %02u:%02u:%02u weekday=%u "
+            "policy=read_success clock_lost=%u persisted=%u source=%u",
             static_cast<unsigned>(dt.year), static_cast<unsigned>(dt.month),
             static_cast<unsigned>(dt.day), static_cast<unsigned>(dt.hour),
             static_cast<unsigned>(dt.minute), static_cast<unsigned>(dt.second),
-            static_cast<unsigned>(dt.weekday), rtcDateValid ? 1U : 0U,
+            static_cast<unsigned>(dt.weekday),
             rtcNow.clockIntegrityLost ? 1U : 0U, persistedValid_ ? 1U : 0U,
             static_cast<unsigned>(snapshot_.lastSource));
-  }
-
-  if (rtcNow.clockIntegrityLost || !rtcDateValid) {
-    updateSnapshotTime(dt, false);
-    setError(Error::InvalidRtc);
-    return false;
   }
 
   if (!persistedValid_) {
@@ -316,6 +319,8 @@ bool TimeService::refreshFromRtc(bool logStartupRead) {
     snapshot_.lastSyncEpoch = 0;
   }
 
+  // Display availability follows successful RTC reads, not calibration history
+  // or clock integrity. Keep input validation on calibration writes.
   updateSnapshotTime(dt, true);
   setError(Error::None);
   return true;

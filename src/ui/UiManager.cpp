@@ -12,13 +12,12 @@
 #include "assets/games/icons8-airplanewars.h"
 #include "assets/games/icons8-tapthewoodenfish.h"
 #include "assets/submenu/bluetoothconnet.h"
-#include "assets/submenu/desktopclock.h"
 #include "assets/submenu/likemusic.h"
 #include "assets/submenu/musiclist.h"
 #include "assets/submenu/remote.h"
 #include "assets/submenu/teleprompter.h"
-#include "assets/submenu/timer.h"
 #include "assets/submenu/vocabularybook.h"
+#include "assets/main_menu/icons8-clock.h"
 #include "assets/ui/pop_up_window.h"
 
 namespace {
@@ -111,14 +110,10 @@ const SectionItem kReaderItems[] = {
       TELEPROMPTER_FRAME_DELAY, TELEPROMPTER_FRAME_COUNT}},
 };
 
-const SectionItem kClockItems[] = {
-    {"时钟桌面", "Clock",
-     {reinterpret_cast<const uint8_t*>(&desktopclock_frames[0][0]), DESKTOPCLOCK_FRAME_BYTES,
-      DESKTOPCLOCK_FRAME_WIDTH, DESKTOPCLOCK_FRAME_HEIGHT, DESKTOPCLOCK_FRAME_DELAY,
-      DESKTOPCLOCK_FRAME_COUNT}},
-    {"计时器", "Timer",
-     {reinterpret_cast<const uint8_t*>(&timer_frames[0][0]), TIMER_FRAME_BYTES,
-      TIMER_FRAME_WIDTH, TIMER_FRAME_HEIGHT, TIMER_FRAME_DELAY, TIMER_FRAME_COUNT}},
+const SectionItem kFocusClockItems[] = {
+    {"专注时钟", "Focus Clock",
+     {reinterpret_cast<const uint8_t*>(&clock_frames[0][0]), CLOCK_FRAME_BYTES,
+      CLOCK_FRAME_WIDTH, CLOCK_FRAME_HEIGHT, CLOCK_FRAME_DELAY, CLOCK_FRAME_COUNT}},
 };
 
 const SectionItem kWirelessItems[] = {
@@ -147,7 +142,7 @@ const SectionItem kGamesItems[] = {
 const SectionContent kSectionContents[] = {
     {kMusicItems, static_cast<uint8_t>(sizeof(kMusicItems) / sizeof(kMusicItems[0]))},
     {kReaderItems, static_cast<uint8_t>(sizeof(kReaderItems) / sizeof(kReaderItems[0]))},
-    {kClockItems, static_cast<uint8_t>(sizeof(kClockItems) / sizeof(kClockItems[0]))},
+    {kFocusClockItems, static_cast<uint8_t>(sizeof(kFocusClockItems) / sizeof(kFocusClockItems[0]))},
     {kWirelessItems, static_cast<uint8_t>(sizeof(kWirelessItems) / sizeof(kWirelessItems[0]))},
     {kGamesItems, static_cast<uint8_t>(sizeof(kGamesItems) / sizeof(kGamesItems[0]))},
 };
@@ -717,6 +712,9 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
                                               false, edges.right, edges.up, edges.down, edges.ok, nowMs,
                                               musicService_)) {
         needsRedraw_ = true;
+      } else if (focusClockPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
+                                                   edges.up, edges.down, edges.ok, nowMs)) {
+        needsRedraw_ = true;
       } else if (gamesPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
                                               edges.ok, edges.okPressed, edges.okChanged,
                                               nowMs)) {
@@ -822,6 +820,11 @@ bool UiManager::shouldRedraw(uint32_t nowMs) const {
   }
 
   if (state_ == UiState::Detail &&
+      focusClockPage_.needsAnimationFrame(homePage_.focusIndex(), sectionFocusIndex_, nowMs)) {
+    return true;
+  }
+
+  if (state_ == UiState::Detail &&
       settingsPage_.isDeviceSelfTestSelection(homePage_.focusIndex(), sectionFocusIndex_) &&
       deviceSelfTestPage_.needsAnimationFrame()) {
     return true;
@@ -848,6 +851,11 @@ uint32_t UiManager::targetFrameIntervalMs(uint32_t nowMs) const {
   if (state_ == UiState::Detail &&
       musicPage_.isMusicListSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
     return musicPage_.detailFrameIntervalMs(homePage_.focusIndex(), sectionFocusIndex_);
+  }
+
+  if (state_ == UiState::Detail &&
+      focusClockPage_.isAnimating(homePage_.focusIndex(), sectionFocusIndex_, nowMs)) {
+    return kHighFrameIntervalMs;
   }
 
   if (state_ == UiState::Detail &&
@@ -1430,6 +1438,11 @@ void UiManager::renderDetail(int16_t yOffset) {
 
   if (gamesPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
                               kUiLanguage)) {
+    return;
+  }
+
+  if (focusClockPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
+                                   kUiLanguage, millis())) {
     return;
   }
 
