@@ -38,7 +38,9 @@ private:
   enum class UiState : uint8_t {
     Home,
     ToSectionTransition,
+    ToDirectDetailTransition,
     ToHomeTransition,
+    ToHomeFromDirectDetailTransition,
     ToDetailTransition,
     ToSectionFromDetailTransition,
     Section,

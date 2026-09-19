@@ -522,7 +522,9 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         sectionAnimToIndex_ = 0;
         sectionAnimStartMs_ = nowMs;
         sectionAnimActive_ = false;
-        state_ = UiState::ToSectionTransition;
+        state_ = homePage_.focusIndex() == FocusClockPage::kHomeIndex
+                     ? UiState::ToDirectDetailTransition
+                     : UiState::ToSectionTransition;
         transitionStartMs_ = nowMs;
         needsRedraw_ = true;
       }
@@ -541,8 +543,24 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
       break;
     }
 
+    case UiState::ToDirectDetailTransition: {
+      if (nowMs - transitionStartMs_ >= kDetailTransitionMs) {
+        state_ = UiState::Detail;
+        needsRedraw_ = true;
+      }
+      break;
+    }
+
     case UiState::ToHomeTransition: {
       if (nowMs - transitionStartMs_ >= kSectionTransitionMs) {
+        state_ = UiState::Home;
+        needsRedraw_ = true;
+      }
+      break;
+    }
+
+    case UiState::ToHomeFromDirectDetailTransition: {
+      if (nowMs - transitionStartMs_ >= kDetailTransitionMs) {
         state_ = UiState::Home;
         needsRedraw_ = true;
       }
@@ -673,7 +691,9 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         } else {
           settingsPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                           wifiProvisionService_, otaService_, timeService_);
-          state_ = UiState::ToSectionFromDetailTransition;
+          state_ = homePage_.focusIndex() == FocusClockPage::kHomeIndex
+                       ? UiState::ToHomeFromDirectDetailTransition
+                       : UiState::ToSectionFromDetailTransition;
           transitionStartMs_ = nowMs;
           needsRedraw_ = true;
         }
@@ -704,7 +724,9 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         } else {
           settingsPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                          wifiProvisionService_, otaService_, timeService_);
-          state_ = UiState::ToSectionFromDetailTransition;
+          state_ = homePage_.focusIndex() == FocusClockPage::kHomeIndex
+                       ? UiState::ToHomeFromDirectDetailTransition
+                       : UiState::ToSectionFromDetailTransition;
           transitionStartMs_ = nowMs;
           needsRedraw_ = true;
         }
@@ -783,7 +805,13 @@ bool UiManager::shouldRedraw(uint32_t nowMs) const {
   if (state_ == UiState::ToSectionTransition) {
     return true;
   }
+  if (state_ == UiState::ToDirectDetailTransition) {
+    return true;
+  }
   if (state_ == UiState::ToHomeTransition) {
+    return true;
+  }
+  if (state_ == UiState::ToHomeFromDirectDetailTransition) {
     return true;
   }
   if (state_ == UiState::ToDetailTransition) {
@@ -834,7 +862,9 @@ bool UiManager::shouldRedraw(uint32_t nowMs) const {
 }
 
 uint32_t UiManager::targetFrameIntervalMs(uint32_t nowMs) const {
-  if (state_ == UiState::ToSectionTransition || state_ == UiState::ToHomeTransition ||
+  if (state_ == UiState::ToSectionTransition ||
+      state_ == UiState::ToDirectDetailTransition || state_ == UiState::ToHomeTransition ||
+      state_ == UiState::ToHomeFromDirectDetailTransition ||
       state_ == UiState::ToDetailTransition ||
       state_ == UiState::ToSectionFromDetailTransition) {
     return kHighFrameIntervalMs;
@@ -963,6 +993,31 @@ void UiManager::render(uint32_t nowMs) {
     homePage_.renderTransition(display_, backgroundOffsetX, 0, menuUpOffsetX,
                                menuFocusOffsetX, menuDownOffsetX, nowMs);
     renderSection(0, sectionOffsetY, nowMs);
+  } else if (state_ == UiState::ToDirectDetailTransition) {
+    const uint32_t elapsedRaw = nowMs - transitionStartMs_;
+    const uint32_t elapsed =
+        elapsedRaw > kDetailTransitionMs ? kDetailTransitionMs : elapsedRaw;
+    const int16_t width = static_cast<int16_t>(display_.width());
+    const int16_t height = static_cast<int16_t>(display_.height());
+
+    int16_t homeOffsetX = static_cast<int16_t>(-width);
+    if (elapsed < kDetailForwardIconEndMs) {
+      const float t = static_cast<float>(elapsed) /
+                      static_cast<float>(kDetailForwardIconEndMs == 0 ? 1
+                                                                      : kDetailForwardIconEndMs);
+      homeOffsetX = easeInCubic(0, static_cast<int16_t>(-width), t);
+    }
+
+    int16_t detailOffsetY = height;
+    if (elapsed >= kDetailForwardDetailStartMs) {
+      const uint32_t moveDuration = kDetailTransitionMs - kDetailForwardDetailStartMs;
+      const float t = static_cast<float>(elapsed - kDetailForwardDetailStartMs) /
+                      static_cast<float>(moveDuration == 0 ? 1 : moveDuration);
+      detailOffsetY = easeOutCubic(height, 0, t);
+    }
+
+    homePage_.renderTransition(display_, homeOffsetX, homeOffsetX, 0, 0, 0, nowMs);
+    renderDetail(detailOffsetY);
   } else if (state_ == UiState::ToHomeTransition) {
     const uint32_t elapsedRaw = nowMs - transitionStartMs_;
     const uint32_t elapsed =
@@ -1015,6 +1070,31 @@ void UiManager::render(uint32_t nowMs) {
     homePage_.renderTransition(display_, backgroundOffsetX, 0, menuUpOffsetX,
                                menuFocusOffsetX, menuDownOffsetX, nowMs);
     renderSection(0, sectionOffsetY, nowMs);
+  } else if (state_ == UiState::ToHomeFromDirectDetailTransition) {
+    const uint32_t elapsedRaw = nowMs - transitionStartMs_;
+    const uint32_t elapsed =
+        elapsedRaw > kDetailTransitionMs ? kDetailTransitionMs : elapsedRaw;
+    const int16_t width = static_cast<int16_t>(display_.width());
+    const int16_t height = static_cast<int16_t>(display_.height());
+
+    int16_t detailOffsetY = height;
+    if (elapsed < kDetailBackDetailEndMs) {
+      const float t = static_cast<float>(elapsed) /
+                      static_cast<float>(kDetailBackDetailEndMs == 0 ? 1
+                                                                      : kDetailBackDetailEndMs);
+      detailOffsetY = easeInCubic(0, height, t);
+    }
+
+    int16_t homeOffsetX = static_cast<int16_t>(-width);
+    if (elapsed >= kDetailBackIconStartMs) {
+      const uint32_t moveDuration = kDetailTransitionMs - kDetailBackIconStartMs;
+      const float t = static_cast<float>(elapsed - kDetailBackIconStartMs) /
+                      static_cast<float>(moveDuration == 0 ? 1 : moveDuration);
+      homeOffsetX = easeOutCubic(static_cast<int16_t>(-width), 0, t);
+    }
+
+    renderDetail(detailOffsetY);
+    homePage_.renderTransition(display_, homeOffsetX, homeOffsetX, 0, 0, 0, nowMs);
   } else if (state_ == UiState::ToDetailTransition) {
     const uint32_t elapsedRaw = nowMs - transitionStartMs_;
     const uint32_t elapsed =
