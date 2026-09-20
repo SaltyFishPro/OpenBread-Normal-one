@@ -1,4 +1,4 @@
-﻿#include "UiManager.h"
+#include "UiManager.h"
 
 #include <cstdio>
 
@@ -147,14 +147,24 @@ const SectionContent kSectionContents[] = {
     {kGamesItems, static_cast<uint8_t>(sizeof(kGamesItems) / sizeof(kGamesItems[0]))},
 };
 
+// 主菜单里直接进入详情页、跳过单条目二级目录的入口。
+bool isDirectDetailHomeIndex(uint8_t homeFocus) {
+  return homeFocus == FocusClockPage::kHomeIndex || homeFocus == HomePage::kAlarmMenuIndex ||
+         homeFocus == HomePage::kCalendarMenuIndex;
+}
+
 SectionContent sectionContentFor(uint8_t homeFocus, const SettingsPage& settingsPage) {
   if (homeFocus == SettingsPage::kHomeIndex) {
     return {settingsPage.menuItems(), settingsPage.menuItemCount()};
   }
 
   const size_t count = sizeof(kSectionContents) / sizeof(kSectionContents[0]);
-  const size_t index = (static_cast<size_t>(homeFocus) + count - 1U) % count;
-  return kSectionContents[index];
+  // 主菜单索引 1..count 依次对应各二级目录；直接进详情页的入口（专注时钟、闹钟）
+  // 没有二级目录，返回空内容。
+  if (homeFocus == 0U || static_cast<size_t>(homeFocus) > count) {
+    return {nullptr, 0};
+  }
+  return kSectionContents[static_cast<size_t>(homeFocus) - 1U];
 }
 
 uint8_t sectionPageCount(uint8_t itemCount) {
@@ -494,7 +504,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         sectionAnimToIndex_ = 0;
         sectionAnimStartMs_ = nowMs;
         sectionAnimActive_ = false;
-        state_ = homePage_.focusIndex() == FocusClockPage::kHomeIndex
+        state_ = isDirectDetailHomeIndex(homePage_.focusIndex())
                      ? UiState::ToDirectDetailTransition
                      : UiState::ToSectionTransition;
         transitionStartMs_ = nowMs;
@@ -687,7 +697,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         } else {
           settingsPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                           wifiProvisionService_, otaService_, timeService_);
-          state_ = homePage_.focusIndex() == FocusClockPage::kHomeIndex
+          state_ = isDirectDetailHomeIndex(homePage_.focusIndex())
                        ? UiState::ToHomeFromDirectDetailTransition
                        : UiState::ToSectionFromDetailTransition;
           transitionStartMs_ = nowMs;
@@ -724,7 +734,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         } else {
           settingsPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                           wifiProvisionService_, otaService_, timeService_);
-          state_ = homePage_.focusIndex() == FocusClockPage::kHomeIndex
+          state_ = isDirectDetailHomeIndex(homePage_.focusIndex())
                        ? UiState::ToHomeFromDirectDetailTransition
                        : UiState::ToSectionFromDetailTransition;
           transitionStartMs_ = nowMs;

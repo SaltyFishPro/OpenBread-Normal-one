@@ -9,7 +9,9 @@
 #include "../ThemeMono.h"
 #include "../TextUtils.h"
 #include "../assets/games/icons8_games.h"
+#include "../assets/main_menu/alarm.h"
 #include "../assets/main_menu/icons8-book.h"
+#include "../assets/main_menu/calendar.h"
 #include "../assets/main_menu/icons8-clock.h"
 #include "../assets/main_menu/icons8-itunes.h"
 #include "../assets/main_menu/icons8-settings.h"
@@ -80,7 +82,7 @@ constexpr DateCardStyle kDateCardStyle = {
     6,
     -2};
 
-const IconBitmap::Anim kMenuIcons[6] = {
+const IconBitmap::Anim kMenuIcons[8] = {
     {reinterpret_cast<const uint8_t*>(&setting_frames[0][0]), SETTING_FRAME_BYTES,
      SETTING_FRAME_WIDTH, SETTING_FRAME_HEIGHT, SETTING_FRAME_DELAY, SETTING_FRAME_COUNT},
     {reinterpret_cast<const uint8_t*>(&itunes_frames[0][0]), ITUNES_FRAME_BYTES,
@@ -94,6 +96,10 @@ const IconBitmap::Anim kMenuIcons[6] = {
     {reinterpret_cast<const uint8_t*>(&icons8_games_frames[0][0]), ICONS8_GAMES_FRAME_BYTES,
      ICONS8_GAMES_FRAME_WIDTH, ICONS8_GAMES_FRAME_HEIGHT, ICONS8_GAMES_FRAME_DELAY,
      ICONS8_GAMES_FRAME_COUNT},
+    {reinterpret_cast<const uint8_t*>(&alarm_frames[0][0]), ALARM_FRAME_BYTES,
+     ALARM_FRAME_WIDTH, ALARM_FRAME_HEIGHT, ALARM_FRAME_DELAY, ALARM_FRAME_COUNT},
+    {reinterpret_cast<const uint8_t*>(&calendar_frames[0][0]), CALENDAR_FRAME_BYTES,
+     CALENDAR_FRAME_WIDTH, CALENDAR_FRAME_HEIGHT, CALENDAR_FRAME_DELAY, CALENDAR_FRAME_COUNT},
 };
 
 const IconBitmap::Anim kHomeBackground = {
@@ -114,7 +120,8 @@ const IconBitmap::Anim kUncalibratedBread = {
 
 constexpr int16_t kUncalibratedBreadScale = 2;
 
-const char* const kMenuNamesZh[6] = {"设置", "音乐", "阅读", "专注时钟", "无线功能", "游戏"};
+const char* const kMenuNamesZh[8] = {"设置", "音乐", "阅读", "专注时钟", "无线功能", "游戏",
+                                     "闹钟", "课程表"};
 
 void drawHomeTimePreview(ST7305_2p9_BW_DisplayDriver& canvas, uint32_t nowMs, int16_t xOffset,
                          const HomePage::ClockData& clockData) {
