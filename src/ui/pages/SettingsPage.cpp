@@ -379,16 +379,34 @@ void renderUsbSerialDetail(DisplayMonoTft& display, int16_t yOffset) {
 }
 }  // namespace
 
-SettingsPage::PopupKind SettingsPage::popupForSelection(uint8_t homeFocus,
-                                                        uint8_t sectionFocus) const {
+SettingsPage::ConfirmKind SettingsPage::popupForSelection(uint8_t homeFocus,
+                                                          uint8_t sectionFocus) const {
   if (homeFocus != kHomeIndex) {
-    return PopupKind::None;
+    return ConfirmKind::None;
   }
 
   if (sectionFocus == kRestartItemIndex) {
-    return PopupKind::RestartConfirm;
+    return ConfirmKind::Restart;
   }
-  return PopupKind::None;
+  if (sectionFocus == kFactoryResetItemIndex) {
+    return ConfirmKind::FactoryReset;
+  }
+  return ConfirmKind::None;
+}
+
+SettingsPage::ConfirmKind SettingsPage::detailConfirmFor(uint8_t homeFocus, uint8_t sectionFocus,
+                                                         const OtaService& ota,
+                                                         const WifiProvisionService& wifi) const {
+  if (homeFocus != kHomeIndex) {
+    return ConfirmKind::None;
+  }
+  if (sectionFocus == kOtaItemIndex && ota.state() == OtaService::State::ReadyToApply) {
+    return ConfirmKind::OtaApply;
+  }
+  if (sectionFocus == kWifiProvisionItemIndex && wifi.canStartPortal()) {
+    return ConfirmKind::WifiStart;
+  }
+  return ConfirmKind::None;
 }
 
 bool SettingsPage::isAboutDeviceSelection(uint8_t homeFocus, uint8_t sectionFocus) const {
@@ -507,23 +525,36 @@ bool SettingsPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, uint8_t
   return true;
 }
 
-const char* SettingsPage::popupTitle(PopupKind kind) const {
-  if (kind == PopupKind::RestartConfirm) {
-    return "重启设备?";
+const char* SettingsPage::confirmTitle(ConfirmKind kind) const {
+  switch (kind) {
+    case ConfirmKind::Restart:
+      return "重启设备？";
+    case ConfirmKind::FactoryReset:
+      return "恢复默认设置？";
+    case ConfirmKind::OtaApply:
+      return "应用固件并重启？";
+    case ConfirmKind::WifiStart:
+      return "开始配网？";
+    default:
+      return "";
   }
-  return "";
 }
 
-const char* SettingsPage::popupPrimaryLabel(PopupKind kind) const {
-  if (kind == PopupKind::RestartConfirm) {
-    return "是";
-  }
-  return "";
+const char* SettingsPage::confirmPrimaryLabel(ConfirmKind kind) const {
+  return kind == ConfirmKind::None ? "" : "取消";
 }
 
-const char* SettingsPage::popupSecondaryLabel(PopupKind kind) const {
-  if (kind == PopupKind::RestartConfirm) {
-    return "否";
+const char* SettingsPage::confirmDangerLabel(ConfirmKind kind) const {
+  switch (kind) {
+    case ConfirmKind::Restart:
+      return "重启";
+    case ConfirmKind::FactoryReset:
+      return "恢复";
+    case ConfirmKind::OtaApply:
+      return "应用";
+    case ConfirmKind::WifiStart:
+      return "开始";
+    default:
+      return "";
   }
-  return "";
 }

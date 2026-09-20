@@ -17,6 +17,7 @@
 #include "../services/RtcTestService.h"
 #include "../services/TimeService.h"
 #include "../services/WifiProvisionService.h"
+#include "PopupView.h"
 #include "Render1bpp.h"
 #include "pages/TimeCalibrationPage.h"
 #include "pages/DeviceSelfTestPage.h"
@@ -46,6 +47,15 @@ private:
     Section,
     Popup,
     Detail
+  };
+
+  // 弹窗确认后要执行的动作。
+  enum class ConfirmAction : uint8_t {
+    None,
+    Restart,
+    FactoryReset,
+    OtaApply,
+    WifiStart,
   };
 
   struct ButtonEdge {
@@ -79,8 +89,10 @@ private:
                      uint8_t rowExtraCount = 0,
                      int16_t focusBoxExtraOffsetX = 0);
   void renderPopup(uint32_t nowMs);
-  void renderTwoOptionPopup(const char* title, const char* primaryLabel,
-                            const char* secondaryLabel, uint32_t nowMs);
+  void openConfirm(const char* title, const char* primaryLabel, const char* dangerLabel,
+                   ConfirmAction action, bool overSection, uint32_t nowMs);
+  void performConfirmAction(uint32_t nowMs);
+  void performFactoryReset();
   void initDeviceInfoCache();
   void renderDetail(int16_t yOffset = 0);
   void startSectionFocusAnimation(uint8_t toIndex, uint32_t nowMs);
@@ -131,9 +143,13 @@ private:
   uint16_t lastSectionIconFrame_ = 0;
   uint32_t lastSectionInteractionMs_ = 0;
   uint32_t sectionAnimationTimeMs_ = 0;
-  SettingsPage::PopupKind popupKind_ = SettingsPage::PopupKind::RestartConfirm;
-  bool popupSelectPrimary_ = false;
-  uint16_t lastPopupFrame_ = 0;
+  PopupView::ConfirmState confirmState_;
+  ConfirmAction confirmAction_ = ConfirmAction::None;
+  // 该弹窗是压在设置列表上（true）还是压在详情页上（false），决定取消后回到哪里。
+  bool confirmOverSection_ = false;
+  const char* confirmTitle_ = "";
+  const char* confirmPrimaryLabel_ = "";
+  const char* confirmDangerLabel_ = "";
   uint8_t detailPageIndex_ = 0;
   char deviceIdText_[40] = {0};
   char flashTotalText_[40] = {0};

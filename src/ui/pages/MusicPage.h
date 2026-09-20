@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "../../services/MusicService.h"
+#include "../PopupView.h"
 
 class DisplayMonoTft;
 class SdCardService;
@@ -62,7 +63,6 @@ private:
   bool isSelectionAnimating(uint32_t nowMs) const;
   bool isListFocusAnimating(uint32_t nowMs) const;
   bool isPlayerTransitionAnimating(uint32_t nowMs) const;
-  bool isVolumePopupAnimating(uint32_t nowMs) const;
   void resetStateUnchecked();
 
   uint8_t selectedIndex_ = 0;
@@ -75,8 +75,7 @@ private:
   uint8_t listFocusFromRow_ = 0;
   uint8_t listFocusToRow_ = 0;
   uint32_t listFocusAnimStartMs_ = 0;
-  bool volumePopupOpen_ = false;
-  uint32_t volumePopupStartMs_ = 0;
+  PopupView::InfoState volumePopup_;
   PlayerViewState playerViewState_ = PlayerViewState::List;
   uint8_t playerControlIndex_ = 0;
   bool playerUiPlaying_ = false;

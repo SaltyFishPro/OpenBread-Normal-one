@@ -10,7 +10,7 @@
 #include "../IconBitmap.h"
 #include "../TextUtils.h"
 #include "../assets/musicapp/music_nav_icons.h"
-#include "../assets/ui/pop_up_window.h"
+#include "../PopupView.h"
 
 namespace {
 // 音乐页动画触发日志：排查"底部导航栏动画跑到屏幕上方"这类问题时，用来确认
@@ -68,6 +68,8 @@ constexpr uint32_t kListFocusAnimationDurationMs = 170;
 constexpr uint32_t kPlayerTransitionDurationMs = 460;
 constexpr uint32_t kPlayerTransitionMinDurationMs = 80;
 constexpr uint32_t kAnimationFrameIntervalMs = 33;
+// 弹窗动画的帧间隔，比常规动画更密以保证进场/退场顺滑。
+constexpr uint32_t kPopupFrameIntervalMs = 16;
 constexpr int8_t kVolumeStep = 1;
 constexpr uint8_t kTabCount = 4;
 constexpr float kPlayerTransitionPhase1End = 0.56f;
@@ -123,17 +125,6 @@ constexpr int16_t kLyricBaselineFromTop = 12;
 constexpr int16_t kLyricRowStep = 13;
 constexpr uint32_t kTitleScrollPeriodMs = 90;
 constexpr uint32_t kLyricSwitchPeriodMs = 1800;
-constexpr int16_t kVolumePopupTitleTopOffset = 35;
-constexpr int16_t kVolumePopupValueBaselineOffset = 63;
-
-const IconBitmap::Anim kVolumePopupWindow = {
-    reinterpret_cast<const uint8_t*>(&pop_up_window_frames[0][0]),
-    POP_UP_WINDOW_FRAME_BYTES,
-    POP_UP_WINDOW_FRAME_WIDTH,
-    POP_UP_WINDOW_FRAME_HEIGHT,
-    POP_UP_WINDOW_FRAME_DELAY,
-    POP_UP_WINDOW_FRAME_COUNT};
-
 enum class NavTab : uint8_t {
   Music = 0,
   Favorite,
@@ -925,37 +916,10 @@ uint8_t volumePercent(uint8_t volume) {
 }
 
 void drawVolumePopup(DisplayMonoTft& display, const MusicService& music,
-                     uint32_t popupElapsedMs) {
-  auto& canvas = display.canvas();
-  auto& text = display.text();
-  const int16_t width = static_cast<int16_t>(display.width());
-  const int16_t height = static_cast<int16_t>(display.height());
-  const int16_t popupW = static_cast<int16_t>(kVolumePopupWindow.frameWidth);
-  const int16_t popupH = static_cast<int16_t>(kVolumePopupWindow.frameHeight);
-  const int16_t popupX = static_cast<int16_t>((width - popupW) / 2);
-  const int16_t popupY = static_cast<int16_t>((height - popupH) / 2);
-  const uint16_t popupFrame = IconBitmap::frameAt(kVolumePopupWindow, popupElapsedMs);
-  IconBitmap::drawFrame(canvas, kVolumePopupWindow, popupFrame, popupX, popupY, popupW, popupH,
-                        false, 0, static_cast<int16_t>(height - 1));
-
-  text.setFont(chinese_font_all);
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.setFontMode(1);
-  const char* title = "音量";
-  text.drawUTF8(TextUtils::centeredTextXInBox(text, title, popupX, popupW),
-                static_cast<int16_t>(popupY + kVolumePopupTitleTopOffset), title);
-
+                     const PopupView::InfoState& state, uint32_t nowMs) {
   char percentText[8];
   snprintf(percentText, sizeof(percentText), "%u%%", volumePercent(music.volume()));
-  text.setFont(u8g2_font_7x14B_tf);
-  text.drawUTF8(TextUtils::centeredTextXInBox(text, percentText, popupX, popupW),
-                static_cast<int16_t>(popupY + kVolumePopupValueBaselineOffset), percentText);
-
-  text.setFont(chinese_font_all);
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.setFontMode(1);
+  PopupView::drawInfo(display, 0, state, "音量", percentText, nowMs);
 }
 
 const char* playerTitleFor(const MusicService& music, uint8_t rowIndex) {
@@ -1067,17 +1031,13 @@ bool MusicPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool 
     return false;
   }
 
-  if (volumePopupOpen_) {
+  if (PopupView::isVisible(volumePopup_.anim)) {
     if (leftEdge || okEdge) {
-      volumePopupOpen_ = false;
+      PopupView::requestClose(volumePopup_, nowMs);
       return true;
     }
-    if (upEdge) {
-      (void)music.adjustVolume(kVolumeStep);
-      return true;
-    }
-    if (downEdge) {
-      (void)music.adjustVolume(-kVolumeStep);
+    if (upEdge || downEdge) {
+      (void)music.adjustVolume(upEdge ? kVolumeStep : -kVolumeStep);
       return true;
     }
     return rightEdge || upEdge || downEdge || okEdge;
@@ -1190,8 +1150,7 @@ bool MusicPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool 
   }
 
   if (okEdge && selectedIndex_ == static_cast<uint8_t>(NavTab::Volume)) {
-    volumePopupOpen_ = true;
-    volumePopupStartMs_ = nowMs;
+    PopupView::open(volumePopup_, nowMs);
     return true;
   }
 
@@ -1215,7 +1174,7 @@ bool MusicPage::handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus, MusicS
 
   selectionAnimating_ = false;
   listFocusAnimating_ = false;
-  volumePopupOpen_ = false;
+  volumePopup_ = PopupView::InfoState{};
   music.exitMusic(sd);
   resetStateUnchecked();
   return false;
@@ -1268,8 +1227,10 @@ bool MusicPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yO
   drawMusicList(display, music, pageIndex_, rowIndex_, nowMs, listFocusAnimating,
                 listFocusFromRow_, listFocusToRow_, listFocusAnimStartMs_, 0);
   drawMusicNavFrame(display, selectedIndex_, favoriteEnabled_, yOffset, progress);
-  if (volumePopupOpen_) {
-    drawVolumePopup(display, music, nowMs - volumePopupStartMs_);
+  if (PopupView::isVisible(volumePopup_.anim)) {
+    // 音量弹窗的进场/退场动画在这里推进，退场结束即自动消失。
+    PopupView::update(volumePopup_, nowMs);
+    drawVolumePopup(display, music, volumePopup_, nowMs);
   }
   if (!isSelectionAnimating(nowMs)) {
     selectionAnimating_ = false;
@@ -1317,7 +1278,8 @@ bool MusicPage::renderDetailListOnly(uint8_t homeFocus, uint8_t sectionFocus,
 bool MusicPage::needsAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus,
                                     uint32_t nowMs) const {
   return isMusicListSelection(homeFocus, sectionFocus) &&
-         (selectionAnimating_ || isListFocusAnimating(nowMs) || isVolumePopupAnimating(nowMs) ||
+         (selectionAnimating_ || isListFocusAnimating(nowMs) ||
+          PopupView::isAnimating(volumePopup_.anim) ||
           playerViewState_ == PlayerViewState::Entering ||
           playerViewState_ == PlayerViewState::Leaving ||
           playerViewState_ == PlayerViewState::Player);
@@ -1327,17 +1289,22 @@ bool MusicPage::needsNavAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus,
                                        uint32_t nowMs) const {
   (void)nowMs;
   return isMusicListSelection(homeFocus, sectionFocus) &&
-         playerViewState_ == PlayerViewState::List && selectionAnimating_ && !volumePopupOpen_;
+         playerViewState_ == PlayerViewState::List && selectionAnimating_ &&
+         !PopupView::isVisible(volumePopup_.anim);
 }
 
 bool MusicPage::needsListAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus,
                                         uint32_t nowMs) const {
   return isMusicListSelection(homeFocus, sectionFocus) &&
          playerViewState_ == PlayerViewState::List && isListFocusAnimating(nowMs) &&
-         !volumePopupOpen_;
+         !PopupView::isVisible(volumePopup_.anim);
 }
 
 uint32_t MusicPage::detailFrameIntervalMs(uint8_t homeFocus, uint8_t sectionFocus) const {
+  // 音量弹窗的进场/退场按 60fps 出帧，其余动画保持 30fps。
+  if (PopupView::isAnimating(volumePopup_.anim)) {
+    return kPopupFrameIntervalMs;
+  }
   return isMusicListSelection(homeFocus, sectionFocus) ? kAnimationFrameIntervalMs : 0U;
 }
 
@@ -1506,14 +1473,6 @@ bool MusicPage::isPlayerTransitionAnimating(uint32_t nowMs) const {
   return (nowMs - playerTransitionStartMs_) < playerTransitionDurationMs_;
 }
 
-bool MusicPage::isVolumePopupAnimating(uint32_t nowMs) const {
-  if (!volumePopupOpen_) {
-    return false;
-  }
-  return IconBitmap::frameAt(kVolumePopupWindow, nowMs - volumePopupStartMs_) + 1U <
-         kVolumePopupWindow.frameCount;
-}
-
 void MusicPage::resetStateUnchecked() {
   selectedIndex_ = static_cast<uint8_t>(NavTab::Music);
   favoriteEnabled_ = false;
@@ -1525,8 +1484,7 @@ void MusicPage::resetStateUnchecked() {
   listFocusFromRow_ = 0;
   listFocusToRow_ = 0;
   listFocusAnimStartMs_ = 0;
-  volumePopupOpen_ = false;
-  volumePopupStartMs_ = 0;
+  volumePopup_ = PopupView::InfoState{};
   playerViewState_ = PlayerViewState::List;
   playerControlIndex_ = 0;
   playerUiPlaying_ = false;

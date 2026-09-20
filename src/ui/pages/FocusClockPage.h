@@ -2,6 +2,8 @@
 
 #include <stdint.h>
 
+#include "../PopupView.h"
+
 class DisplayMonoTft;
 
 class FocusClockPage {
@@ -52,6 +54,15 @@ private:
     uint32_t startMs = 0;
   };
 
+  // 视图过渡：旧视图向上滑出、新视图从下方滑入，结束时才真正切换 view_。
+  struct ViewTransition {
+    bool active = false;
+    View from = View::Selection;
+    View to = View::Selection;
+    bool resetSessionAfter = false;
+    uint32_t startMs = 0;
+  };
+
   void moveCard(int8_t direction, uint32_t nowMs);
   void moveOption(int8_t direction, uint32_t nowMs);
   int16_t optionPosition(uint32_t nowMs) const;
@@ -66,13 +77,15 @@ private:
   void startPhase(View view, uint32_t nowMs);
   void advancePhase(uint32_t nowMs);
   void finishSession(uint32_t nowMs);
-  void stopSession();
+  void stopSession(uint32_t nowMs);
+  void beginViewTransition(View to, bool resetSessionAfter, uint32_t nowMs);
+  void applyViewTransition();
+  void drawView(View view, DisplayMonoTft& display, int16_t yOffset, uint32_t nowMs) const;
 
   const char* sessionTitle() const;
   void drawSelection(DisplayMonoTft& display, int16_t yOffset, uint32_t nowMs) const;
   void drawTimer(DisplayMonoTft& display, int16_t yOffset, uint32_t nowMs) const;
   void drawFinished(DisplayMonoTft& display, int16_t yOffset) const;
-  void drawAbandonPopup(DisplayMonoTft& display, int16_t yOffset) const;
 
   uint8_t cardIndex_ = 0;
   uint8_t optionIndex_[kCardCount] = {1, 1, 0};
@@ -83,15 +96,16 @@ private:
 
   View view_ = View::Selection;
   bool timerPaused_ = false;
-  bool confirmAbandonOpen_ = false;
-  bool confirmAbandonYes_ = false;
+  PopupView::ConfirmState abandonConfirm_;
   uint8_t roundIndex_ = 0;
   uint32_t phaseAccumMs_ = 0;
   uint32_t phaseStartMs_ = 0;
   uint32_t sessionAccumMs_ = 0;
   uint32_t finishedTotalMs_ = 0;
   uint32_t lastShownSecond_ = 0xFFFFFFFFU;
+  ViewTransition viewTransition_;
 
   static constexpr uint32_t kCardAnimationMs = 360;
   static constexpr uint32_t kOptionAnimationMs = 100;
+  static constexpr uint32_t kViewTransitionMs = 240;
 };

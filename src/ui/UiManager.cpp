@@ -7,6 +7,7 @@
 #include <cstdarg>
 #include <driver/gpio.h>
 #include <esp_sleep.h>
+#include <nvs_flash.h>
 #include "IconBitmap.h"
 #include "AnimMath.h"
 #include "DrawUtils.h"
@@ -22,7 +23,6 @@
 #include "assets/submenu/teleprompter.h"
 #include "assets/submenu/vocabularybook.h"
 #include "assets/main_menu/icons8-clock.h"
-#include "assets/ui/pop_up_window.h"
 
 namespace {
 #ifndef OB_SLEEP_LOG_ENABLED
@@ -77,24 +77,11 @@ constexpr uint32_t kButtonLongPressMs = 650;
 constexpr uint32_t kSectionFocusSlideMs = 170;
 constexpr uint8_t kSectionPageSize = 5;
 constexpr uint8_t kMaxSectionItemsForAnim = 8;
-constexpr int16_t kRestartPopupOptionWidth = 44;
-constexpr int16_t kRestartPopupOptionGap = 16;
-constexpr int16_t kRestartPopupTitleTopOffset = 35;
-constexpr int16_t kRestartPopupOptionBottomMargin = 8;
-constexpr int16_t kRestartPopupOptionPadY = 4;
 constexpr uint32_t kHighFrameIntervalMs = 16;
 // 空闲时仍按输入采样周期轮询；射频/自检等需要协作式高频服务的子系统用 1ms。
 constexpr uint32_t kActivePollMs = 1;
 // 满屏渲染后保持满速的时长，避免降频状态下执行整帧绘制。
 constexpr uint32_t kCpuBoostHoldMs = 500;
-
-const IconBitmap::Anim kRestartPopupWindow = {
-    reinterpret_cast<const uint8_t*>(&pop_up_window_frames[0][0]),
-    POP_UP_WINDOW_FRAME_BYTES,
-    POP_UP_WINDOW_FRAME_WIDTH,
-    POP_UP_WINDOW_FRAME_HEIGHT,
-    POP_UP_WINDOW_FRAME_DELAY,
-    POP_UP_WINDOW_FRAME_COUNT};
 
 using SectionItem = SettingsPage::MenuItem;
 
@@ -345,9 +332,9 @@ bool UiManager::begin() {
   lastSectionIconFrame_ = 0;
   lastSectionInteractionMs_ = transitionStartMs_;
   sectionAnimationTimeMs_ = transitionStartMs_;
-  popupKind_ = SettingsPage::PopupKind::RestartConfirm;
-  popupSelectPrimary_ = false;
-  lastPopupFrame_ = 0;
+  confirmState_ = PopupView::ConfirmState{};
+  confirmAction_ = ConfirmAction::None;
+  confirmOverSection_ = false;
   lastRenderMs_ = 0;
   sectionAnimActive_ = false;
   needsRedraw_ = true;
@@ -419,6 +406,18 @@ void UiManager::tick() {
   }
   const InputEdges edges = pollInputEdges();
   updateState(edges, nowMs);
+
+  // 弹窗退场动画播完后再执行动作，避免"还没看清就执行了"。
+  const uint32_t popupNowMs = millis();
+  const PopupView::Result popupResult = PopupView::update(confirmState_, popupNowMs);
+  if (popupResult != PopupView::Result::None) {
+    if (popupResult == PopupView::Result::Confirmed) {
+      performConfirmAction(popupNowMs);
+    } else if (confirmOverSection_ && state_ == UiState::Popup) {
+      state_ = UiState::Section;
+    }
+    needsRedraw_ = true;
+  }
 
   if (shouldRedraw(nowMs)) {
     render(nowMs);
@@ -601,10 +600,17 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
       } else if (edges.ok) {
         lastSectionInteractionMs_ = nowMs;
         sectionAnimActive_ = false;
-        popupKind_ = settingsPage_.popupForSelection(homePage_.focusIndex(), sectionFocusIndex_);
-        if (popupKind_ != SettingsPage::PopupKind::None) {
+        const SettingsPage::ConfirmKind kind =
+            settingsPage_.popupForSelection(homePage_.focusIndex(), sectionFocusIndex_);
+        if (kind != SettingsPage::ConfirmKind::None) {
+          openConfirm(settingsPage_.confirmTitle(kind),
+                      settingsPage_.confirmPrimaryLabel(kind),
+                      settingsPage_.confirmDangerLabel(kind),
+                      kind == SettingsPage::ConfirmKind::FactoryReset
+                          ? ConfirmAction::FactoryReset
+                          : ConfirmAction::Restart,
+                      true, nowMs);
           state_ = UiState::Popup;
-          popupSelectPrimary_ = false;  // default "否"
         } else {
           detailPageIndex_ = 0;
           musicPage_.resetState(homePage_.focusIndex(), sectionFocusIndex_);
@@ -617,26 +623,38 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
     }
 
     case UiState::Popup: {
-      if (edges.left || edges.up) {
-        popupSelectPrimary_ = true;
+      if (PopupView::handleInput(confirmState_, edges.left, edges.right, edges.up, edges.down,
+                                 edges.ok, nowMs)) {
         needsRedraw_ = true;
-      } else if (edges.right || edges.down) {
-        popupSelectPrimary_ = false;
-        needsRedraw_ = true;
-      } else if (edges.ok) {
-        if (popupKind_ == SettingsPage::PopupKind::RestartConfirm) {
-          if (popupSelectPrimary_) {
-            ESP.restart();
-          } else {
-            state_ = UiState::Section;
-            needsRedraw_ = true;
-          }
-        }
       }
       break;
     }
 
     case UiState::Detail: {
+      // 详情页上的确认弹窗优先接收输入。
+      if (PopupView::isVisible(confirmState_.anim)) {
+        if (PopupView::handleInput(confirmState_, edges.left, edges.right, edges.up, edges.down,
+                                   edges.ok, nowMs)) {
+          needsRedraw_ = true;
+        }
+        break;
+      }
+
+      // 「应用固件」「开始配网」这类动作先弹确认，再由 performConfirmAction 执行。
+      const SettingsPage::ConfirmKind detailConfirm = settingsPage_.detailConfirmFor(
+          homePage_.focusIndex(), sectionFocusIndex_, otaService_, wifiProvisionService_);
+      if (edges.ok && detailConfirm != SettingsPage::ConfirmKind::None) {
+        openConfirm(settingsPage_.confirmTitle(detailConfirm),
+                    settingsPage_.confirmPrimaryLabel(detailConfirm),
+                    settingsPage_.confirmDangerLabel(detailConfirm),
+                    detailConfirm == SettingsPage::ConfirmKind::OtaApply
+                        ? ConfirmAction::OtaApply
+                        : ConfirmAction::WifiStart,
+                    false, nowMs);
+        needsRedraw_ = true;
+        break;
+      }
+
       const bool isSelfTest = settingsPage_.isDeviceSelfTestSelection(
           homePage_.focusIndex(), sectionFocusIndex_);
       const DeviceSelfTestPage::ButtonState selfTestButtons = {
@@ -767,6 +785,10 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
 }
 
 bool UiManager::shouldRedraw(uint32_t nowMs) const {
+  // 弹窗进场/退场动画期间必须持续出帧。
+  if (PopupView::isAnimating(confirmState_.anim)) {
+    return true;
+  }
   const uint32_t frameIntervalMs = targetFrameIntervalMs(nowMs);
   if (frameIntervalMs > 0 && !needsRedraw_ && (nowMs - lastRenderMs_) < frameIntervalMs) {
     return false;
@@ -818,13 +840,6 @@ bool UiManager::shouldRedraw(uint32_t nowMs) const {
       }
     }
   }
-  if (state_ == UiState::Popup) {
-    const uint16_t frame = IconBitmap::frameAt(kRestartPopupWindow, nowMs);
-    if (frame != lastPopupFrame_) {
-      return true;
-    }
-  }
-
   if (state_ == UiState::Detail &&
       musicPage_.needsAnimationFrame(homePage_.focusIndex(), sectionFocusIndex_, nowMs)) {
     return true;
@@ -845,6 +860,9 @@ bool UiManager::shouldRedraw(uint32_t nowMs) const {
 }
 
 uint32_t UiManager::targetFrameIntervalMs(uint32_t nowMs) const {
+  if (PopupView::isAnimating(confirmState_.anim)) {
+    return kHighFrameIntervalMs;
+  }
   if (state_ == UiState::ToSectionTransition ||
       state_ == UiState::ToDirectDetailTransition || state_ == UiState::ToHomeTransition ||
       state_ == UiState::ToHomeFromDirectDetailTransition ||
@@ -1513,84 +1531,50 @@ uint32_t UiManager::sectionAnimationRenderTime(uint32_t nowMs) const {
   return isSectionAnimationActive(nowMs) ? nowMs : sectionAnimationTimeMs_;
 }
 
-void UiManager::renderTwoOptionPopup(const char* title, const char* primaryLabel,
-                                     const char* secondaryLabel, uint32_t nowMs) {
-  auto& canvas = display_.canvas();
-  auto& text = display_.text();
-  const int16_t width = static_cast<int16_t>(display_.width());
-  const int16_t height = static_cast<int16_t>(display_.height());
+void UiManager::openConfirm(const char* title, const char* primaryLabel, const char* dangerLabel,
+                            ConfirmAction action, bool overSection, uint32_t nowMs) {
+  confirmTitle_ = title;
+  confirmPrimaryLabel_ = primaryLabel;
+  confirmDangerLabel_ = dangerLabel;
+  confirmAction_ = action;
+  confirmOverSection_ = overSection;
+  PopupView::open(confirmState_, nowMs);
+}
 
-  const int16_t popupW = static_cast<int16_t>(kRestartPopupWindow.frameWidth);
-  const int16_t popupH = static_cast<int16_t>(kRestartPopupWindow.frameHeight);
-  const int16_t popupX = static_cast<int16_t>((width - popupW) / 2);
-  const int16_t popupY = static_cast<int16_t>((height - popupH) / 2);
+void UiManager::performConfirmAction(uint32_t nowMs) {
+  switch (confirmAction_) {
+    case ConfirmAction::Restart:
+      sleepLog("user confirmed restart");
+      ESP.restart();
+      break;
+    case ConfirmAction::FactoryReset:
+      performFactoryReset();
+      break;
+    case ConfirmAction::OtaApply:
+    case ConfirmAction::WifiStart:
+      // 复用详情页原有的 OK 处理：确认后带一次 OK 边沿执行动作。
+      (void)settingsPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
+                                            detailPageIndex_, true, nowMs,
+                                            wifiProvisionService_, otaService_);
+      break;
+    case ConfirmAction::None:
+    default:
+      break;
+  }
+  confirmAction_ = ConfirmAction::None;
+}
 
-  const uint16_t popupFrame = IconBitmap::frameAt(kRestartPopupWindow, nowMs);
-  lastPopupFrame_ = popupFrame;
-  IconBitmap::drawFrame(canvas, kRestartPopupWindow, popupFrame, popupX, popupY, popupW,
-                        popupH, false, 0, static_cast<int16_t>(height - 1));
-
-  text.setFont(chinese_font_all);
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.setFontMode(1);
-  const int16_t titleX = TextUtils::centeredTextXInBox(text, title, popupX, popupW);
-  text.drawUTF8(titleX, static_cast<int16_t>(popupY + kRestartPopupTitleTopOffset), title);
-
-  const int16_t optionGroupW =
-      static_cast<int16_t>(kRestartPopupOptionWidth * 2 + kRestartPopupOptionGap);
-  const int16_t optionStartX = static_cast<int16_t>(popupX + (popupW - optionGroupW) / 2);
-  const int16_t textHeight = 12;          // chinese_font_all glyph height
-  const int16_t textBaselineFromTop = 12; // chinese_font_all baseline
-  const int16_t optionHeight =
-      static_cast<int16_t>(textHeight + kRestartPopupOptionPadY * 2);
-  const int16_t optionY =
-      static_cast<int16_t>(popupY + popupH - optionHeight - kRestartPopupOptionBottomMargin);
-  const int16_t optionTextBaselineY =
-      static_cast<int16_t>(optionY + kRestartPopupOptionPadY + textBaselineFromTop);
-  const int16_t yesX = optionStartX;
-  const int16_t noX = static_cast<int16_t>(optionStartX + kRestartPopupOptionWidth +
-                                           kRestartPopupOptionGap);
-
-  DrawUtils::fillRoundRect(canvas, yesX, optionY,
-                           static_cast<int16_t>(yesX + kRestartPopupOptionWidth - 1),
-                           static_cast<int16_t>(optionY + optionHeight - 1), 5,
-                           popupSelectPrimary_ ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE);
-  DrawUtils::fillRoundRect(canvas, noX, optionY,
-                           static_cast<int16_t>(noX + kRestartPopupOptionWidth - 1),
-                           static_cast<int16_t>(optionY + optionHeight - 1), 5,
-                           popupSelectPrimary_ ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK);
-  canvas.drawRectangle(yesX, optionY,
-                       static_cast<int16_t>(yesX + kRestartPopupOptionWidth - 1),
-                       static_cast<int16_t>(optionY + optionHeight - 1),
-                       ST7305_COLOR_BLACK);
-  canvas.drawRectangle(noX, optionY,
-                       static_cast<int16_t>(noX + kRestartPopupOptionWidth - 1),
-                       static_cast<int16_t>(optionY + optionHeight - 1),
-                       ST7305_COLOR_BLACK);
-
-  applySectionItemTextStyle(text, popupSelectPrimary_);
-  text.drawUTF8(TextUtils::centeredTextXInBox(text, primaryLabel, yesX, kRestartPopupOptionWidth),
-                optionTextBaselineY, primaryLabel);
-
-  applySectionItemTextStyle(text, !popupSelectPrimary_);
-  text.drawUTF8(
-      TextUtils::centeredTextXInBox(text, secondaryLabel, noX, kRestartPopupOptionWidth),
-      optionTextBaselineY, secondaryLabel);
-
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.setFontMode(1);
+void UiManager::performFactoryReset() {
+  sleepLog("user confirmed factory reset: erasing NVS");
+  (void)nvs_flash_deinit();
+  const esp_err_t err = nvs_flash_erase();
+  sleepLog("nvs erase err=%d; restarting", static_cast<int>(err));
+  ESP.restart();
 }
 
 void UiManager::renderPopup(uint32_t nowMs) {
-  if (popupKind_ == SettingsPage::PopupKind::None) {
-    return;
-  }
-
-  renderTwoOptionPopup(settingsPage_.popupTitle(popupKind_),
-                       settingsPage_.popupPrimaryLabel(popupKind_),
-                       settingsPage_.popupSecondaryLabel(popupKind_), nowMs);
+  PopupView::drawConfirm(display_, 0, confirmState_, confirmTitle_, confirmPrimaryLabel_,
+                         confirmDangerLabel_, nowMs);
 }
 
 void UiManager::renderDetail(int16_t yOffset) {
@@ -1603,61 +1587,55 @@ void UiManager::renderDetail(int16_t yOffset) {
     canvas.drawFilledRectangle(0, yOffset, width - 1, height - 1, ST7305_COLOR_WHITE);
   }
 
+  bool handled = false;
   if (settingsPage_.isDeviceSelfTestSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
     deviceSelfTestPage_.render(display_, yOffset, millis(), iicScanService_, rtcTestService_,
                                sdCardService_, imuTestService_, powerDiagnosticService_);
-    return;
+    handled = true;
+  } else if (gamesPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_)) {
+    handled = true;
+  } else if (focusClockPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset,
+                                          display_, millis())) {
+    handled = true;
+  } else if (musicPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
+                                     musicService_, millis())) {
+    handled = true;
+  } else if (readerPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
+                                      readerService_)) {
+    handled = true;
+  } else if (remotePage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
+                                      bluetoothService_, remoteService_)) {
+    handled = true;
+  } else if (timeCalibrationPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset,
+                                               display_, timeService_)) {
+    handled = true;
+  } else if (settingsPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_,
+                                        detailPageIndex_, yOffset, display_, deviceIdText_,
+                                        flashTotalText_, sdStatusText_, wifiProvisionService_,
+                                        otaService_, timeService_)) {
+    handled = true;
   }
 
-  if (gamesPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_)) {
-    return;
+  if (!handled) {
+    canvas.drawFilledRectangle(0, yOffset, width - 1,
+                               static_cast<int16_t>(yOffset + ThemeMono::kHeaderHeight),
+                               ST7305_COLOR_BLACK);
+    text.setFont(chinese_font_all);
+    text.setForegroundColor(ST7305_COLOR_WHITE);
+    text.drawUTF8(6, static_cast<int16_t>(yOffset + 24), "详情页");
+
+    text.setForegroundColor(ST7305_COLOR_BLACK);
+    text.drawUTF8(8, static_cast<int16_t>(yOffset + 62), homePage_.focusName());
+    text.drawUTF8(8, static_cast<int16_t>(yOffset + 92), "详情内容开发中");
+    text.drawUTF8(width - 92, static_cast<int16_t>(yOffset + height - 10), "LEFT: 返回");
+
+    canvas.drawRectangle(4, static_cast<int16_t>(yOffset + 32), width - 5,
+                         static_cast<int16_t>(yOffset + height - 5), ST7305_COLOR_BLACK);
   }
 
-  if (focusClockPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
-                                   millis())) {
-    return;
-  }
-
-  if (musicPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
-                              musicService_, millis())) {
-    return;
-  }
-
-  if (readerPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
-                               readerService_)) {
-    return;
-  }
-
-  if (remotePage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
-                               bluetoothService_, remoteService_)) {
-    return;
-  }
-
-  if (timeCalibrationPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
-                              timeService_)) {
-    return;
-  }
-
-  if (settingsPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, detailPageIndex_,
-                                 yOffset, display_, deviceIdText_, flashTotalText_,
-                                 sdStatusText_, wifiProvisionService_, otaService_, timeService_)) {
-    return;
-  }
-
-  canvas.drawFilledRectangle(0, yOffset, width - 1,
-                             static_cast<int16_t>(yOffset + ThemeMono::kHeaderHeight),
-                             ST7305_COLOR_BLACK);
-  text.setFont(chinese_font_all);
-  text.setForegroundColor(ST7305_COLOR_WHITE);
-  text.drawUTF8(6, static_cast<int16_t>(yOffset + 24), "详情页");
-
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.drawUTF8(8, static_cast<int16_t>(yOffset + 62), homePage_.focusName());
-  text.drawUTF8(8, static_cast<int16_t>(yOffset + 92), "详情内容开发中");
-  text.drawUTF8(width - 92, static_cast<int16_t>(yOffset + height - 10), "LEFT: 返回");
-
-  canvas.drawRectangle(4, static_cast<int16_t>(yOffset + 32), width - 5,
-                       static_cast<int16_t>(yOffset + height - 5), ST7305_COLOR_BLACK);
+  // 详情页的确认弹窗（应用固件 / 开始配网）覆盖在页面之上。
+  PopupView::drawConfirm(display_, yOffset, confirmState_, confirmTitle_, confirmPrimaryLabel_,
+                         confirmDangerLabel_, millis());
 }
 
 void UiManager::refreshSdStatus() {

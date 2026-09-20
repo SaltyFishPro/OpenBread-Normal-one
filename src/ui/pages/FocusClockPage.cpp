@@ -173,7 +173,15 @@ void FocusClockPage::handleDetailEnter(uint8_t homeFocus, uint8_t sectionFocus) 
   if (!isSelection(homeFocus, sectionFocus)) {
     return;
   }
-  stopSession();
+  // 进入页面时直接复位到卡片选择界面，不做过渡。
+  abandonConfirm_ = PopupView::ConfirmState{};
+  viewTransition_.active = false;
+  view_ = View::Selection;
+  timerPaused_ = false;
+  roundIndex_ = 0;
+  phaseAccumMs_ = 0;
+  sessionAccumMs_ = 0;
+  lastShownSecond_ = 0xFFFFFFFFU;
 }
 
 bool FocusClockPage::update(uint32_t nowMs) {
@@ -187,6 +195,30 @@ bool FocusClockPage::update(uint32_t nowMs) {
     optionAnimationActive_ = false;
     changed = true;
   }
+
+  // 弹窗退场动画结束后再执行动作。
+  const PopupView::Result popupResult = PopupView::update(abandonConfirm_, nowMs);
+  if (popupResult == PopupView::Result::Confirmed) {
+    stopSession(nowMs);
+    changed = true;
+  } else if (popupResult == PopupView::Result::Cancelled) {
+    changed = true;
+  }
+
+  // 视图过渡期间只推进动画，不再推进计时阶段。
+  if (viewTransition_.active) {
+    if (nowMs - viewTransition_.startMs >= kViewTransitionMs) {
+      applyViewTransition();
+      return true;
+    }
+    const uint32_t second = phaseElapsedMs(nowMs) / 1000U;
+    if (second != lastShownSecond_) {
+      lastShownSecond_ = second;
+      changed = true;
+    }
+    return changed;
+  }
+
   if (view_ != View::Focus && view_ != View::Break) {
     return changed;
   }
@@ -257,11 +289,11 @@ void FocusClockPage::startPhase(View view, uint32_t nowMs) {
   phaseAccumMs_ = 0;
   phaseStartMs_ = nowMs;
   lastShownSecond_ = 0xFFFFFFFFU;
-  confirmAbandonOpen_ = false;
-  confirmAbandonYes_ = false;
 }
 
 void FocusClockPage::startSession(uint32_t nowMs) {
+  // 先记录来源视图（卡片选择页），再切到计时状态，过渡期间两个视图同时绘制。
+  beginViewTransition(View::Focus, false, nowMs);
   roundIndex_ = 0;
   sessionAccumMs_ = 0;
   finishedTotalMs_ = 0;
@@ -290,24 +322,43 @@ void FocusClockPage::advancePhase(uint32_t nowMs) {
 }
 
 void FocusClockPage::finishSession(uint32_t nowMs) {
-  (void)nowMs;
   // 当前阶段已经由 advancePhase() 并入总累计，这里直接落盘，避免重复累加。
   finishedTotalMs_ = sessionAccumMs_;
-  view_ = View::Finished;
-  timerPaused_ = false;
-  confirmAbandonOpen_ = false;
-  confirmAbandonYes_ = false;
+  // 过渡期间继续显示计时界面，结束后再切到完成页。
+  viewTransition_.active = true;
+  viewTransition_.from = view_;
+  viewTransition_.to = View::Finished;
+  viewTransition_.resetSessionAfter = false;
+  viewTransition_.startMs = nowMs;
   lastShownSecond_ = 0xFFFFFFFFU;
 }
 
-void FocusClockPage::stopSession() {
-  view_ = View::Selection;
-  timerPaused_ = false;
-  roundIndex_ = 0;
-  phaseAccumMs_ = 0;
-  sessionAccumMs_ = 0;
-  confirmAbandonOpen_ = false;
-  confirmAbandonYes_ = false;
+void FocusClockPage::stopSession(uint32_t nowMs) {
+  // 保留计时状态直到过渡结束，让滑出的旧视图仍显示真实时间。
+  beginViewTransition(View::Selection, true, nowMs);
+}
+
+void FocusClockPage::beginViewTransition(View to, bool resetSessionAfter, uint32_t nowMs) {
+  if (view_ == to) {
+    viewTransition_.active = false;
+    return;
+  }
+  viewTransition_.active = true;
+  viewTransition_.from = view_;
+  viewTransition_.to = to;
+  viewTransition_.resetSessionAfter = resetSessionAfter;
+  viewTransition_.startMs = nowMs;
+}
+
+void FocusClockPage::applyViewTransition() {
+  view_ = viewTransition_.to;
+  viewTransition_.active = false;
+  if (viewTransition_.resetSessionAfter) {
+    timerPaused_ = false;
+    roundIndex_ = 0;
+    phaseAccumMs_ = 0;
+    sessionAccumMs_ = 0;
+  }
   lastShownSecond_ = 0xFFFFFFFFU;
 }
 
@@ -383,24 +434,16 @@ bool FocusClockPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, 
     return false;
   }
   // 放弃确认弹窗：Right/Up/Down 切换选项，OK 确认；Left 由 handleDetailBack 关闭。
-  if (confirmAbandonOpen_) {
-    if (rightEdge || upEdge || downEdge) {
-      confirmAbandonYes_ = !confirmAbandonYes_;
-      return true;
-    }
-    if (okEdge) {
-      if (confirmAbandonYes_) {
-        stopSession();
-      } else {
-        confirmAbandonOpen_ = false;
-        confirmAbandonYes_ = false;
-      }
-      return true;
-    }
-    return false;
+  if (PopupView::isVisible(abandonConfirm_.anim)) {
+    return PopupView::handleInput(abandonConfirm_, false, rightEdge, upEdge, downEdge, okEdge,
+                                  nowMs);
   }
 
   if (view_ == View::Focus || view_ == View::Break) {
+    // 视图过渡期间不接收新的页面操作。
+    if (viewTransition_.active) {
+      return rightEdge || upEdge || downEdge || okEdge;
+    }
     if (okEdge) {
       if (timerPaused_) {
         timerPaused_ = false;
@@ -451,20 +494,21 @@ bool FocusClockPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, 
 }
 
 bool FocusClockPage::handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus, uint32_t nowMs) {
-  (void)nowMs;
   if (!isSelection(homeFocus, sectionFocus)) {
     return false;
   }
-  if (confirmAbandonOpen_) {
+  if (PopupView::isVisible(abandonConfirm_.anim)) {
     // Left 在弹窗中等价于"继续专注"。
-    confirmAbandonOpen_ = false;
-    confirmAbandonYes_ = false;
+    PopupView::requestClose(abandonConfirm_, false, nowMs);
+    return true;
+  }
+  if (viewTransition_.active) {
+    // 过渡动画进行中，忽略返回，等动画结束。
     return true;
   }
   if (view_ == View::Focus || view_ == View::Break) {
     // 计时中先确认，避免误触丢进度。
-    confirmAbandonOpen_ = true;
-    confirmAbandonYes_ = false;
+    PopupView::open(abandonConfirm_, nowMs);
     return true;
   }
   // 选择界面与完成页交给 UiManager 返回上级。
@@ -479,7 +523,10 @@ bool FocusClockPage::isAnimating(uint8_t homeFocus, uint8_t sectionFocus,
   if (cardAnimation_.active && nowMs - cardAnimation_.startMs < kCardAnimationMs) {
     return true;
   }
-  return optionAnimationActive_ && nowMs - optionAnimationStartMs_ < kOptionAnimationMs;
+  if (optionAnimationActive_ && nowMs - optionAnimationStartMs_ < kOptionAnimationMs) {
+    return true;
+  }
+  return viewTransition_.active || PopupView::isAnimating(abandonConfirm_.anim);
 }
 
 bool FocusClockPage::needsAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus,
@@ -496,7 +543,28 @@ bool FocusClockPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16
     return true;
   }
 
-  switch (view_) {
+  if (viewTransition_.active) {
+    // 旧视图向上滑出、新视图从下方滑入，靠屏幕边缘自然裁切。
+    const uint16_t raw =
+        AnimMath::fixedClampProgress(nowMs - viewTransition_.startMs, kViewTransitionMs);
+    const uint16_t eased = AnimMath::fixedEaseInOut(raw);
+    const int16_t height = static_cast<int16_t>(display.height());
+    const int16_t outOffset = static_cast<int16_t>(-height * eased / kEaseScale);
+    const int16_t inOffset = static_cast<int16_t>(height - height * eased / kEaseScale);
+    drawView(viewTransition_.from, display, static_cast<int16_t>(yOffset + outOffset), nowMs);
+    drawView(viewTransition_.to, display, static_cast<int16_t>(yOffset + inOffset), nowMs);
+  } else {
+    drawView(view_, display, yOffset, nowMs);
+  }
+
+  PopupView::drawConfirm(display, yOffset, abandonConfirm_, "放弃本次专注？", "继续", "放弃",
+                         nowMs);
+  return true;
+}
+
+void FocusClockPage::drawView(View view, DisplayMonoTft& display, int16_t yOffset,
+                              uint32_t nowMs) const {
+  switch (view) {
     case View::Selection:
       drawSelection(display, yOffset, nowMs);
       break;
@@ -508,11 +576,6 @@ bool FocusClockPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16
       drawFinished(display, yOffset);
       break;
   }
-
-  if (confirmAbandonOpen_) {
-    drawAbandonPopup(display, yOffset);
-  }
-  return true;
 }
 
 void FocusClockPage::drawSelection(DisplayMonoTft& display, int16_t yOffset,
@@ -639,42 +702,4 @@ void FocusClockPage::drawFinished(DisplayMonoTft& display, int16_t yOffset) cons
   drawTextCentered(text, "OK 再来一次 · Left 返回", static_cast<int16_t>(width / 2),
                    static_cast<int16_t>(yOffset + 158), ST7305_COLOR_BLACK,
                    ST7305_COLOR_WHITE);
-}
-
-void FocusClockPage::drawAbandonPopup(DisplayMonoTft& display, int16_t yOffset) const {
-  auto& canvas = display.canvas();
-  auto& text = display.text();
-  const int16_t width = static_cast<int16_t>(display.width());
-  const int16_t panelX = 52;
-  const int16_t panelY = static_cast<int16_t>(yOffset + 34);
-  const int16_t panelWidth = static_cast<int16_t>(width - panelX * 2);
-  const int16_t panelHeight = 100;
-
-  DrawUtils::drawRoundRect(canvas, panelX, panelY, panelWidth, panelHeight, 16,
-                           ST7305_COLOR_BLACK, ST7305_COLOR_BLACK);
-
-  text.setFont(chinese_font_all);
-  drawTextCentered(text, "放弃本次专注？", static_cast<int16_t>(width / 2),
-                   static_cast<int16_t>(panelY + 30), ST7305_COLOR_WHITE, ST7305_COLOR_BLACK);
-
-  constexpr int16_t kOptionWidth = 96;
-  constexpr int16_t kOptionHeight = 32;
-  constexpr int16_t kOptionGap = 24;
-  const int16_t groupWidth = static_cast<int16_t>(kOptionWidth * 2 + kOptionGap);
-  const int16_t groupX = static_cast<int16_t>((width - groupWidth) / 2);
-  const int16_t optionY = static_cast<int16_t>(panelY + 52);
-
-  for (uint8_t i = 0; i < 2U; ++i) {
-    const bool abandon = i == 1U;
-    const bool selected = abandon ? confirmAbandonYes_ : !confirmAbandonYes_;
-    const int16_t optionX = static_cast<int16_t>(groupX + i * (kOptionWidth + kOptionGap));
-    DrawUtils::drawRoundRect(canvas, optionX, optionY, kOptionWidth, kOptionHeight, 10,
-                             selected ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK,
-                             selected ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE);
-    drawTextCentered(text, abandon ? "放弃" : "继续",
-                     static_cast<int16_t>(optionX + kOptionWidth / 2),
-                     static_cast<int16_t>(optionY + 22),
-                     selected ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE,
-                     selected ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK);
-  }
 }
