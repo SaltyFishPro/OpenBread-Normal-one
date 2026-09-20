@@ -963,12 +963,9 @@ void UiManager::render(uint32_t nowMs) {
     if (musicPage_.renderDetailNavOnly(homePage_.focusIndex(), sectionFocusIndex_, 0, display_,
                                        nowMs)) {
       if (renderer_.hasDirty()) {
-#if OB_PARTIAL_REFRESH_ENABLED
-        const Render1bpp::Rect region = renderer_.dirty();
-        display_.presentRegion(region.x1, region.y1, region.x2, region.y2);
-#else
+        // 音乐导航动画的局部刷新窗口是「部分列 + 全行」，在 ST7305 上窗口映射会错位，
+        // 实机表现为导航栏动画被画到屏幕顶部；这里退回整屏推送，代价仅为动画期间的少量 SPI。
         display_.present();
-#endif
       }
       return;
     }
@@ -978,12 +975,8 @@ void UiManager::render(uint32_t nowMs) {
     if (musicPage_.renderDetailListOnly(homePage_.focusIndex(), sectionFocusIndex_, display_,
                                         musicService_, nowMs)) {
       if (renderer_.hasDirty()) {
-#if OB_PARTIAL_REFRESH_ENABLED
-        const Render1bpp::Rect region = renderer_.dirty();
-        display_.presentRegion(region.x1, region.y1, region.x2, region.y2);
-#else
+        // 与导航动画同理，列表焦点动画同样退回整屏推送。
         display_.present();
-#endif
       }
       return;
     }

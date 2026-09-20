@@ -1,5 +1,6 @@
 #include "MusicPage.h"
 
+#include <cstdarg>
 #include <cstdio>
 #include <cstring>
 
@@ -12,6 +13,28 @@
 #include "../assets/ui/pop_up_window.h"
 
 namespace {
+// 音乐页动画触发日志：排查"底部导航栏动画跑到屏幕上方"这类问题时，用来确认
+// 究竟是标签切换动画还是进入播放器动画在跑。排查完成后可置 0 关闭。
+#ifndef OB_MUSIC_LOG_ENABLED
+#define OB_MUSIC_LOG_ENABLED 1
+#endif
+
+void musicLog(const char* fmt, ...) {
+#if OB_MUSIC_LOG_ENABLED
+  if (!Serial) {
+    return;
+  }
+  Serial.print("[MUSIC] ");
+  va_list args;
+  va_start(args, fmt);
+  Serial.vprintf(fmt, args);
+  va_end(args);
+  Serial.println();
+#else
+  (void)fmt;
+#endif
+}
+
 constexpr int16_t kPlayerBarX = 9;
 constexpr int16_t kPlayerBarY = 112;
 constexpr int16_t kPlayerBarWidth = 365;
@@ -1319,6 +1342,8 @@ uint32_t MusicPage::detailFrameIntervalMs(uint8_t homeFocus, uint8_t sectionFocu
 }
 
 void MusicPage::startSelectionAnimation(uint8_t nextIndex, uint32_t nowMs) {
+  musicLog("nav tab switch %u -> %u row=%u", static_cast<unsigned>(selectedIndex_),
+           static_cast<unsigned>(nextIndex), static_cast<unsigned>(rowIndex_));
   selectedIndex_ = static_cast<uint8_t>(nextIndex % kTabCount);
   selectionAnimating_ = true;
   selectionAnimStartMs_ = nowMs;
@@ -1326,6 +1351,9 @@ void MusicPage::startSelectionAnimation(uint8_t nextIndex, uint32_t nowMs) {
 
 void MusicPage::startPlayerTransition(bool entering, uint32_t nowMs) {
   const float currentProgress = playerTransitionProgress(nowMs);
+  musicLog("player transition %s tab=%u row=%u progress=%u/100", entering ? "enter" : "leave",
+           static_cast<unsigned>(selectedIndex_), static_cast<unsigned>(rowIndex_),
+           static_cast<unsigned>(currentProgress * 100.0f + 0.5f));
   playerTransitionStartProgress_ = currentProgress;
   playerTransitionTargetProgress_ = entering ? 1.0f : 0.0f;
   playerTransitionStartMs_ = nowMs;
