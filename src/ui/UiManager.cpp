@@ -518,6 +518,8 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
 
     case UiState::ToDirectDetailTransition: {
       if (nowMs - transitionStartMs_ >= kDetailTransitionMs) {
+        // 专注时钟是直接从主界面进入的详情页，进入时回到卡片选择界面。
+        focusClockPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_);
         state_ = UiState::Detail;
         needsRedraw_ = true;
       }
@@ -661,6 +663,9 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         } else if (readerPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                                 readerService_)) {
           needsRedraw_ = true;
+        } else if (focusClockPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
+                                                   nowMs)) {
+          needsRedraw_ = true;
         } else {
           settingsPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                           wifiProvisionService_, otaService_, timeService_);
@@ -694,9 +699,13 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         } else if (readerPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                                 readerService_)) {
           needsRedraw_ = true;
+        } else if (focusClockPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
+                                                   nowMs)) {
+          // 长按 Left 同样不能绕过"放弃专注"确认。
+          needsRedraw_ = true;
         } else {
           settingsPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
-                                         wifiProvisionService_, otaService_, timeService_);
+                                          wifiProvisionService_, otaService_, timeService_);
           state_ = homePage_.focusIndex() == FocusClockPage::kHomeIndex
                        ? UiState::ToHomeFromDirectDetailTransition
                        : UiState::ToSectionFromDetailTransition;
