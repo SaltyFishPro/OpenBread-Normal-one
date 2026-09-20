@@ -5,6 +5,7 @@
 #include "../../bsp/DisplayMonoTft.h"
 #include "../AnimMath.h"
 #include "../DrawUtils.h"
+#include "../TextUtils.h"
 
 namespace {
 constexpr int16_t kCardX = 20;
@@ -37,8 +38,7 @@ void drawTextCentered(U8G2_FOR_ST73XX& text, const char* value, int16_t centerX,
   text.setBackgroundColor(background);
   text.setForegroundColor(foreground);
   text.setFontMode(1);
-  const int16_t width = text.getUTF8Width(value);
-  text.drawUTF8(static_cast<int16_t>(centerX - width / 2), baseline, value);
+  text.drawUTF8(TextUtils::centeredTextX(text, value, centerX), baseline, value);
 }
 
 void drawCardShell(ST7305_2p9_BW_DisplayDriver& canvas, int16_t x, int16_t y) {

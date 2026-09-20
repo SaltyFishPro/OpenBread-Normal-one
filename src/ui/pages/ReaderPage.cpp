@@ -2,6 +2,7 @@
 
 #include "../../bsp/DisplayMonoTft.h"
 #include "../DrawUtils.h"
+#include "../TextUtils.h"
 #include "../../services/SdCardService.h"
 
 #include <cstdio>
@@ -59,23 +60,6 @@ int16_t cardY(uint8_t index) {
   return index < 4U ? kFirstRowY : kSecondRowY;
 }
 
-uint8_t utf8CharLen(char c) {
-  const uint8_t b = static_cast<uint8_t>(c);
-  if ((b & 0x80U) == 0) {
-    return 1;
-  }
-  if ((b & 0xE0U) == 0xC0U) {
-    return 2;
-  }
-  if ((b & 0xF0U) == 0xE0U) {
-    return 3;
-  }
-  if ((b & 0xF8U) == 0xF0U) {
-    return 4;
-  }
-  return 1;
-}
-
 void drawCenteredText(DisplayMonoTft& display, const char* textValue, int16_t x, int16_t y,
                       int16_t width, int16_t height, bool selected) {
   auto& text = display.text();
@@ -84,8 +68,8 @@ void drawCenteredText(DisplayMonoTft& display, const char* textValue, int16_t x,
   text.setBackgroundColor(selected ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE);
   text.setFontMode(selected ? 0 : 1);
 
-  const int16_t textWidth = text.getUTF8Width(textValue);
-  int16_t textX = static_cast<int16_t>(x + (width - textWidth) / 2);
+  const int16_t boxCenterX = static_cast<int16_t>(x + width / 2);
+  int16_t textX = TextUtils::centeredTextX(text, textValue, boxCenterX);
   if (textX < x + 2) {
     textX = static_cast<int16_t>(x + 2);
   }
@@ -113,7 +97,7 @@ void drawClippedTextLine(DisplayMonoTft& display, const char* value, int16_t x, 
   char line[ReaderService::kMaxMeaningLen];
   uint16_t out = 0;
   for (uint16_t i = 0; value[i] != '\0' && out < sizeof(line) - 1;) {
-    const uint8_t charLen = utf8CharLen(value[i]);
+    const uint8_t charLen = TextUtils::utf8CharLen(value[i]);
     if (out + charLen >= sizeof(line)) {
       break;
     }
@@ -236,7 +220,7 @@ uint8_t drawWrappedMeaningPage(DisplayMonoTft& display, const char* value, int16
       lineWidth = 0;
     }
 
-    const uint8_t charLen = atEnd ? 0 : utf8CharLen(c);
+    const uint8_t charLen = atEnd ? 0 : TextUtils::utf8CharLen(c);
     const bool canAppend =
         !atEnd && !hardBreak && lineLen + charLen < sizeof(line);
     char glyph[5] = {0};
@@ -395,8 +379,7 @@ void drawWordDetail(DisplayMonoTft& display, const ReaderService& reader, uint8_
   } else {
     maxMeaningPage = 0;
     const char* message = stateMessage(reader.state());
-    const int16_t messageW = text.getUTF8Width(message);
-    int16_t messageX = static_cast<int16_t>(kMeaningX + (kMeaningWidth - messageW) / 2);
+    int16_t messageX = TextUtils::centeredTextXInBox(text, message, kMeaningX, kMeaningWidth);
     if (messageX < kMeaningX + 4) {
       messageX = static_cast<int16_t>(kMeaningX + 4);
     }
@@ -574,9 +557,7 @@ bool ReaderPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t y
   text.setForegroundColor(ST7305_COLOR_WHITE);
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setFontMode(0);
-  const int16_t titleWidth = text.getUTF8Width(title);
-  text.drawUTF8(static_cast<int16_t>((width - titleWidth) / 2),
-                kTitleBaselineY, title);
+  text.drawUTF8(TextUtils::centeredTextXInBox(text, title, 0, width), kTitleBaselineY, title);
 
   for (uint8_t i = 0; i < 8; ++i) {
     const bool selected = i == selectedIndex_;

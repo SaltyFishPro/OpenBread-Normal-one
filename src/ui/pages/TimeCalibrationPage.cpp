@@ -5,6 +5,7 @@
 
 #include "../../bsp/DisplayMonoTft.h"
 #include "../DetailHeader.h"
+#include "../TextUtils.h"
 #include "../../services/TimeService.h"
 #include "../../services/WifiProvisionService.h"
 
@@ -23,8 +24,8 @@ void drawSelectionButton(DisplayMonoTft& display, int16_t x1, int16_t y1, int16_
   text.setBackgroundColor(fill);
   text.setForegroundColor(fg);
   text.setFontMode(selected ? 0 : 1);
-  const int16_t labelW = text.getUTF8Width(label);
-  const int16_t labelX = static_cast<int16_t>(x1 + ((x2 - x1 + 1) - labelW) / 2);
+  const int16_t labelX =
+      TextUtils::centeredTextXInBox(text, label, x1, static_cast<int16_t>(x2 - x1 + 1));
   const int16_t labelY = static_cast<int16_t>(y1 + ((y2 - y1 + 1) / 2) + 5);
   text.drawUTF8(labelX, labelY, label);
 }

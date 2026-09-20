@@ -3,6 +3,7 @@
 #include <cstdio>
 
 #include "../../bsp/DisplayMonoTft.h"
+#include "../TextUtils.h"
 #include "../../services/IicScanService.h"
 #include "../../services/RtcTestService.h"
 #include "../../services/SdCardService.h"
@@ -339,8 +340,7 @@ void DeviceSelfTestPage::renderList(DisplayMonoTft& display, int16_t yOffset) co
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setForegroundColor(ST7305_COLOR_WHITE);
   text.setFontMode(0);
-  const int16_t titleWidth = text.getUTF8Width("设备自检");
-  text.drawUTF8(static_cast<int16_t>((width - titleWidth) / 2),
+  text.drawUTF8(TextUtils::centeredTextXInBox(text, "设备自检", 0, width),
                 static_cast<int16_t>(yOffset + 22), "设备自检");
 
   const uint8_t currentPage = static_cast<uint8_t>(focusIndex_ / kPageSize);
@@ -420,8 +420,7 @@ void DeviceSelfTestPage::renderScreenIntro(DisplayMonoTft& display, int16_t yOff
   text.setFontMode(0);
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setForegroundColor(ST7305_COLOR_WHITE);
-  const int16_t titleWidth = text.getUTF8Width("屏幕测试");
-  text.drawUTF8(static_cast<int16_t>((width - titleWidth) / 2),
+  text.drawUTF8(TextUtils::centeredTextXInBox(text, "屏幕测试", 0, width),
                 static_cast<int16_t>(yOffset + 22), "屏幕测试");
 
   text.setFontMode(1);
@@ -575,8 +574,7 @@ void DeviceSelfTestPage::renderScreenConfirm(DisplayMonoTft& display, int16_t yO
   text.setFontMode(1);
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setForegroundColor(ST7305_COLOR_BLACK);
-  const int16_t questionWidth = text.getUTF8Width("屏幕显示是否正常？");
-  text.drawUTF8(static_cast<int16_t>((width - questionWidth) / 2),
+  text.drawUTF8(TextUtils::centeredTextXInBox(text, "屏幕显示是否正常？", 0, width),
                 static_cast<int16_t>(yOffset + 52), "屏幕显示是否正常？");
 
   constexpr int16_t kOptionTop = 79;
@@ -597,8 +595,7 @@ void DeviceSelfTestPage::renderScreenConfirm(DisplayMonoTft& display, int16_t yO
     text.setFontMode(selected ? 0 : 1);
     text.setBackgroundColor(selected ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE);
     text.setForegroundColor(selected ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK);
-    const int16_t labelWidth = text.getUTF8Width(labels[i]);
-    text.drawUTF8(static_cast<int16_t>(positions[i] + (kOptionWidth - labelWidth) / 2),
+    text.drawUTF8(TextUtils::centeredTextXInBox(text, labels[i], positions[i], kOptionWidth),
                   static_cast<int16_t>(yOffset + 105), labels[i]);
   }
 
@@ -670,8 +667,7 @@ void DeviceSelfTestPage::renderButtonTest(DisplayMonoTft& display, int16_t yOffs
   text.setFontMode(0);
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setForegroundColor(ST7305_COLOR_WHITE);
-  const int16_t titleWidth = text.getUTF8Width("按键测试");
-  text.drawUTF8(static_cast<int16_t>((width - titleWidth) / 2),
+  text.drawUTF8(TextUtils::centeredTextXInBox(text, "按键测试", 0, width),
                 static_cast<int16_t>(yOffset + 22), "按键测试");
 
   constexpr int16_t kBoxWidth = 62;
@@ -700,13 +696,11 @@ void DeviceSelfTestPage::renderButtonTest(DisplayMonoTft& display, int16_t yOffs
     text.setFontMode(pressed ? 0 : 1);
     text.setBackgroundColor(pressed ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE);
     text.setForegroundColor(pressed ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK);
-    const int16_t nameWidth = text.getUTF8Width(kButtonNames[index]);
-    text.drawUTF8(static_cast<int16_t>(boxX + (kBoxWidth - nameWidth) / 2),
+    text.drawUTF8(TextUtils::centeredTextXInBox(text, kButtonNames[index], boxX, kBoxWidth),
                   static_cast<int16_t>(yOffset + 69), kButtonNames[index]);
 
     const char* status = completed ? "已通过" : "待测试";
-    const int16_t statusWidth = text.getUTF8Width(status);
-    text.drawUTF8(static_cast<int16_t>(boxX + (kBoxWidth - statusWidth) / 2),
+    text.drawUTF8(TextUtils::centeredTextXInBox(text, status, boxX, kBoxWidth),
                   static_cast<int16_t>(yOffset + 91), status);
   }
 
@@ -715,8 +709,7 @@ void DeviceSelfTestPage::renderButtonTest(DisplayMonoTft& display, int16_t yOffs
   text.setForegroundColor(ST7305_COLOR_BLACK);
   const char* instruction = buttonTestPassed_ ? "全部按键通过  按OK返回"
                                               : "依次按下并释放全部按键";
-  const int16_t instructionWidth = text.getUTF8Width(instruction);
-  text.drawUTF8(static_cast<int16_t>((width - instructionWidth) / 2),
+  text.drawUTF8(TextUtils::centeredTextXInBox(text, instruction, 0, width),
                 static_cast<int16_t>(yOffset + 128), instruction);
   text.drawUTF8(12, static_cast<int16_t>(yOffset + height - 10), "长按Left取消");
 }
@@ -739,8 +732,7 @@ void DeviceSelfTestPage::renderIicTest(DisplayMonoTft& display, int16_t yOffset,
   text.setFontMode(0);
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setForegroundColor(ST7305_COLOR_WHITE);
-  const int16_t titleWidth = text.getUTF8Width("IIC设备测试");
-  text.drawUTF8(static_cast<int16_t>((width - titleWidth) / 2),
+  text.drawUTF8(TextUtils::centeredTextXInBox(text, "IIC设备测试", 0, width),
                 static_cast<int16_t>(yOffset + 22), "IIC设备测试");
 
   text.setFontMode(1);
@@ -808,8 +800,7 @@ void DeviceSelfTestPage::renderRtcTest(DisplayMonoTft& display, int16_t yOffset,
   text.setFontMode(0);
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setForegroundColor(ST7305_COLOR_WHITE);
-  const int16_t titleWidth = text.getUTF8Width("RTC测试");
-  text.drawUTF8(static_cast<int16_t>((width - titleWidth) / 2),
+  text.drawUTF8(TextUtils::centeredTextXInBox(text, "RTC测试", 0, width),
                 static_cast<int16_t>(yOffset + 22), "RTC测试");
 
   text.setFontMode(1);
@@ -906,8 +897,7 @@ void DeviceSelfTestPage::renderImuTest(DisplayMonoTft& display, int16_t yOffset,
   text.setFontMode(0);
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setForegroundColor(ST7305_COLOR_WHITE);
-  const int16_t titleWidth = text.getUTF8Width("IMU测试");
-  text.drawUTF8((width - titleWidth) / 2, yOffset + 22, "IMU测试");
+  text.drawUTF8(TextUtils::centeredTextXInBox(text, "IMU测试", 0, width), yOffset + 22, "IMU测试");
   text.setFontMode(1);
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setForegroundColor(ST7305_COLOR_BLACK);
@@ -955,8 +945,7 @@ void DeviceSelfTestPage::renderPowerTest(DisplayMonoTft& display, int16_t yOffse
   text.setFontMode(0);
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setForegroundColor(ST7305_COLOR_WHITE);
-  const int16_t titleWidth = text.getUTF8Width("电源测试");
-  text.drawUTF8((width - titleWidth) / 2, yOffset + 22, "电源测试");
+  text.drawUTF8(TextUtils::centeredTextXInBox(text, "电源测试", 0, width), yOffset + 22, "电源测试");
   text.setFontMode(1);
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setForegroundColor(ST7305_COLOR_BLACK);
