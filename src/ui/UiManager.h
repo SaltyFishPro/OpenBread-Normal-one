@@ -71,6 +71,7 @@ private:
   bool shouldRedraw(uint32_t nowMs) const;
   uint32_t targetFrameIntervalMs(uint32_t nowMs) const;
   uint32_t nextIdleDelayMs(uint32_t nowMs) const;
+  void updateCpuClock(uint32_t nowMs);
   void render(uint32_t nowMs);
   void renderSection(int16_t xOffset, int16_t yOffset, uint32_t nowMs,
                      int16_t iconExtraOffsetX = 0,
@@ -138,6 +139,7 @@ private:
   char flashTotalText_[40] = {0};
   char sdStatusText_[48] = {0};
   uint32_t lastRenderMs_ = 0;
+  uint32_t cpuBoostStartMs_ = 0;
   bool sectionAnimActive_ = false;
   bool needsRedraw_ = true;
   bool leftLongReported_ = false;

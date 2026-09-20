@@ -3,6 +3,7 @@
 #include <cstdio>
 
 #include "../bsp/BoardConfig.h"
+#include "../bsp/CpuClock.h"
 #include <cstdarg>
 #include <driver/gpio.h>
 #include <esp_sleep.h>
@@ -83,6 +84,8 @@ constexpr int16_t kRestartPopupOptionPadY = 4;
 constexpr uint32_t kHighFrameIntervalMs = 16;
 // 空闲时仍按输入采样周期轮询；射频/自检等需要协作式高频服务的子系统用 1ms。
 constexpr uint32_t kActivePollMs = 1;
+// 满屏渲染后保持满速的时长，避免降频状态下执行整帧绘制。
+constexpr uint32_t kCpuBoostHoldMs = 500;
 
 const IconBitmap::Anim kRestartPopupWindow = {
     reinterpret_cast<const uint8_t*>(&pop_up_window_frames[0][0]),
@@ -265,6 +268,8 @@ void applySectionItemTextStyle(U8G2_FOR_ST73XX& text, bool selected) {
 }  // namespace
 
 bool UiManager::begin() {
+  CpuClock::begin();
+
   buttons_[0].pin = static_cast<uint8_t>(BoardConfig::kPinBtnLeft);
   buttons_[1].pin = static_cast<uint8_t>(BoardConfig::kPinBtnRight);
   buttons_[2].pin = static_cast<uint8_t>(BoardConfig::kPinBtnUp);
@@ -419,6 +424,8 @@ void UiManager::tick() {
     lastRenderMs_ = nowMs;
     needsRedraw_ = false;
   }
+
+  updateCpuClock(millis());
 
   // 空闲时让出 CPU，避免主循环全速空转。
   const uint32_t idleDelayMs = nextIdleDelayMs(millis());
@@ -896,6 +903,27 @@ uint32_t UiManager::nextIdleDelayMs(uint32_t nowMs) const {
   return BoardConfig::kInputTickMs;
 }
 
+void UiManager::updateCpuClock(uint32_t nowMs) {
+  const bool audioActive =
+      musicService_.playbackState() != MusicService::PlaybackState::Stopped;
+  // NTP 校时会自行打开 WiFi，不经过配网服务，需要单独判断。
+  const bool radioActive = wifiProvisionService_.isRadioActive() ||
+                           otaService_.state() != OtaService::State::Idle ||
+                           bluetoothService_.state() != BluetoothService::State::Off ||
+                           timeService_.snapshot().syncState ==
+                               TimeService::SyncState::Syncing;
+  const bool selfTestActive =
+      iicScanService_.isBusy() || rtcTestService_.isBusy() || imuTestService_.isBusy();
+  // 满屏渲染后保持一段满速窗口；期间只画脏区域的局部帧可以降频执行。
+  const bool uiActive = (nowMs - cpuBoostStartMs_) < kCpuBoostHoldMs;
+
+  CpuClock::setBoost(CpuClock::Boost::Audio, audioActive);
+  CpuClock::setBoost(CpuClock::Boost::Radio, radioActive);
+  CpuClock::setBoost(CpuClock::Boost::SelfTest, selfTestActive);
+  CpuClock::setBoost(CpuClock::Boost::Ui, uiActive);
+  CpuClock::apply();
+}
+
 void UiManager::render(uint32_t nowMs) {
   const bool navOnlyMusicFrame =
       state_ == UiState::Detail && !needsRedraw_ &&
@@ -982,6 +1010,11 @@ void UiManager::render(uint32_t nowMs) {
     }
     return;
   }
+
+  // 满屏渲染前先恢复满速，避免整帧在降频状态下执行。
+  cpuBoostStartMs_ = nowMs;
+  CpuClock::setBoost(CpuClock::Boost::Ui, true);
+  CpuClock::apply();
 
   display_.clear();
 
