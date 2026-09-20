@@ -11,6 +11,7 @@
 #include "AnimMath.h"
 #include "DrawUtils.h"
 #include "ThemeMono.h"
+#include "TextUtils.h"
 #include "../services/SdCardService.h"
 #include "assets/games/icons8-airplanewars.h"
 #include "assets/games/icons8-tapthewoodenfish.h"
@@ -937,6 +938,9 @@ void UiManager::render(uint32_t nowMs) {
   const bool homeMenuOnlyFrame =
       state_ == UiState::Home && !needsRedraw_ && !navOnlyMusicFrame && !listOnlyMusicFrame &&
       !homeBreadOnlyFrame && homePage_.isMenuIconsOnlyAnimationTick(nowMs);
+  // 滑动中轮盘整体位移，局部刷新不适用；但静态图层可整帧回填，只需推送菜单列。
+  const bool homeSlideFrame =
+      state_ == UiState::Home && !needsRedraw_ && homePage_.isSliding();
 
   renderer_.beginFrame();
   if (navOnlyMusicFrame) {
@@ -1300,7 +1304,18 @@ void UiManager::render(uint32_t nowMs) {
   }
 
   if (renderer_.hasDirty()) {
+#if OB_PARTIAL_REFRESH_ENABLED
+    // 滑动中只有菜单列在变；静态图层是整帧回填的，其余区域与屏幕内容一致，
+    // 因此只需把菜单列推给面板。
+    if (homeSlideFrame && homePage_.frameUsedStaticLayer()) {
+      const HomePage::Rect region = homePage_.menuColumnBounds(display_);
+      display_.presentRegion(region.x1, region.y1, region.x2, region.y2);
+    } else {
+      display_.present();
+    }
+#else
     display_.present();
+#endif
   }
 }
 
@@ -1439,12 +1454,11 @@ void UiManager::renderSection(int16_t xOffset, int16_t yOffset, uint32_t nowMs,
   char pageText[8];
   snprintf(pageText, sizeof(pageText), "%u/%u", static_cast<unsigned>(currentPage + 1),
            static_cast<unsigned>(pages));
-  const int16_t pageTextW = text.getUTF8Width(pageText);
   const int16_t pageBaselineY = static_cast<int16_t>(yOffset + height - 8);
   const int16_t pageCenterX = static_cast<int16_t>((layout.listX + progressX - 1) / 2);
   text.setForegroundColor(ST7305_COLOR_BLACK);
   text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.drawUTF8(static_cast<int16_t>(pageCenterX - pageTextW / 2), pageBaselineY, pageText);
+  text.drawUTF8(TextUtils::centeredTextX(text, pageText, pageCenterX), pageBaselineY, pageText);
 
   const SectionItem& selectedItem = content.items[selected];
   const bool sectionTransitionActive =
@@ -1518,15 +1532,12 @@ void UiManager::renderTwoOptionPopup(const char* title, const char* primaryLabel
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setForegroundColor(ST7305_COLOR_BLACK);
   text.setFontMode(1);
-  const int16_t titleW = text.getUTF8Width(title);
-  const int16_t titleX = static_cast<int16_t>(popupX + (popupW - titleW) / 2);
+  const int16_t titleX = TextUtils::centeredTextXInBox(text, title, popupX, popupW);
   text.drawUTF8(titleX, static_cast<int16_t>(popupY + kRestartPopupTitleTopOffset), title);
 
   const int16_t optionGroupW =
       static_cast<int16_t>(kRestartPopupOptionWidth * 2 + kRestartPopupOptionGap);
   const int16_t optionStartX = static_cast<int16_t>(popupX + (popupW - optionGroupW) / 2);
-  const int16_t primaryTextW = text.getUTF8Width(primaryLabel);
-  const int16_t secondaryTextW = text.getUTF8Width(secondaryLabel);
   const int16_t textHeight = 12;          // chinese_font_all glyph height
   const int16_t textBaselineFromTop = 12; // chinese_font_all baseline
   const int16_t optionHeight =
@@ -1557,12 +1568,13 @@ void UiManager::renderTwoOptionPopup(const char* title, const char* primaryLabel
                        ST7305_COLOR_BLACK);
 
   applySectionItemTextStyle(text, popupSelectPrimary_);
-  text.drawUTF8(static_cast<int16_t>(yesX + (kRestartPopupOptionWidth - primaryTextW) / 2),
+  text.drawUTF8(TextUtils::centeredTextXInBox(text, primaryLabel, yesX, kRestartPopupOptionWidth),
                 optionTextBaselineY, primaryLabel);
 
   applySectionItemTextStyle(text, !popupSelectPrimary_);
-  text.drawUTF8(static_cast<int16_t>(noX + (kRestartPopupOptionWidth - secondaryTextW) / 2),
-                optionTextBaselineY, secondaryLabel);
+  text.drawUTF8(
+      TextUtils::centeredTextXInBox(text, secondaryLabel, noX, kRestartPopupOptionWidth),
+      optionTextBaselineY, secondaryLabel);
 
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setForegroundColor(ST7305_COLOR_BLACK);

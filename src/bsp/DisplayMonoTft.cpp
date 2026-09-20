@@ -109,6 +109,12 @@ int DisplayMonoTft::width() const { return display_.getDisplayWidth(); }
 
 int DisplayMonoTft::height() const { return display_.getDisplayHeight(); }
 
+size_t DisplayMonoTft::frameBufferBytes() const { return display_.frameBufferLength(); }
+
+void DisplayMonoTft::captureFrame(uint8_t* dst) const { display_.copyFrameBufferTo(dst); }
+
+void DisplayMonoTft::restoreFrame(const uint8_t* src) { display_.copyFrameBufferFrom(src); }
+
 ST7305_2p9_BW_DisplayDriver& DisplayMonoTft::canvas() { return display_; }
 
 U8G2_FOR_ST73XX& DisplayMonoTft::text() { return text_; }

@@ -25,9 +25,18 @@ public:
     void writePoint(uint x, uint y, bool enabled) override;
     void writePoint(uint x, uint y, uint16_t data) override;
 
+    // 按物理字节批量写入线段，替代基类逐像素调用 writePoint 的实现
+    void drawFastHLine(int16_t x, int16_t y, int16_t len, uint16_t color) override;
+    void drawFastVLine(int16_t x, int16_t y, int16_t len, uint16_t color) override;
+
     void display();
     // 只刷新面板物理坐标区域 (x1,y1)-(x2,y2)；x 为 0..167，y 为 0..383
     void displayRegion(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2);
+
+    // 帧缓冲快照/回填，供上层缓存静态图层使用
+    size_t frameBufferLength() const { return static_cast<size_t>(DISPLAY_BUFFER_LENGTH); }
+    void copyFrameBufferTo(uint8_t* dst) const;
+    void copyFrameBufferFrom(const uint8_t* src);
 
     void Initial_ST7305();
     void Low_Power_Mode();
@@ -50,6 +59,9 @@ private:
     SPIClass& spiRef;
 
     void address();
+    void drawLogicalRun(int16_t lx, int16_t ly, int16_t len, bool horizontal, uint16_t color);
+    void writePhysicalHLine(uint32_t py, int32_t px0, int32_t px1, uint16_t color);
+    void writePhysicalVLine(uint32_t px, int32_t py0, int32_t py1, uint16_t color);
     void Write_Register(uint8_t idat);
     void Write_Parameter(uint8_t ddat);
 };

@@ -18,6 +18,10 @@ public:
   void restoreAfterSleep();
   int width() const;
   int height() const;
+  // 帧缓冲整帧快照/回填，供上层缓存静态图层，避免每帧重画整屏
+  size_t frameBufferBytes() const;
+  void captureFrame(uint8_t* dst) const;
+  void restoreFrame(const uint8_t* src);
 
   ST7305_2p9_BW_DisplayDriver& canvas();
   U8G2_FOR_ST73XX& text();

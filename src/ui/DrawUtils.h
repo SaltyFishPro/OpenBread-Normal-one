@@ -179,12 +179,13 @@ inline void drawRoundRect(ST7305_2p9_BW_DisplayDriver& canvas, int16_t x, int16_
       y >= canvas.getDisplayHeight()) {
     return;
   }
+  // 半径允许取到 min(宽,高)/2，使胶囊形端部成为完整半圆；
+  // 原先用 (n-1)/2 会让端部少 1 像素，与 MusicPage 的实现不一致。
   int16_t r = radius;
-  if (r > (width - 1) / 2) {
-    r = static_cast<int16_t>((width - 1) / 2);
-  }
-  if (r > (height - 1) / 2) {
-    r = static_cast<int16_t>((height - 1) / 2);
+  const int16_t maxRadius =
+      static_cast<int16_t>((width < height ? width : height) / 2);
+  if (r > maxRadius) {
+    r = maxRadius;
   }
   if (r < 0) r = 0;
 

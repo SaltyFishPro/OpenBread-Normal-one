@@ -262,16 +262,25 @@ void TimeService::setSyncState(SyncState state) {
 void TimeService::markChanged() { changed_ = true; }
 
 void TimeService::updateSnapshotTime(const DateTime& dt, bool valid) {
-  if (memcmp(&snapshot_.now, &dt, sizeof(dt)) == 0 && snapshot_.valid == valid) {
-    return;
-  }
-  if (snapshot_.valid != valid) {
+  const bool validityChanged = (snapshot_.valid != valid);
+  // 秒不参与任何界面的时钟显示（自检页的秒显示走 RtcTestService），
+  // 若把秒变化也算作 changed，会造成每秒一次整屏重绘。
+  const bool displayChanged =
+      validityChanged || snapshot_.now.year != dt.year || snapshot_.now.month != dt.month ||
+      snapshot_.now.day != dt.day || snapshot_.now.weekday != dt.weekday ||
+      snapshot_.now.hour != dt.hour || snapshot_.now.minute != dt.minute;
+
+  if (validityChanged) {
     timeLog("validity changed %u->%u persisted=%u",
             snapshot_.valid ? 1U : 0U, valid ? 1U : 0U, persistedValid_ ? 1U : 0U);
   }
+
   snapshot_.now = dt;
   snapshot_.valid = valid;
-  markChanged();
+
+  if (displayChanged) {
+    markChanged();
+  }
 }
 
 bool TimeService::refreshFromRtc(bool logStartupRead) {

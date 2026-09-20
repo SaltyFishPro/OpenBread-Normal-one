@@ -12,8 +12,8 @@ public:
     virtual void writePoint(uint x, uint y, bool enabled);
     virtual void writePoint(uint x, uint y, uint16_t color);
 
-    void drawFastHLine(int16_t x, int16_t y, int16_t len, uint16_t color);
-    void drawFastVLine(int16_t x, int16_t y, int16_t len, uint16_t color);
+    virtual void drawFastHLine(int16_t x, int16_t y, int16_t len, uint16_t color);
+    virtual void drawFastVLine(int16_t x, int16_t y, int16_t len, uint16_t color);
 
     // 画直线
     void drawLine(uint x1, uint y1, uint x2, uint y2, uint16_t color);

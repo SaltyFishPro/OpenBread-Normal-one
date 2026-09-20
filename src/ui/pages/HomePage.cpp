@@ -7,6 +7,7 @@
 #include "../DrawUtils.h"
 #include "../Segment7Font.h"
 #include "../ThemeMono.h"
+#include "../TextUtils.h"
 #include "../assets/games/icons8_games.h"
 #include "../assets/main_menu/icons8-book.h"
 #include "../assets/main_menu/icons8-clock.h"
@@ -215,8 +216,8 @@ void drawHomeDatePreview(ST7305_2p9_BW_DisplayDriver& canvas, U8G2_FOR_ST73XX& t
   if (!clockData.valid) {
     text.setFont(chinese_font_all);
     const char* placeholder = "时间需校准";
-    const int16_t textW = text.getUTF8Width(placeholder);
-    const int16_t textX = static_cast<int16_t>(boxX1 + ((boxX2 - boxX1 + 1) - textW) / 2);
+    const int16_t textX = TextUtils::centeredTextXInBox(
+        text, placeholder, boxX1, static_cast<int16_t>(boxX2 - boxX1 + 1));
     const int16_t textY = static_cast<int16_t>(boxY1 + ((boxY2 - boxY1 + 1) / 2) + 5);
     text.drawUTF8(textX, textY, placeholder);
     text.setBackgroundColor(ST7305_COLOR_WHITE);
@@ -418,6 +419,9 @@ HomePage::Rect HomePage::timeCardBounds() const {
 void HomePage::renderTimeCardOnly(DisplayMonoTft& display, uint32_t nowMs) {
   drawHomeTimePreview(display.canvas(), nowMs, 0, clockData_);
   lastUncalibratedFrame_ = IconBitmap::frameAt(kUncalibratedBread, nowMs);
+  // 卡片已在帧缓冲里被改写，静态图层需要重建。
+  staticLayerValid_ = false;
+  frameUsedStaticLayer_ = false;
 }
 
 bool HomePage::isMenuIconsOnlyAnimationTick(uint32_t nowMs) const {
@@ -446,6 +450,14 @@ HomePage::Rect HomePage::menuIconBounds(const DisplayMonoTft& display) const {
           kMenuClipBottom};
 }
 
+HomePage::Rect HomePage::menuColumnBounds(const DisplayMonoTft& display) const {
+  const int16_t frameBaseX =
+      static_cast<int16_t>(display.width() - kWheelFrameWidth - kWheelFrameRightMargin);
+  return {frameBaseX, kMenuClipTop, static_cast<int16_t>(display.width() - 1), kMenuClipBottom};
+}
+
+bool HomePage::frameUsedStaticLayer() const { return frameUsedStaticLayer_; }
+
 void HomePage::renderMenuIconsOnly(DisplayMonoTft& display, uint32_t nowMs) {
   const int16_t width = static_cast<int16_t>(display.width());
   const int16_t height = static_cast<int16_t>(display.height());
@@ -467,7 +479,18 @@ const char* HomePage::menuLabel(uint8_t idx) const {
 
 const char* HomePage::focusName() const { return menuLabel(focusIndex_); }
 
-void HomePage::setClockData(const ClockData& data) { clockData_ = data; }
+void HomePage::setClockData(const ClockData& data) {
+  const bool displayChanged =
+      data.valid != clockData_.valid || data.hour != clockData_.hour ||
+      data.minute != clockData_.minute || data.day != clockData_.day ||
+      data.weekday != clockData_.weekday || data.month != clockData_.month ||
+      data.year != clockData_.year;
+  clockData_ = data;
+  if (displayChanged) {
+    // 卡片内容变化，静态图层需要重建。
+    staticLayerValid_ = false;
+  }
+}
 
 void HomePage::render(DisplayMonoTft& display, int16_t pageOffsetX, uint32_t nowMs) {
   renderTransition(display, pageOffsetX, pageOffsetX, 0, 0, 0, nowMs);
@@ -496,13 +519,29 @@ void HomePage::renderTransition(DisplayMonoTft& display, int16_t backgroundOffse
 
   const uint16_t bgFrame = IconBitmap::frameAt(kHomeBackground, animNowMs);
   lastBackgroundFrame_ = bgFrame;
-  IconBitmap::drawFrame(canvas, kHomeBackground, bgFrame, backgroundOffsetX, 0, width,
-                        height, false, 0, static_cast<int16_t>(height - 1));
-  drawHomeTimePreview(canvas, nowMs, backgroundOffsetX, clockData_);
-  if (!clockData_.valid && backgroundOffsetX == 0) {
-    lastUncalibratedFrame_ = IconBitmap::frameAt(kUncalibratedBread, nowMs);
+
+  // 静止直出时整帧回填静态图层（背景 + 时间/日期卡片），避免每帧重画整屏背景；
+  // 有横向偏移（过渡动画）时背景位置在变，必须实时绘制。
+  // 时间未校准时分面包每 220ms 换帧、卡片一直在变，也不能复用缓存。
+  const bool canUseStaticLayer =
+      (backgroundOffsetX == 0) && (menuBaseOffsetX == 0) && clockData_.valid;
+  if (canUseStaticLayer && staticLayerValid_) {
+    display.restoreFrame(staticLayer_);
+    frameUsedStaticLayer_ = true;
+  } else {
+    IconBitmap::drawFrame(canvas, kHomeBackground, bgFrame, backgroundOffsetX, 0, width,
+                          height, false, 0, static_cast<int16_t>(height - 1));
+    drawHomeTimePreview(canvas, nowMs, backgroundOffsetX, clockData_);
+    if (!clockData_.valid && backgroundOffsetX == 0) {
+      lastUncalibratedFrame_ = IconBitmap::frameAt(kUncalibratedBread, nowMs);
+    }
+    drawHomeDatePreview(canvas, text, nowMs, backgroundOffsetX, clockData_);
+    frameUsedStaticLayer_ = false;
+    if (canUseStaticLayer && display.frameBufferBytes() == kStaticLayerBytes) {
+      display.captureFrame(staticLayer_);
+      staticLayerValid_ = true;
+    }
   }
-  drawHomeDatePreview(canvas, text, nowMs, backgroundOffsetX, clockData_);
 
   drawMenuWheel(display, frameBaseX, centerY, menuOffsetY, menuUpExtraOffsetX,
                 menuFocusExtraOffsetX, menuDownExtraOffsetX, animNowMs, false);
@@ -582,11 +621,10 @@ void HomePage::drawMenuWheel(DisplayMonoTft& display, int16_t frameBaseX, int16_
     }
 
     const char* label = menuLabel(i);
-    const int16_t labelW = text.getUTF8Width(label);
     const int16_t textBlockX = static_cast<int16_t>(iconX + iconSize + kWheelTextGap);
     const int16_t textBlockW =
         static_cast<int16_t>(frameX + kWheelFrameWidth - textBlockX - kWheelItemInsetX);
-    int16_t labelX = static_cast<int16_t>(textBlockX + (textBlockW - labelW) / 2);
+    int16_t labelX = TextUtils::centeredTextXInBox(text, label, textBlockX, textBlockW);
     if (labelX < textBlockX) {
       labelX = textBlockX;
     }

@@ -5,7 +5,9 @@
 
 #include "../../bsp/DisplayMonoTft.h"
 #include "../AnimMath.h"
+#include "../DrawUtils.h"
 #include "../IconBitmap.h"
+#include "../TextUtils.h"
 #include "../assets/musicapp/music_nav_icons.h"
 #include "../assets/ui/pop_up_window.h"
 
@@ -166,36 +168,6 @@ const char* listStateText(MusicService::ListState state) {
   }
 }
 
-void fillRoundedRect(ST7305_2p9_BW_DisplayDriver& canvas, int16_t x, int16_t y,
-                     int16_t width, int16_t height, int16_t radius, uint16_t color) {
-  if (width <= 0 || height <= 0) {
-    return;
-  }
-
-  const int16_t maxRadius = static_cast<int16_t>(min(width, height) / 2);
-  radius = constrain(radius, 0, maxRadius);
-
-  for (int16_t row = 0; row < height; ++row) {
-    int16_t inset = 0;
-    if (row < radius) {
-      const int16_t dy = static_cast<int16_t>(radius - row);
-      while ((int32_t)(radius - inset) * (radius - inset) + (int32_t)dy * dy >
-             (int32_t)radius * radius) {
-        ++inset;
-      }
-    } else if (row >= height - radius) {
-      const int16_t dy = static_cast<int16_t>(row - (height - radius - 1));
-      while ((int32_t)(radius - inset) * (radius - inset) + (int32_t)dy * dy >
-             (int32_t)radius * radius) {
-        ++inset;
-      }
-    }
-
-    canvas.drawFastHLine(static_cast<int16_t>(x + inset), static_cast<int16_t>(y + row),
-                         static_cast<int16_t>(width - 2 * inset), color);
-  }
-}
-
 int16_t tabX(uint8_t index) {
   const int16_t totalGap = kPlayerBarWidth - kTabCount * kTabWidth;
   const int16_t gapSlots = kTabCount + 1;
@@ -247,39 +219,6 @@ void drawBitmapIcon(ST7305_2p9_BW_DisplayDriver& canvas, const uint8_t* bitmap, 
   }
 }
 
-uint8_t utf8CharCount(const char* value) {
-  uint8_t count = 0;
-  for (uint8_t i = 0; value[i] != '\0'; ++i) {
-    if ((value[i] & 0xC0) != 0x80) {
-      ++count;
-    }
-  }
-  return count;
-}
-
-const char* suffixByUtf8Chars(const char* value, uint8_t visibleChars) {
-  const uint8_t totalChars = utf8CharCount(value);
-  if (visibleChars >= totalChars) {
-    return value;
-  }
-
-  uint8_t charsToSkip = static_cast<uint8_t>(totalChars - visibleChars);
-  for (uint8_t i = 0; value[i] != '\0'; ++i) {
-    if ((value[i] & 0xC0) != 0x80) {
-      --charsToSkip;
-      if (charsToSkip == 0) {
-        ++i;
-        while (value[i] != '\0' && (value[i] & 0xC0) == 0x80) {
-          ++i;
-        }
-        return value + i;
-      }
-    }
-  }
-
-  return value;
-}
-
 void drawRevealedLabel(DisplayMonoTft& display, uint8_t index, int16_t yOffset,
                        float progress) {
   constexpr float kTextStartProgress = 0.45f;
@@ -292,13 +231,13 @@ void drawRevealedLabel(DisplayMonoTft& display, uint8_t index, int16_t yOffset,
   if (index % kTabCount == static_cast<uint8_t>(NavTab::Info)) {
     label = "播放";
   }
-  const uint8_t labelChars = utf8CharCount(label);
+  const uint8_t labelChars = TextUtils::utf8CharCount(label);
   const float textProgress = clamp01((progress - kTextStartProgress) / (1.0f - kTextStartProgress));
   uint8_t visibleChars =
       static_cast<uint8_t>(1 + static_cast<uint8_t>((labelChars - 1) * textProgress + 0.5f));
   visibleChars = min<uint8_t>(visibleChars, labelChars);
 
-  const char* suffix = suffixByUtf8Chars(label, visibleChars);
+  const char* suffix = TextUtils::utf8SuffixByChars(label, visibleChars);
   const int16_t finalRight = static_cast<int16_t>(tabX(index) + kTabWidth - 9);
   text.setFont(chinese_font_all);
   text.setForegroundColor(ST7305_COLOR_BLACK);
@@ -314,8 +253,9 @@ void drawMusicNavFrame(DisplayMonoTft& display, uint8_t selectedIndex, bool favo
   auto& canvas = display.canvas();
   progress = clamp01(progress);
 
-  fillRoundedRect(canvas, kPlayerBarX, static_cast<int16_t>(yOffset + kPlayerBarY),
-                  kPlayerBarWidth, kPlayerBarHeight, kPlayerBarRadius, ST7305_COLOR_BLACK);
+  DrawUtils::drawRoundRect(canvas, kPlayerBarX, static_cast<int16_t>(yOffset + kPlayerBarY),
+                           kPlayerBarWidth, kPlayerBarHeight, kPlayerBarRadius,
+                           ST7305_COLOR_BLACK, ST7305_COLOR_BLACK);
 
   for (uint8_t i = 0; i < kTabCount; ++i) {
     if (i == selectedIndex && progress > 0.0f) {
@@ -334,8 +274,8 @@ void drawMusicNavFrame(DisplayMonoTft& display, uint8_t selectedIndex, bool favo
     const int16_t iconX =
         lerpInt(tabCenterX(selectedIndex), static_cast<int16_t>(selectedX + 21), easedProgress);
 
-    fillRoundedRect(canvas, pillX, static_cast<int16_t>(yOffset + kTabY), pillWidth, kTabHeight,
-                    kTabRadius, ST7305_COLOR_WHITE);
+    DrawUtils::drawRoundRect(canvas, pillX, static_cast<int16_t>(yOffset + kTabY), pillWidth,
+                             kTabHeight, kTabRadius, ST7305_COLOR_WHITE, ST7305_COLOR_WHITE);
     drawBitmapIcon(canvas, iconForTab(selectedIndex, favoriteEnabled), iconX,
                    static_cast<int16_t>(yOffset + kTabY + kTabHeight / 2),
                    ST7305_COLOR_BLACK);
@@ -455,8 +395,7 @@ void drawMusicList(DisplayMonoTft& display, const MusicService& music, uint16_t 
 
   if (music.listState() != MusicService::ListState::Ready) {
     const char* state = listStateText(music.listState());
-    const int16_t stateW = text.getUTF8Width(state);
-    text.drawUTF8(static_cast<int16_t>(xOffset + (kListAreaWidth - stateW) / 2), 52, state);
+    text.drawUTF8(TextUtils::centeredTextXInBox(text, state, xOffset, kListAreaWidth), 52, state);
     if (music.errorText()[0] != '\0') {
       text.setFont(u8g2_font_7x14_tf);
       text.drawUTF8(static_cast<int16_t>(xOffset + 8), 76, music.errorText());
@@ -504,8 +443,8 @@ void drawMusicList(DisplayMonoTft& display, const MusicService& music, uint16_t 
     focusH = easeOutCubicInt(fromFocusH, toFocusH, progress);
   }
 
-  fillRoundedRect(canvas, focusX, focusY, focusW, focusH, kListFocusRadius,
-                  ST7305_COLOR_BLACK);
+  DrawUtils::drawRoundRect(canvas, focusX, focusY, focusW, focusH, kListFocusRadius,
+                           ST7305_COLOR_BLACK, ST7305_COLOR_BLACK);
 
   for (uint8_t i = 0; i < page.count; ++i) {
     const int16_t baselineY = musicListBaselineY(i);
@@ -570,11 +509,12 @@ void drawPlayerSideControls(DisplayMonoTft& display, uint8_t selectedControl, bo
     const int16_t centerY = playerControlCenterY(i);
     const bool selected = i == selectedControl;
     if (selected) {
-      fillRoundedRect(canvas,
-                      static_cast<int16_t>(centerX - kPlayerControlFocusW / 2),
-                      static_cast<int16_t>(centerY - kPlayerControlFocusH / 2),
-                      kPlayerControlFocusW, kPlayerControlFocusH,
-                      kPlayerControlFocusRadius, ST7305_COLOR_WHITE);
+      DrawUtils::drawRoundRect(canvas,
+                               static_cast<int16_t>(centerX - kPlayerControlFocusW / 2),
+                               static_cast<int16_t>(centerY - kPlayerControlFocusH / 2),
+                               kPlayerControlFocusW, kPlayerControlFocusH,
+                               kPlayerControlFocusRadius, ST7305_COLOR_WHITE,
+                               ST7305_COLOR_WHITE);
     }
     drawBitmapIcon(canvas, playerControlIconFor(i, playing, shuffle), centerX, centerY,
                    selected ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE);
@@ -829,8 +769,7 @@ void drawCenteredLyricText(DisplayMonoTft& display, const char* value) {
       kLyricY + (kLyricHeight - blockH) / 2 + kLyricBaselineFromTop);
 
   for (uint8_t i = 0; i < lineCount; ++i) {
-    const int16_t lineW = text.getUTF8Width(lines[i]);
-    const int16_t lineX = static_cast<int16_t>(kLyricX + (kLyricWidth - lineW) / 2);
+    const int16_t lineX = TextUtils::centeredTextXInBox(text, lines[i], kLyricX, kLyricWidth);
     text.drawUTF8(lineX, static_cast<int16_t>(baselineY + i * kLyricRowStep), lines[i]);
   }
 }
@@ -881,8 +820,7 @@ void drawPlayerLyrics(DisplayMonoTft& display, const MusicService& music, uint32
   }
 
   for (uint8_t i = 0; i < lineCount; ++i) {
-    const int16_t lineW = text.getUTF8Width(lines[i]);
-    const int16_t lineX = static_cast<int16_t>(kLyricX + (kLyricWidth - lineW) / 2);
+    const int16_t lineX = TextUtils::centeredTextXInBox(text, lines[i], kLyricX, kLyricWidth);
     text.drawUTF8(lineX, static_cast<int16_t>(baselineY + i * kLyricRowStep), lines[i]);
   }
 
@@ -982,15 +920,13 @@ void drawVolumePopup(DisplayMonoTft& display, const MusicService& music,
   text.setForegroundColor(ST7305_COLOR_BLACK);
   text.setFontMode(1);
   const char* title = "音量";
-  const int16_t titleW = text.getUTF8Width(title);
-  text.drawUTF8(static_cast<int16_t>(popupX + (popupW - titleW) / 2),
+  text.drawUTF8(TextUtils::centeredTextXInBox(text, title, popupX, popupW),
                 static_cast<int16_t>(popupY + kVolumePopupTitleTopOffset), title);
 
   char percentText[8];
   snprintf(percentText, sizeof(percentText), "%u%%", volumePercent(music.volume()));
   text.setFont(u8g2_font_7x14B_tf);
-  const int16_t percentW = text.getUTF8Width(percentText);
-  text.drawUTF8(static_cast<int16_t>(popupX + (popupW - percentW) / 2),
+  text.drawUTF8(TextUtils::centeredTextXInBox(text, percentText, popupX, popupW),
                 static_cast<int16_t>(popupY + kVolumePopupValueBaselineOffset), percentText);
 
   text.setFont(chinese_font_all);
@@ -1067,8 +1003,9 @@ void drawPlayerTransitionFrame(DisplayMonoTft& display, const MusicService& musi
     barHeight = lerpInt(kPlayerCompactHeight, kPlayerSideHeight, phase2);
   }
 
-  fillRoundedRect(canvas, barX, barY, barWidth, barHeight, min(barWidth, barHeight) / 2,
-                  ST7305_COLOR_BLACK);
+  DrawUtils::drawRoundRect(canvas, barX, barY, barWidth, barHeight,
+                           static_cast<int16_t>(min(barWidth, barHeight) / 2),
+                           ST7305_COLOR_BLACK, ST7305_COLOR_BLACK);
 }
 }  // namespace
 

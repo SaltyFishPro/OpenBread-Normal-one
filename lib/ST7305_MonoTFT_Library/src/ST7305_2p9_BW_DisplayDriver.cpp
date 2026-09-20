@@ -109,6 +109,157 @@ void ST7305_2p9_BW_DisplayDriver::display() {
     digitalWrite(CS_PIN, HIGH);
 }
 
+// 物理水平线段：py 固定、px 连续。同一字节容纳 4 个连续 px，位组由 py 奇偶决定。
+void ST7305_2p9_BW_DisplayDriver::writePhysicalHLine(uint32_t py, int32_t px0, int32_t px1,
+                                                     uint16_t color) {
+    if (py >= static_cast<uint32_t>(LCD_HIGH)) {
+        return;
+    }
+    if (px0 > px1) {
+        const int32_t t = px0;
+        px0 = px1;
+        px1 = t;
+    }
+    if (px0 >= LCD_WIDTH || px1 < 0) {
+        return;
+    }
+    if (px0 < 0) {
+        px0 = 0;
+    }
+    if (px1 >= LCD_WIDTH) {
+        px1 = LCD_WIDTH - 1;
+    }
+
+    const uint32_t row = py / 2U;
+    const uint32_t group = py % 2U;
+    int32_t x = px0;
+    while (x <= px1) {
+        const uint32_t byteCol = static_cast<uint32_t>(x) / 4U;
+        const uint32_t lane = static_cast<uint32_t>(x) % 4U;
+        int32_t count = static_cast<int32_t>(4U - lane);
+        if (count > (px1 - x + 1)) {
+            count = px1 - x + 1;
+        }
+        uint8_t mask = 0;
+        for (int32_t k = 0; k < count; ++k) {
+            const uint32_t shift = 7U - ((lane + static_cast<uint32_t>(k)) * 2U + group);
+            mask = static_cast<uint8_t>(mask | (1U << shift));
+        }
+        uint8_t& target = display_buffer[row * static_cast<uint32_t>(LCD_DATA_WIDTH) + byteCol];
+        if (color != 0) {
+            target = static_cast<uint8_t>(target | mask);
+        } else {
+            target = static_cast<uint8_t>(target & static_cast<uint8_t>(~mask));
+        }
+        x += count;
+    }
+}
+
+// 物理竖直线段：px 固定、py 连续。同一字节容纳 py 的偶/奇两行，故每次最多写 2 个像素。
+void ST7305_2p9_BW_DisplayDriver::writePhysicalVLine(uint32_t px, int32_t py0, int32_t py1,
+                                                     uint16_t color) {
+    if (px >= static_cast<uint32_t>(LCD_WIDTH)) {
+        return;
+    }
+    if (py0 > py1) {
+        const int32_t t = py0;
+        py0 = py1;
+        py1 = t;
+    }
+    if (py0 >= LCD_HIGH || py1 < 0) {
+        return;
+    }
+    if (py0 < 0) {
+        py0 = 0;
+    }
+    if (py1 >= LCD_HIGH) {
+        py1 = LCD_HIGH - 1;
+    }
+
+    const uint32_t byteCol = px / 4U;
+    const uint32_t lane = px % 4U;
+    int32_t y = py0;
+    while (y <= py1) {
+        const uint32_t row = static_cast<uint32_t>(y) / 2U;
+        const uint32_t group = static_cast<uint32_t>(y) % 2U;
+        int32_t count = (group == 0U) ? 2 : 1;
+        if (count > (py1 - y + 1)) {
+            count = py1 - y + 1;
+        }
+        uint8_t mask = 0;
+        for (int32_t k = 0; k < count; ++k) {
+            const uint32_t shift = 7U - (lane * 2U + group + static_cast<uint32_t>(k));
+            mask = static_cast<uint8_t>(mask | (1U << shift));
+        }
+        uint8_t& target = display_buffer[row * static_cast<uint32_t>(LCD_DATA_WIDTH) + byteCol];
+        if (color != 0) {
+            target = static_cast<uint8_t>(target | mask);
+        } else {
+            target = static_cast<uint8_t>(target & static_cast<uint8_t>(~mask));
+        }
+        y += count;
+    }
+}
+
+void ST7305_2p9_BW_DisplayDriver::drawLogicalRun(int16_t lx, int16_t ly, int16_t len,
+                                                 bool horizontal, uint16_t color) {
+    if (len <= 0) {
+        return;
+    }
+
+    const int32_t alongLimit = horizontal ? getDisplayWidth() : getDisplayHeight();
+    const int32_t fixedLimit = horizontal ? getDisplayHeight() : getDisplayWidth();
+    const int32_t fixed = horizontal ? ly : lx;
+    if (fixed < 0 || fixed >= fixedLimit) {
+        return;
+    }
+
+    int32_t along0 = horizontal ? lx : ly;
+    int32_t along1 = along0 + len - 1;
+    if (along0 > along1) {
+        const int32_t t = along0;
+        along0 = along1;
+        along1 = t;
+    }
+    if (along1 < 0 || along0 >= alongLimit) {
+        return;
+    }
+    if (along0 < 0) {
+        along0 = 0;
+    }
+    if (along1 >= alongLimit) {
+        along1 = alongLimit - 1;
+    }
+
+    const int16_t lx0 = static_cast<int16_t>(horizontal ? along0 : fixed);
+    const int16_t ly0 = static_cast<int16_t>(horizontal ? fixed : along0);
+    const int16_t lx1 = static_cast<int16_t>(horizontal ? along1 : fixed);
+    const int16_t ly1 = static_cast<int16_t>(horizontal ? fixed : along1);
+
+    int16_t px0 = 0;
+    int16_t py0 = 0;
+    int16_t px1 = 0;
+    int16_t py1 = 0;
+    logicalToPhysical(lx0, ly0, px0, py0);
+    logicalToPhysical(lx1, ly1, px1, py1);
+
+    if (py0 == py1) {
+        writePhysicalHLine(static_cast<uint32_t>(py0), px0, px1, color);
+    } else {
+        writePhysicalVLine(static_cast<uint32_t>(px0), py0, py1, color);
+    }
+}
+
+void ST7305_2p9_BW_DisplayDriver::drawFastHLine(int16_t x, int16_t y, int16_t len,
+                                                uint16_t color) {
+    drawLogicalRun(x, y, len, true, color);
+}
+
+void ST7305_2p9_BW_DisplayDriver::drawFastVLine(int16_t x, int16_t y, int16_t len,
+                                                uint16_t color) {
+    drawLogicalRun(x, y, len, false, color);
+}
+
 void ST7305_2p9_BW_DisplayDriver::displayRegion(uint16_t x1, uint16_t y1, uint16_t x2,
                                                 uint16_t y2) {
     if (x1 > x2) {
@@ -160,6 +311,20 @@ void ST7305_2p9_BW_DisplayDriver::displayRegion(uint16_t x1, uint16_t y1, uint16
             bytesPerRow);
     }
     digitalWrite(CS_PIN, HIGH);
+}
+
+void ST7305_2p9_BW_DisplayDriver::copyFrameBufferTo(uint8_t* dst) const {
+    if (dst == nullptr) {
+        return;
+    }
+    memcpy(dst, display_buffer, DISPLAY_BUFFER_LENGTH);
+}
+
+void ST7305_2p9_BW_DisplayDriver::copyFrameBufferFrom(const uint8_t* src) {
+    if (src == nullptr) {
+        return;
+    }
+    memcpy(display_buffer, src, DISPLAY_BUFFER_LENGTH);
 }
 
 void ST7305_2p9_BW_DisplayDriver::Initial_ST7305() {

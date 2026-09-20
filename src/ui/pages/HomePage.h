@@ -41,8 +41,11 @@ public:
   bool isMenuIconsOnlyAnimationTick(uint32_t nowMs) const;
   Rect timeCardBounds() const;
   Rect menuIconBounds(const DisplayMonoTft& display) const;
+  Rect menuColumnBounds(const DisplayMonoTft& display) const;
   void renderTimeCardOnly(DisplayMonoTft& display, uint32_t nowMs);
   void renderMenuIconsOnly(DisplayMonoTft& display, uint32_t nowMs);
+  // 本帧是否直接回填了静态图层（未重建），用于判断能否只推送菜单列。
+  bool frameUsedStaticLayer() const;
   bool isAnimationActive(uint32_t nowMs) const;
   uint8_t focusIndex() const;
   const char* focusName() const;
@@ -77,6 +80,11 @@ private:
   uint16_t lastFocusFrame_ = 0;
   uint16_t lastBackgroundFrame_ = 0;
   uint16_t lastUncalibratedFrame_ = 0;
+  // 静态图层：背景 + 时间卡片 + 日期卡片。整帧快照，静止时直接回填。
+  static constexpr size_t kStaticLayerBytes = 384U * 168U / 8U;
+  uint8_t staticLayer_[kStaticLayerBytes] = {0};
+  bool staticLayerValid_ = false;
+  bool frameUsedStaticLayer_ = false;
   uint8_t lastRenderedFocusIndex_ = 0xFF;
   int16_t lastRenderedMenuOffsetY_ = 0;
   uint32_t lastInteractionMs_ = 0;
