@@ -6,7 +6,6 @@
 
 class HomePage {
 public:
-  enum class Language : uint8_t { Zh };
   struct ClockData {
     uint8_t second = 0;
     uint8_t minute = 0;
@@ -39,7 +38,6 @@ private:
 
   const char* menuLabel(uint8_t idx) const;
   int16_t currentMenuOffset(uint32_t nowMs) const;
-  int16_t easeOutCubic(int16_t from, int16_t to, float t) const;
   void beginSlide(int8_t direction, uint32_t nowMs);
   bool isInteractiveAnimationWindow(uint32_t nowMs) const;
   uint32_t animationRenderTime(uint32_t nowMs) const;

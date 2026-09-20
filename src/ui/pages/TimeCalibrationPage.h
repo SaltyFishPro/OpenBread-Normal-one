@@ -2,8 +2,6 @@
 
 #include <stdint.h>
 
-#include "HomePage.h"
-
 class DisplayMonoTft;
 class TimeService;
 class WifiProvisionService;
@@ -17,6 +15,5 @@ public:
                          const WifiProvisionService& wifi);
   bool handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus, TimeService& timeService);
   bool renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                    DisplayMonoTft& display, HomePage::Language language,
-                    const TimeService& timeService) const;
+                    DisplayMonoTft& display, const TimeService& timeService) const;
 };

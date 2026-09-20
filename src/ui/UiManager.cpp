@@ -7,6 +7,8 @@
 #include <driver/gpio.h>
 #include <esp_sleep.h>
 #include "IconBitmap.h"
+#include "AnimMath.h"
+#include "DrawUtils.h"
 #include "ThemeMono.h"
 #include "../services/SdCardService.h"
 #include "assets/games/icons8-airplanewars.h"
@@ -73,7 +75,6 @@ constexpr int16_t kRestartPopupTitleTopOffset = 35;
 constexpr int16_t kRestartPopupOptionBottomMargin = 8;
 constexpr int16_t kRestartPopupOptionPadY = 4;
 constexpr uint32_t kHighFrameIntervalMs = 16;
-constexpr HomePage::Language kUiLanguage = HomePage::Language::Zh;
 
 const IconBitmap::Anim kRestartPopupWindow = {
     reinterpret_cast<const uint8_t*>(&pop_up_window_frames[0][0]),
@@ -91,48 +92,48 @@ struct SectionContent {
 };
 
 const SectionItem kMusicItems[] = {
-    {"音乐列表", "Music List",
+    {"音乐列表",
      {reinterpret_cast<const uint8_t*>(&musiclist_frames[0][0]), MUSICLIST_FRAME_BYTES,
       MUSICLIST_FRAME_WIDTH, MUSICLIST_FRAME_HEIGHT, MUSICLIST_FRAME_DELAY, MUSICLIST_FRAME_COUNT}},
-    {"收藏歌曲", "Favorites",
+    {"收藏歌曲",
      {reinterpret_cast<const uint8_t*>(&likemusic_frames[0][0]), LIKEMUSIC_FRAME_BYTES,
       LIKEMUSIC_FRAME_WIDTH, LIKEMUSIC_FRAME_HEIGHT, LIKEMUSIC_FRAME_DELAY, LIKEMUSIC_FRAME_COUNT}},
 };
 
 const SectionItem kReaderItems[] = {
-    {"单词阅读", "Vocabulary",
+    {"单词阅读",
      {reinterpret_cast<const uint8_t*>(&vocabularybook_frames[0][0]),
       VOCABULARYBOOK_FRAME_BYTES, VOCABULARYBOOK_FRAME_WIDTH, VOCABULARYBOOK_FRAME_HEIGHT,
       VOCABULARYBOOK_FRAME_DELAY, VOCABULARYBOOK_FRAME_COUNT}},
-    {"提词器", "Teleprompter",
+    {"提词器",
      {reinterpret_cast<const uint8_t*>(&teleprompter_frames[0][0]),
       TELEPROMPTER_FRAME_BYTES, TELEPROMPTER_FRAME_WIDTH, TELEPROMPTER_FRAME_HEIGHT,
       TELEPROMPTER_FRAME_DELAY, TELEPROMPTER_FRAME_COUNT}},
 };
 
 const SectionItem kFocusClockItems[] = {
-    {"专注时钟", "Focus Clock",
+    {"专注时钟",
      {reinterpret_cast<const uint8_t*>(&clock_frames[0][0]), CLOCK_FRAME_BYTES,
       CLOCK_FRAME_WIDTH, CLOCK_FRAME_HEIGHT, CLOCK_FRAME_DELAY, CLOCK_FRAME_COUNT}},
 };
 
 const SectionItem kWirelessItems[] = {
-    {"蓝牙连接", "Bluetooth",
+    {"蓝牙连接",
      {reinterpret_cast<const uint8_t*>(&bluetoothconnet_frames[0][0]),
       BLUETOOTHCONNET_FRAME_BYTES, BLUETOOTHCONNET_FRAME_WIDTH, BLUETOOTHCONNET_FRAME_HEIGHT,
       BLUETOOTHCONNET_FRAME_DELAY, BLUETOOTHCONNET_FRAME_COUNT}},
-    {"蓝牙远程拍照", "BT Remote Cam",
+    {"蓝牙远程拍照",
      {reinterpret_cast<const uint8_t*>(&remote_frames[0][0]), REMOTE_FRAME_BYTES,
       REMOTE_FRAME_WIDTH, REMOTE_FRAME_HEIGHT, REMOTE_FRAME_DELAY, REMOTE_FRAME_COUNT}},
 };
 
 const SectionItem kGamesItems[] = {
-    {"敲木鱼", "Tap Wooden Fish",
+    {"敲木鱼",
      {reinterpret_cast<const uint8_t*>(&icons8_tapthewoodenfish_frames[0][0]),
       ICONS8_TAPTHEWOODENFISH_FRAME_BYTES, ICONS8_TAPTHEWOODENFISH_FRAME_WIDTH,
       ICONS8_TAPTHEWOODENFISH_FRAME_HEIGHT, ICONS8_TAPTHEWOODENFISH_FRAME_DELAY,
       ICONS8_TAPTHEWOODENFISH_FRAME_COUNT}},
-    {"飞机世界大战", "Airplane World War",
+    {"飞机世界大战",
      {reinterpret_cast<const uint8_t*>(&icons8_airplanewars_frames[0][0]),
       ICONS8_AIRPLANEWARS_FRAME_BYTES, ICONS8_AIRPLANEWARS_FRAME_WIDTH,
       ICONS8_AIRPLANEWARS_FRAME_HEIGHT, ICONS8_AIRPLANEWARS_FRAME_DELAY,
@@ -253,57 +254,6 @@ void applySectionItemTextStyle(U8G2_FOR_ST73XX& text, bool selected) {
   text.setForegroundColor(ST7305_COLOR_BLACK);
 }
 
-void drawFilledRoundRect(ST7305_2p9_BW_DisplayDriver& canvas, int16_t x1, int16_t y1,
-                         int16_t x2, int16_t y2, int16_t radius, uint16_t color) {
-  if (x1 > x2) {
-    const int16_t t = x1;
-    x1 = x2;
-    x2 = t;
-  }
-  if (y1 > y2) {
-    const int16_t t = y1;
-    y1 = y2;
-    y2 = t;
-  }
-
-  const int16_t w = static_cast<int16_t>(x2 - x1 + 1);
-  const int16_t h = static_cast<int16_t>(y2 - y1 + 1);
-  if (w <= 0 || h <= 0) {
-    return;
-  }
-
-  int16_t r = radius;
-  if (r < 0) {
-    r = 0;
-  }
-  if (r > w / 2) {
-    r = static_cast<int16_t>(w / 2);
-  }
-  if (r > h / 2) {
-    r = static_cast<int16_t>(h / 2);
-  }
-
-  if (r == 0) {
-    canvas.drawFilledRectangle(x1, y1, x2, y2, color);
-    return;
-  }
-
-  canvas.drawFilledRectangle(static_cast<uint>(x1 + r), static_cast<uint>(y1),
-                             static_cast<uint>(x2 - r), static_cast<uint>(y2), color);
-  canvas.drawFilledRectangle(static_cast<uint>(x1), static_cast<uint>(y1 + r),
-                             static_cast<uint>(x1 + r - 1), static_cast<uint>(y2 - r), color);
-  canvas.drawFilledRectangle(static_cast<uint>(x2 - r + 1), static_cast<uint>(y1 + r),
-                             static_cast<uint>(x2), static_cast<uint>(y2 - r), color);
-
-  canvas.drawFilledCircle(static_cast<int>(x1 + r), static_cast<int>(y1 + r),
-                          static_cast<uint>(r), color);
-  canvas.drawFilledCircle(static_cast<int>(x2 - r), static_cast<int>(y1 + r),
-                          static_cast<uint>(r), color);
-  canvas.drawFilledCircle(static_cast<int>(x1 + r), static_cast<int>(y2 - r),
-                          static_cast<uint>(r), color);
-  canvas.drawFilledCircle(static_cast<int>(x2 - r), static_cast<int>(y2 - r),
-                          static_cast<uint>(r), color);
-}
 }  // namespace
 
 bool UiManager::begin() {
@@ -923,7 +873,7 @@ void UiManager::render(uint32_t nowMs) {
 
   if (navOnlyMusicFrame) {
     if (musicPage_.renderDetailNavOnly(homePage_.focusIndex(), sectionFocusIndex_, 0, display_,
-                                       kUiLanguage, nowMs)) {
+                                       nowMs)) {
       if (renderer_.hasDirty()) {
         display_.present();
       }
@@ -933,7 +883,7 @@ void UiManager::render(uint32_t nowMs) {
 
   if (listOnlyMusicFrame) {
     if (musicPage_.renderDetailListOnly(homePage_.focusIndex(), sectionFocusIndex_, display_,
-                                        kUiLanguage, musicService_, nowMs)) {
+                                        musicService_, nowMs)) {
       if (renderer_.hasDirty()) {
         display_.present();
       }
@@ -1315,8 +1265,8 @@ void UiManager::renderSection(int16_t xOffset, int16_t yOffset, uint32_t nowMs,
   boxLeft = static_cast<int16_t>(boxLeft + focusBoxExtraOffsetX);
   boxRight = static_cast<int16_t>(boxRight + focusBoxExtraOffsetX);
 
-  drawFilledRoundRect(canvas, boxLeft, boxTop, boxRight, boxBottom, layout.focusRadius,
-                      ST7305_COLOR_BLACK);
+  DrawUtils::fillRoundRect(canvas, boxLeft, boxTop, boxRight, boxBottom, layout.focusRadius,
+                           ST7305_COLOR_BLACK);
 
   for (uint8_t row = 0; row < visibleCount; ++row) {
     const uint8_t itemIndex = static_cast<uint8_t>(pageStart + row);
@@ -1464,14 +1414,14 @@ void UiManager::renderTwoOptionPopup(const char* title, const char* primaryLabel
   const int16_t noX = static_cast<int16_t>(optionStartX + kRestartPopupOptionWidth +
                                            kRestartPopupOptionGap);
 
-  drawFilledRoundRect(canvas, yesX, optionY,
-                      static_cast<int16_t>(yesX + kRestartPopupOptionWidth - 1),
-                      static_cast<int16_t>(optionY + optionHeight - 1), 5,
-                      popupSelectPrimary_ ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE);
-  drawFilledRoundRect(canvas, noX, optionY,
-                      static_cast<int16_t>(noX + kRestartPopupOptionWidth - 1),
-                      static_cast<int16_t>(optionY + optionHeight - 1), 5,
-                      popupSelectPrimary_ ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK);
+  DrawUtils::fillRoundRect(canvas, yesX, optionY,
+                           static_cast<int16_t>(yesX + kRestartPopupOptionWidth - 1),
+                           static_cast<int16_t>(optionY + optionHeight - 1), 5,
+                           popupSelectPrimary_ ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE);
+  DrawUtils::fillRoundRect(canvas, noX, optionY,
+                           static_cast<int16_t>(noX + kRestartPopupOptionWidth - 1),
+                           static_cast<int16_t>(optionY + optionHeight - 1), 5,
+                           popupSelectPrimary_ ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK);
   canvas.drawRectangle(yesX, optionY,
                        static_cast<int16_t>(yesX + kRestartPopupOptionWidth - 1),
                        static_cast<int16_t>(optionY + optionHeight - 1),
@@ -1520,38 +1470,37 @@ void UiManager::renderDetail(int16_t yOffset) {
     return;
   }
 
-  if (gamesPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
-                              kUiLanguage)) {
+  if (gamesPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_)) {
     return;
   }
 
   if (focusClockPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
-                                   kUiLanguage, millis())) {
+                                   millis())) {
     return;
   }
 
   if (musicPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
-                              kUiLanguage, musicService_, millis())) {
+                              musicService_, millis())) {
     return;
   }
 
   if (readerPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
-                               kUiLanguage, readerService_)) {
+                               readerService_)) {
     return;
   }
 
   if (remotePage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
-                               kUiLanguage, bluetoothService_, remoteService_)) {
+                               bluetoothService_, remoteService_)) {
     return;
   }
 
   if (timeCalibrationPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
-                              kUiLanguage, timeService_)) {
+                              timeService_)) {
     return;
   }
 
   if (settingsPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, detailPageIndex_,
-                                 yOffset, display_, kUiLanguage, deviceIdText_, flashTotalText_,
+                                 yOffset, display_, deviceIdText_, flashTotalText_,
                                  sdStatusText_, wifiProvisionService_, otaService_, timeService_)) {
     return;
   }
@@ -1744,24 +1693,9 @@ void UiManager::enterSleep(uint32_t nowMs) {
 bool UiManager::isPressed(uint8_t pin) const { return digitalRead(pin) == LOW; }
 
 int16_t UiManager::easeInCubic(int16_t from, int16_t to, float t) const {
-  if (t <= 0.0f) {
-    return from;
-  }
-  if (t >= 1.0f) {
-    return to;
-  }
-  const float eased = t * t * t;
-  return static_cast<int16_t>(from + (to - from) * eased);
+  return AnimMath::easeInCubicInt16(from, to, t);
 }
 
 int16_t UiManager::easeOutCubic(int16_t from, int16_t to, float t) const {
-  if (t <= 0.0f) {
-    return from;
-  }
-  if (t >= 1.0f) {
-    return to;
-  }
-  const float inv = 1.0f - t;
-  const float eased = 1.0f - (inv * inv * inv);
-  return static_cast<int16_t>(from + (to - from) * eased);
+  return AnimMath::easeOutCubicInt16(from, to, t);
 }

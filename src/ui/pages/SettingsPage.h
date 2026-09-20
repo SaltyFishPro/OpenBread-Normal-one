@@ -3,7 +3,6 @@
 #include <stdint.h>
 
 #include "../IconBitmap.h"
-#include "HomePage.h"
 
 class DisplayMonoTft;
 class WifiProvisionService;
@@ -14,7 +13,6 @@ class SettingsPage {
 public:
   struct MenuItem {
     const char* labelZh;
-    const char* labelEn;
     IconBitmap::Anim icon;
   };
 
@@ -46,8 +44,8 @@ public:
   const MenuItem* menuItems() const;
   uint8_t menuItemCount() const;
   bool renderDetail(uint8_t homeFocus, uint8_t sectionFocus, uint8_t detailPageIndex,
-                    int16_t yOffset, DisplayMonoTft& display, HomePage::Language language,
-                    const char* deviceIdText, const char* flashTotalText,
+                    int16_t yOffset, DisplayMonoTft& display, const char* deviceIdText,
+                    const char* flashTotalText,
                     const char* sdStatusText,
                     const WifiProvisionService& wifi, const OtaService& ota,
                     const TimeService& time) const;

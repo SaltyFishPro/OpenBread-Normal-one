@@ -2,8 +2,6 @@
 
 #include <stdint.h>
 
-#include "HomePage.h"
-
 class BluetoothService;
 class DisplayMonoTft;
 class RemoteService;
@@ -23,6 +21,6 @@ public:
                         BluetoothService& bluetooth) const;
   void handleSectionExit(uint8_t homeFocus, BluetoothService& bluetooth) const;
   bool renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                    DisplayMonoTft& display, HomePage::Language language,
-                    const BluetoothService& bluetooth, const RemoteService& remote) const;
+                    DisplayMonoTft& display, const BluetoothService& bluetooth,
+                    const RemoteService& remote) const;
 };

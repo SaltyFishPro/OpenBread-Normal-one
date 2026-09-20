@@ -2,15 +2,12 @@
 
 #include <stdint.h>
 
-#include "HomePage.h"
-
 class DisplayMonoTft;
 
 class FocusClockPage {
 public:
   struct Card {
     const char* titleZh;
-    const char* titleEn;
     const char* const* options;
     uint8_t optionCount;
     uint8_t defaultOption;
@@ -26,8 +23,7 @@ public:
                          bool rightEdge, bool upEdge, bool downEdge, bool okEdge,
                          uint32_t nowMs);
   bool renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                    DisplayMonoTft& display, HomePage::Language language,
-                    uint32_t nowMs) const;
+                    DisplayMonoTft& display, uint32_t nowMs) const;
   bool needsAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus, uint32_t nowMs) const;
   bool isAnimating(uint8_t homeFocus, uint8_t sectionFocus, uint32_t nowMs) const;
 

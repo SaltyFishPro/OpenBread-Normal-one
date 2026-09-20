@@ -39,7 +39,6 @@ public:
   const Entry& entry() const;
   uint8_t bookIndex() const;
   const char* bookLabelZh() const;
-  const char* bookLabelEn() const;
   uint32_t currentIndex() const;
   uint32_t recordCount() const;
   bool hasPrevious() const;

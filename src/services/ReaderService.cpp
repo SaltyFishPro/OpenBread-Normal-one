@@ -17,9 +17,6 @@ constexpr uint32_t kInitialIndexCapacity = 256;
 const char* const kBookLabelsZh[ReaderService::kBookCount] = {
     "初中", "高中", "四级", "六级", "考研", "托福", "SAT", "我的"};
 
-const char* const kBookLabelsEn[ReaderService::kBookCount] = {
-    "Junior", "Senior", "CET4", "CET6", "NPEE", "TOEFL", "SAT", "Mine"};
-
 const char* const kBookAliases[ReaderService::kBookCount][4] = {
     {"初中", "junior", "middle", "cz"},
     {"高中", "senior", "high", "gz"},
@@ -264,10 +261,6 @@ uint8_t ReaderService::bookIndex() const { return bookIndex_; }
 
 const char* ReaderService::bookLabelZh() const {
   return bookIndex_ < kBookCount ? kBookLabelsZh[bookIndex_] : "";
-}
-
-const char* ReaderService::bookLabelEn() const {
-  return bookIndex_ < kBookCount ? kBookLabelsEn[bookIndex_] : "";
 }
 
 uint32_t ReaderService::currentIndex() const { return currentIndex_; }

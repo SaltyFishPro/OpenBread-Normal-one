@@ -3,6 +3,8 @@
 #include <cstdio>
 
 #include "../../bsp/DisplayMonoTft.h"
+#include "../AnimMath.h"
+#include "../DrawUtils.h"
 
 namespace {
 constexpr int16_t kCardX = 20;
@@ -18,93 +20,17 @@ constexpr int16_t kOptionHeight = 28;
 constexpr int16_t kOptionRadius = 12;
 constexpr int16_t kOptionGap = 9;
 constexpr int16_t kOptionPaddingX = 28;
-constexpr uint16_t kEaseScale = 1000;
+constexpr uint16_t kEaseScale = AnimMath::kFixedScale;
 
 const char* const kContinuousOptions[] = {"10分钟", "15分钟", "20分钟"};
 const char* const kShortOptions[] = {"10分钟", "15分钟", "20分钟"};
 const char* const kLongOptions[] = {"30分钟", "60分钟"};
 
 const FocusClockPage::Card kCards[] = {
-    {"持续任务", "Continuous", kContinuousOptions, 3, 1},
-    {"短专注", "Short Focus", kShortOptions, 3, 1},
-    {"长专注", "Long Focus", kLongOptions, 2, 0},
+    {"持续任务", kContinuousOptions, 3, 1},
+    {"短专注", kShortOptions, 3, 1},
+    {"长专注", kLongOptions, 2, 0},
 };
-
-uint16_t clampProgress(uint32_t elapsed, uint32_t duration) {
-  if (elapsed >= duration) {
-    return kEaseScale;
-  }
-  return static_cast<uint16_t>((elapsed * kEaseScale) / duration);
-}
-
-uint16_t easeInOut(uint16_t progress) {
-  const uint32_t value = progress;
-  const uint32_t eased = (value * value * (3U * kEaseScale - 2U * value)) /
-                         (kEaseScale * kEaseScale);
-  return static_cast<uint16_t>(eased > kEaseScale ? kEaseScale : eased);
-}
-
-uint16_t easeOutCubic(uint16_t progress) {
-  const int32_t inverse = static_cast<int32_t>(kEaseScale - progress);
-  const int64_t eased = static_cast<int64_t>(kEaseScale) -
-                        (static_cast<int64_t>(inverse) * inverse * inverse) /
-                            (kEaseScale * kEaseScale);
-  return static_cast<uint16_t>(eased < 0 ? 0 : eased > kEaseScale ? kEaseScale : eased);
-}
-
-int16_t roundRectInset(int16_t row, int16_t height, int16_t radius) {
-  const int16_t edgeDistance = row < height / 2 ? row : height - row - 1;
-  if (edgeDistance >= radius) {
-    return 0;
-  }
-  const int16_t dy = static_cast<int16_t>(radius - edgeDistance);
-  int16_t dx = radius;
-  while (dx * dx + dy * dy > radius * radius) {
-    --dx;
-  }
-  return static_cast<int16_t>(radius - dx);
-}
-
-// Keep the original shape in card coordinates; clip only the emitted scanlines.
-// Recomputing the height/radius after clipping makes a departing card shrink.
-void drawRoundRect(ST7305_2p9_BW_DisplayDriver& canvas, int16_t x, int16_t y,
-                   int16_t width, int16_t height, int16_t radius, uint16_t fill,
-                   uint16_t outline) {
-  if (width <= 0 || height <= 0) {
-    return;
-  }
-  if (x + width <= 0 || y + height <= 0 || x >= canvas.getDisplayWidth() ||
-      y >= canvas.getDisplayHeight()) {
-    return;
-  }
-  int16_t r = radius;
-  if (r > (width - 1) / 2) {
-    r = static_cast<int16_t>((width - 1) / 2);
-  }
-  if (r > (height - 1) / 2) {
-    r = static_cast<int16_t>((height - 1) / 2);
-  }
-  if (r < 0) r = 0;
-
-  const int16_t firstRow = y < 0 ? static_cast<int16_t>(-y) : 0;
-  const int16_t visibleHeight = static_cast<int16_t>(canvas.getDisplayHeight() - y);
-  const int16_t endRow = height < visibleHeight ? height : visibleHeight;
-  for (int16_t row = firstRow; row < endRow; ++row) {
-    const int16_t inset = roundRectInset(row, height, r);
-    const int16_t lineY = static_cast<int16_t>(y + row);
-    if (fill == outline || row == 0 || row == height - 1 || width <= 2) {
-      canvas.drawFastHLine(x + inset, lineY, width - 2 * inset, outline);
-      continue;
-    }
-    const int16_t innerRadius = r > 0 ? static_cast<int16_t>(r - 1) : 0;
-    const int16_t innerInset = static_cast<int16_t>(
-        1 + roundRectInset(row - 1, height - 2, innerRadius));
-    const int16_t borderWidth = static_cast<int16_t>(innerInset - inset);
-    canvas.drawFastHLine(x + inset, lineY, borderWidth, outline);
-    canvas.drawFastHLine(x + innerInset, lineY, width - 2 * innerInset, fill);
-    canvas.drawFastHLine(x + width - innerInset, lineY, borderWidth, outline);
-  }
-}
 
 void drawTextCentered(U8G2_FOR_ST73XX& text, const char* value, int16_t centerX,
                       int16_t baseline, uint16_t foreground, uint16_t background) {
@@ -118,8 +44,8 @@ void drawTextCentered(U8G2_FOR_ST73XX& text, const char* value, int16_t centerX,
 void drawCardShell(ST7305_2p9_BW_DisplayDriver& canvas, int16_t x, int16_t y) {
   // The previously drawn white shadow was invisible against the white page and
   // doubled the scanline cost of every card on every animation frame.
-  drawRoundRect(canvas, x, y, kCardWidth, kCardHeight, kCardRadius,
-                 ST7305_COLOR_BLACK, ST7305_COLOR_WHITE);
+  DrawUtils::drawRoundRect(canvas, x, y, kCardWidth, kCardHeight, kCardRadius,
+                           ST7305_COLOR_BLACK, ST7305_COLOR_WHITE);
 }
 
 void drawCardContent(DisplayMonoTft& display, uint8_t cardIndex, int16_t x, int16_t y,
@@ -158,8 +84,9 @@ void drawCardContent(DisplayMonoTft& display, uint8_t cardIndex, int16_t x, int1
   int16_t optionX = static_cast<int16_t>(x + (kCardWidth - totalWidth) / 2);
   for (uint8_t index = 0; index < card.optionCount; ++index) {
     positions[index] = optionX;
-    drawRoundRect(canvas, optionX, static_cast<int16_t>(y + kOptionY), widths[index],
-                   kOptionHeight, kOptionRadius, ST7305_COLOR_BLACK, ST7305_COLOR_WHITE);
+    DrawUtils::drawRoundRect(canvas, optionX, static_cast<int16_t>(y + kOptionY),
+                             widths[index], kOptionHeight, kOptionRadius, ST7305_COLOR_BLACK,
+                             ST7305_COLOR_WHITE);
     optionX = static_cast<int16_t>(optionX + widths[index] + kOptionGap);
   }
 
@@ -170,8 +97,9 @@ void drawCardContent(DisplayMonoTft& display, uint8_t cardIndex, int16_t x, int1
       (positions[next] - positions[selection]) * fraction / kEaseScale);
   const int16_t selectedWidth = static_cast<int16_t>(widths[selection] +
       (widths[next] - widths[selection]) * fraction / kEaseScale);
-  drawRoundRect(canvas, selectedX, static_cast<int16_t>(y + kOptionY), selectedWidth,
-                 kOptionHeight, kOptionRadius, ST7305_COLOR_WHITE, ST7305_COLOR_BLACK);
+  DrawUtils::drawRoundRect(canvas, selectedX, static_cast<int16_t>(y + kOptionY), selectedWidth,
+                           kOptionHeight, kOptionRadius, ST7305_COLOR_WHITE,
+                           ST7305_COLOR_BLACK);
 
   for (uint8_t index = 0; index < card.optionCount; ++index) {
     const int16_t center = static_cast<int16_t>(positions[index] + widths[index] / 2);
@@ -244,8 +172,8 @@ int16_t FocusClockPage::optionPosition(uint32_t nowMs) const {
   if (!optionAnimationActive_) {
     return target;
   }
-  const uint16_t progress = easeOutCubic(
-      clampProgress(nowMs - optionAnimationStartMs_, kOptionAnimationMs));
+  const uint16_t progress = AnimMath::fixedEaseOutCubic(
+      AnimMath::fixedClampProgress(nowMs - optionAnimationStartMs_, kOptionAnimationMs));
   return static_cast<int16_t>(optionAnimationFromPosition_ +
       (target - optionAnimationFromPosition_) * progress / kEaseScale);
 }
@@ -255,7 +183,8 @@ void FocusClockPage::moveCard(int8_t direction, uint32_t nowMs) {
     return;
   }
   if (cardAnimation_.active) {
-    const uint16_t progress = clampProgress(nowMs - cardAnimation_.startMs, kCardAnimationMs);
+    const uint16_t progress =
+        AnimMath::fixedClampProgress(nowMs - cardAnimation_.startMs, kCardAnimationMs);
     const bool completed = progress >= (kEaseScale / 2U);
     cardIndex_ = (direction == cardAnimation_.direction || completed)
                      ? cardAnimation_.toIndex
@@ -315,8 +244,7 @@ bool FocusClockPage::needsAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus
 }
 
 bool FocusClockPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                                  DisplayMonoTft& display, HomePage::Language language,
-                                  uint32_t nowMs) const {
+                                  DisplayMonoTft& display, uint32_t nowMs) const {
   if (!isSelection(homeFocus, sectionFocus)) {
     return false;
   }
@@ -324,16 +252,15 @@ bool FocusClockPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16
     return true;
   }
 
-  (void)language;
-
   if (!cardAnimation_.active) {
     drawCardContent(display, cardIndex_, kCardX, static_cast<int16_t>(yOffset + kCardY),
                     optionPosition(nowMs));
     return true;
   }
 
-  const uint16_t raw = clampProgress(nowMs - cardAnimation_.startMs, kCardAnimationMs);
-  const uint16_t eased = easeInOut(raw);
+  const uint16_t raw =
+      AnimMath::fixedClampProgress(nowMs - cardAnimation_.startMs, kCardAnimationMs);
+  const uint16_t eased = AnimMath::fixedEaseInOut(raw);
   const uint8_t source = cardAnimation_.fromIndex;
   const uint8_t target = cardAnimation_.toIndex;
   const int16_t restingY = static_cast<int16_t>(yOffset + kCardY);
@@ -349,8 +276,8 @@ bool FocusClockPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16
     // The outgoing card keeps its own title/options as it crosses the bottom edge.
     drawCardContent(display, source, kCardX, outgoingY, sourceOption);
   } else {
-    const int16_t incomingY = static_cast<int16_t>(offscreenY -
-        travel * easeOutCubic(raw) / kEaseScale);
+    const int16_t incomingY = static_cast<int16_t>(
+        offscreenY - travel * AnimMath::fixedEaseOutCubic(raw) / kEaseScale);
     drawCardContent(display, source, kCardX, restingY, sourceOption);
     drawCardContent(display, target, kCardX, incomingY, optionPosition(nowMs));
   }

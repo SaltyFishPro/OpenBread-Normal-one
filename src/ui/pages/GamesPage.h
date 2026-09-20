@@ -2,8 +2,6 @@
 
 #include <stdint.h>
 
-#include "HomePage.h"
-
 class DisplayMonoTft;
 
 class GamesPage {
@@ -16,7 +14,7 @@ public:
                          bool okChanged, uint32_t nowMs);
   bool handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus);
   bool renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                    DisplayMonoTft& display, HomePage::Language language) const;
+                    DisplayMonoTft& display) const;
 
 private:
   void registerKnock(uint32_t nowMs);

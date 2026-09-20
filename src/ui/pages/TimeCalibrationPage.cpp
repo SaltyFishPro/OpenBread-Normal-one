@@ -4,34 +4,11 @@
 #include <cstdio>
 
 #include "../../bsp/DisplayMonoTft.h"
+#include "../DetailHeader.h"
 #include "../../services/TimeService.h"
 #include "../../services/WifiProvisionService.h"
 
 namespace {
-constexpr int16_t kDetailHeaderHeight = 28;
-
-void renderDetailHeader(DisplayMonoTft& display, const char* title, int16_t yOffset) {
-  auto& canvas = display.canvas();
-  auto& text = display.text();
-  const int16_t width = static_cast<int16_t>(display.width());
-
-  canvas.drawFilledRectangle(0, yOffset, width - 1,
-                             static_cast<int16_t>(yOffset + kDetailHeaderHeight - 1),
-                             ST7305_COLOR_BLACK);
-
-  text.setFont(chinese_font_all);
-  text.setForegroundColor(ST7305_COLOR_WHITE);
-  text.setBackgroundColor(ST7305_COLOR_BLACK);
-  text.setFontMode(0);
-  const int16_t titleW = text.getUTF8Width(title);
-  const int16_t titleX = static_cast<int16_t>((width - titleW) / 2);
-  text.drawUTF8(titleX, static_cast<int16_t>(yOffset + 22), title);
-
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.setFontMode(1);
-}
-
 void drawSelectionButton(DisplayMonoTft& display, int16_t x1, int16_t y1, int16_t x2, int16_t y2,
                          bool selected, const char* label) {
   auto& canvas = display.canvas();
@@ -63,17 +40,6 @@ const char* syncSourceTextZh(TimeService::SyncSource source) {
   }
 }
 
-const char* syncSourceTextEn(TimeService::SyncSource source) {
-  switch (source) {
-    case TimeService::SyncSource::Bluetooth:
-      return "Bluetooth";
-    case TimeService::SyncSource::Ntp:
-      return "NTP";
-    default:
-      return "Unset";
-  }
-}
-
 const char* syncStateTextZh(TimeService::SyncState state) {
   switch (state) {
     case TimeService::SyncState::Syncing:
@@ -84,19 +50,6 @@ const char* syncStateTextZh(TimeService::SyncState state) {
       return "校时失败";
     default:
       return "空闲";
-  }
-}
-
-const char* syncStateTextEn(TimeService::SyncState state) {
-  switch (state) {
-    case TimeService::SyncState::Syncing:
-      return "Syncing";
-    case TimeService::SyncState::Success:
-      return "Success";
-    case TimeService::SyncState::Failed:
-      return "Failed";
-    default:
-      return "Idle";
   }
 }
 
@@ -120,29 +73,6 @@ const char* errorTextZh(TimeService::Error err) {
       return "服务忙";
     default:
       return "无";
-  }
-}
-
-const char* errorTextEn(TimeService::Error err) {
-  switch (err) {
-    case TimeService::Error::NoRtc:
-      return "rtc unavailable";
-    case TimeService::Error::InvalidRtc:
-      return "rtc invalid";
-    case TimeService::Error::NoWifiCredentials:
-      return "wifi missing";
-    case TimeService::Error::WifiConnectFailed:
-      return "wifi failed";
-    case TimeService::Error::NtpTimeout:
-      return "ntp timeout";
-    case TimeService::Error::RtcWriteFailed:
-      return "rtc write failed";
-    case TimeService::Error::InvalidInput:
-      return "invalid input";
-    case TimeService::Error::Busy:
-      return "busy";
-    default:
-      return "none";
   }
 }
 
@@ -197,7 +127,7 @@ bool TimeCalibrationPage::handleDetailBack(uint8_t homeFocus, uint8_t sectionFoc
 }
 
 bool TimeCalibrationPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                                       DisplayMonoTft& display, HomePage::Language language,
+                                       DisplayMonoTft& display,
                                        const TimeService& timeService) const {
   if (!isTimeCalibrationSelection(homeFocus, sectionFocus)) {
     return false;
@@ -207,10 +137,9 @@ bool TimeCalibrationPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, 
   auto& text = display.text();
   const int16_t width = static_cast<int16_t>(display.width());
   const int16_t height = static_cast<int16_t>(display.height());
-  const bool zh = language == HomePage::Language::Zh;
   const TimeService::Snapshot& snapshot = timeService.snapshot();
 
-  renderDetailHeader(display, zh ? "时间校准" : "Time Setup", yOffset);
+  DetailHeader::render(display, "时间校准", yOffset);
 
   const int16_t infoX = 10;
   const int16_t infoY1 = static_cast<int16_t>(yOffset + 55);
@@ -232,18 +161,14 @@ bool TimeCalibrationPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, 
              static_cast<unsigned>(snapshot.now.day), static_cast<unsigned>(snapshot.now.hour),
              static_cast<unsigned>(snapshot.now.minute));
   } else {
-    snprintf(line1, sizeof(line1), zh ? "当前时间未校准" : "Time Not Set");
+    snprintf(line1, sizeof(line1), "当前时间未校准");
   }
 
-  snprintf(line2, sizeof(line2), zh ? "校时来源：%s" : "Source: %s",
-           zh ? syncSourceTextZh(snapshot.lastSource) : syncSourceTextEn(snapshot.lastSource));
+  snprintf(line2, sizeof(line2), "校时来源：%s", syncSourceTextZh(snapshot.lastSource));
 
   const bool hasError = snapshot.error != TimeService::Error::None;
-  snprintf(line3, sizeof(line3), hasError ? (zh ? "错误：%s" : "Error: %s")
-                                          : (zh ? "状态：%s" : "State: %s"),
-           hasError ? (zh ? errorTextZh(snapshot.error) : errorTextEn(snapshot.error))
-                    : (zh ? syncStateTextZh(snapshot.syncState)
-                          : syncStateTextEn(snapshot.syncState)));
+  snprintf(line3, sizeof(line3), hasError ? "错误：%s" : "状态：%s",
+           hasError ? errorTextZh(snapshot.error) : syncStateTextZh(snapshot.syncState));
 
   text.drawUTF8(infoX, infoY1, line1);
   text.drawUTF8(infoX, infoY2, line2);
@@ -254,8 +179,7 @@ bool TimeCalibrationPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, 
   const int16_t buttonY1 = static_cast<int16_t>(yOffset + 119);
   const int16_t buttonY2 = static_cast<int16_t>(yOffset + 151);
   drawSelectionButton(display, buttonX1, buttonY1, buttonX2, buttonY2, true,
-                      ntpSyncing ? (zh ? "停止网络校时" : "Stop NTP")
-                                 : (zh ? "网络校时" : "NTP Sync"));
+                      ntpSyncing ? "停止网络校时" : "网络校时");
 
   canvas.drawRectangle(4, static_cast<int16_t>(yOffset + 32), width - 5,
                        static_cast<int16_t>(yOffset + height - 5), ST7305_COLOR_BLACK);

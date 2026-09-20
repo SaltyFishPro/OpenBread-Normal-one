@@ -1,6 +1,7 @@
 #include "ReaderPage.h"
 
 #include "../../bsp/DisplayMonoTft.h"
+#include "../DrawUtils.h"
 #include "../../services/SdCardService.h"
 
 #include <cstdio>
@@ -49,82 +50,6 @@ const char* const kLabelsZh[] = {
     "SAT",
     "我的",
 };
-
-const char* const kLabelsEn[] = {
-    "Junior",
-    "Senior",
-    "CET4",
-    "CET6",
-    "NPEE",
-    "TOEFL",
-    "SAT",
-    "Mine",
-};
-
-void drawFilledRoundRect(ST7305_2p9_BW_DisplayDriver& canvas, int16_t x1, int16_t y1,
-                         int16_t x2, int16_t y2, int16_t radius, uint16_t color) {
-  if (x1 > x2) {
-    const int16_t t = x1;
-    x1 = x2;
-    x2 = t;
-  }
-  if (y1 > y2) {
-    const int16_t t = y1;
-    y1 = y2;
-    y2 = t;
-  }
-
-  const int16_t w = static_cast<int16_t>(x2 - x1 + 1);
-  const int16_t h = static_cast<int16_t>(y2 - y1 + 1);
-  if (w <= 0 || h <= 0) {
-    return;
-  }
-
-  int16_t r = radius;
-  if (r < 0) {
-    r = 0;
-  }
-  if (r > w / 2) {
-    r = static_cast<int16_t>(w / 2);
-  }
-  if (r > h / 2) {
-    r = static_cast<int16_t>(h / 2);
-  }
-
-  if (r == 0) {
-    canvas.drawFilledRectangle(x1, y1, x2, y2, color);
-    return;
-  }
-
-  canvas.drawFilledRectangle(static_cast<uint>(x1 + r), static_cast<uint>(y1),
-                             static_cast<uint>(x2 - r), static_cast<uint>(y2), color);
-  canvas.drawFilledRectangle(static_cast<uint>(x1), static_cast<uint>(y1 + r),
-                             static_cast<uint>(x1 + r - 1), static_cast<uint>(y2 - r),
-                             color);
-  canvas.drawFilledRectangle(static_cast<uint>(x2 - r + 1), static_cast<uint>(y1 + r),
-                             static_cast<uint>(x2), static_cast<uint>(y2 - r), color);
-
-  canvas.drawFilledCircle(static_cast<int>(x1 + r), static_cast<int>(y1 + r),
-                          static_cast<uint>(r), color);
-  canvas.drawFilledCircle(static_cast<int>(x2 - r), static_cast<int>(y1 + r),
-                          static_cast<uint>(r), color);
-  canvas.drawFilledCircle(static_cast<int>(x1 + r), static_cast<int>(y2 - r),
-                          static_cast<uint>(r), color);
-  canvas.drawFilledCircle(static_cast<int>(x2 - r), static_cast<int>(y2 - r),
-                          static_cast<uint>(r), color);
-}
-
-void drawRoundRect(ST7305_2p9_BW_DisplayDriver& canvas, int16_t x, int16_t y, int16_t w,
-                   int16_t h, int16_t radius, uint16_t color) {
-  drawFilledRoundRect(canvas, x, y, static_cast<int16_t>(x + w - 1),
-                      static_cast<int16_t>(y + h - 1), radius, color);
-  if (w <= 2 || h <= 2) {
-    return;
-  }
-  drawFilledRoundRect(canvas, static_cast<int16_t>(x + 1), static_cast<int16_t>(y + 1),
-                      static_cast<int16_t>(x + w - 2), static_cast<int16_t>(y + h - 2),
-                      static_cast<int16_t>(radius - 1), ST7305_COLOR_WHITE);
-}
 
 int16_t cardX(uint8_t index) {
   return static_cast<int16_t>(kFirstColX + (index % 4U) * kColStep);
@@ -374,21 +299,20 @@ uint8_t drawWrappedMeaningPage(DisplayMonoTft& display, const char* value, int16
   return maxPage;
 }
 
-const char* stateMessage(ReaderService::State state, HomePage::Language language) {
-  const bool zh = language == HomePage::Language::Zh;
+const char* stateMessage(ReaderService::State state) {
   switch (state) {
     case ReaderService::State::SdMissing:
-      return zh ? "SD卡未就绪" : "SD Not Ready";
+      return "SD卡未就绪";
     case ReaderService::State::DirMissing:
-      return zh ? "缺少 /words 文件夹" : "Missing /words";
+      return "缺少 /words 文件夹";
     case ReaderService::State::FileMissing:
-      return zh ? "没有找到对应词库" : "Book Not Found";
+      return "没有找到对应词库";
     case ReaderService::State::Empty:
-      return zh ? "词库为空" : "Empty Book";
+      return "词库为空";
     case ReaderService::State::Error:
-      return zh ? "读取失败" : "Read Failed";
+      return "读取失败";
     case ReaderService::State::Idle:
-      return zh ? "未打开词库" : "No Book";
+      return "未打开词库";
     case ReaderService::State::Ready:
     default:
       return "";
@@ -434,8 +358,7 @@ void drawMeaningPageHint(ST7305_2p9_BW_DisplayDriver& canvas, uint8_t pageIndex,
   }
 }
 
-void drawWordDetail(DisplayMonoTft& display, HomePage::Language language,
-                    const ReaderService& reader, uint8_t meaningPage,
+void drawWordDetail(DisplayMonoTft& display, const ReaderService& reader, uint8_t meaningPage,
                     uint8_t& maxMeaningPage) {
   auto& canvas = display.canvas();
   auto& text = display.text();
@@ -445,7 +368,7 @@ void drawWordDetail(DisplayMonoTft& display, HomePage::Language language,
   const int16_t pageBottom = static_cast<int16_t>(display.height() - 1);
   const int16_t scrollRight = static_cast<int16_t>(kScrollX + kScrollWidth - 1);
 
-  const char* title = entry.word[0] != '\0' ? entry.word : stateMessage(reader.state(), language);
+  const char* title = entry.word[0] != '\0' ? entry.word : stateMessage(reader.state());
   const int16_t titleWidth = drawTextLineFast(
       display, u8g2_font_fur25_tf, title, kWordTextX,
       kWordBaselineY, static_cast<int16_t>(width - kWordTextX - 1), false);
@@ -471,7 +394,7 @@ void drawWordDetail(DisplayMonoTft& display, HomePage::Language language,
                                meaningPage);
   } else {
     maxMeaningPage = 0;
-    const char* message = stateMessage(reader.state(), language);
+    const char* message = stateMessage(reader.state());
     const int16_t messageW = text.getUTF8Width(message);
     int16_t messageX = static_cast<int16_t>(kMeaningX + (kMeaningWidth - messageW) / 2);
     if (messageX < kMeaningX + 4) {
@@ -493,7 +416,7 @@ void drawWordDetail(DisplayMonoTft& display, HomePage::Language language,
                              static_cast<int16_t>(kFooterY + kFooterHeight - 1),
                              ST7305_COLOR_WHITE);
   char footer[96];
-  const char* book = language == HomePage::Language::Zh ? reader.bookLabelZh() : reader.bookLabelEn();
+  const char* book = reader.bookLabelZh();
   if (reader.state() == ReaderService::State::Ready) {
     std::snprintf(footer, sizeof(footer), "%s  #%lu", book,
                   static_cast<unsigned long>(reader.currentIndex() + 1U));
@@ -627,24 +550,22 @@ bool ReaderPage::moveMeaningPage(int8_t delta) {
 }
 
 bool ReaderPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                              DisplayMonoTft& display, HomePage::Language language,
-                              const ReaderService& reader) const {
+                              DisplayMonoTft& display, const ReaderService& reader) const {
   (void)yOffset;
   if (!isVocabularySelection(homeFocus, sectionFocus)) {
     return false;
   }
 
   if (detailView_ == DetailView::Word) {
-    drawWordDetail(display, language, reader, meaningPage_, maxMeaningPage_);
+    drawWordDetail(display, reader, meaningPage_, maxMeaningPage_);
     return true;
   }
 
   auto& canvas = display.canvas();
   auto& text = display.text();
   const int16_t width = static_cast<int16_t>(display.width());
-  const bool zh = language == HomePage::Language::Zh;
-  const char* title = zh ? "单词库" : "Vocabulary";
-  const char* const* labels = zh ? kLabelsZh : kLabelsEn;
+  const char* title = "单词库";
+  const char* const* labels = kLabelsZh;
 
   canvas.drawFilledRectangle(0, 0, static_cast<int16_t>(width - 1),
                              static_cast<int16_t>(kTitleBarHeight - 1),
@@ -662,11 +583,12 @@ bool ReaderPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t y
     const int16_t x = cardX(i);
     const int16_t y = cardY(i);
     if (selected) {
-      drawFilledRoundRect(canvas, x, y, static_cast<int16_t>(x + kCardSize - 1),
-                          static_cast<int16_t>(y + kCardSize - 1), kCardRadius,
-                          ST7305_COLOR_BLACK);
+      DrawUtils::fillRoundRect(canvas, x, y, static_cast<int16_t>(x + kCardSize - 1),
+                               static_cast<int16_t>(y + kCardSize - 1), kCardRadius,
+                               ST7305_COLOR_BLACK);
     } else {
-      drawRoundRect(canvas, x, y, kCardSize, kCardSize, kCardRadius, ST7305_COLOR_BLACK);
+      DrawUtils::strokeRoundRectOnWhite(canvas, x, y, kCardSize, kCardSize, kCardRadius,
+                                        ST7305_COLOR_BLACK);
     }
 
     drawCenteredText(display, labels[i], x, y, kCardSize, kCardSize, selected);

@@ -3,11 +3,11 @@
 #include <cstdio>
 
 #include "../../bsp/DisplayMonoTft.h"
+#include "../DetailHeader.h"
 #include "../IconBitmap.h"
 #include "../assets/games/icons8-tapthewoodenfish.h"
 
 namespace {
-constexpr int16_t kDetailHeaderHeight = 28;
 constexpr int16_t kFishSize = 84;
 constexpr int16_t kFishPressedSize = static_cast<int16_t>((kFishSize * 70) / 100);
 constexpr int16_t kFishBaseY = 76;
@@ -25,40 +25,12 @@ const IconBitmap::Anim kWoodenFishIcon = {
     ICONS8_TAPTHEWOODENFISH_FRAME_DELAY,
     ICONS8_TAPTHEWOODENFISH_FRAME_COUNT};
 
-void renderDetailHeader(DisplayMonoTft& display, const char* title, int16_t yOffset) {
-  auto& canvas = display.canvas();
-  auto& text = display.text();
-  const int16_t width = static_cast<int16_t>(display.width());
-
-  canvas.drawFilledRectangle(0, yOffset, width - 1,
-                             static_cast<int16_t>(yOffset + kDetailHeaderHeight - 1),
-                             ST7305_COLOR_BLACK);
-
-  text.setFont(chinese_font_all);
-  text.setForegroundColor(ST7305_COLOR_WHITE);
-  text.setBackgroundColor(ST7305_COLOR_BLACK);
-  text.setFontMode(0);
-  const int16_t titleW = text.getUTF8Width(title);
-  const int16_t titleX = static_cast<int16_t>((width - titleW) / 2);
-  text.drawUTF8(titleX, static_cast<int16_t>(yOffset + 22), title);
-
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.setFontMode(1);
-}
-
 const char* woodenFishTextsZh(uint8_t idx) {
   static const char* const kTexts[] = {"功德+1", "前途似锦+1", "静心+1", "智力+1",
                                        "精神+1", "小钱包+1", "头发+1"};
   return kTexts[idx % (sizeof(kTexts) / sizeof(kTexts[0]))];
 }
 
-const char* woodenFishTextsEn(uint8_t idx) {
-  static const char* const kTexts[] = {"Merit+1",      "Bright Future+1", "Calm+1",
-                                       "Wisdom+1",     "Spirit+1",        "Wallet+1",
-                                       "Hair+1"};
-  return kTexts[idx % (sizeof(kTexts) / sizeof(kTexts[0]))];
-}
 }  // namespace
 
 bool GamesPage::isWoodenFishSelection(uint8_t homeFocus, uint8_t sectionFocus) const {
@@ -94,7 +66,7 @@ bool GamesPage::handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus) {
 }
 
 bool GamesPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                             DisplayMonoTft& display, HomePage::Language language) const {
+                             DisplayMonoTft& display) const {
   if (!isWoodenFishSelection(homeFocus, sectionFocus)) {
     return false;
   }
@@ -103,9 +75,7 @@ bool GamesPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yO
   auto& text = display.text();
   const int16_t width = static_cast<int16_t>(display.width());
   const int16_t height = static_cast<int16_t>(display.height());
-  const bool zh = language == HomePage::Language::Zh;
-
-  renderDetailHeader(display, zh ? "敲木鱼" : "Wooden Fish", yOffset);
+  DetailHeader::render(display, "敲木鱼", yOffset);
 
   text.setFont(chinese_font_all);
   text.setForegroundColor(ST7305_COLOR_BLACK);
@@ -113,13 +83,12 @@ bool GamesPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yO
   text.setFontMode(1);
 
   char countLine[32];
-  snprintf(countLine, sizeof(countLine), zh ? "已敲：%lu" : "Hits: %lu",
+  snprintf(countLine, sizeof(countLine), "已敲：%lu",
            static_cast<unsigned long>(knockCount_));
   text.drawUTF8(kCountX, static_cast<int16_t>(yOffset + kCountBaselineY), countLine);
 
   if (hasMessage_) {
-    const char* message =
-        zh ? woodenFishTextsZh(lastMessageIndex_) : woodenFishTextsEn(lastMessageIndex_);
+    const char* message = woodenFishTextsZh(lastMessageIndex_);
     const int16_t messageW = text.getUTF8Width(message);
     const int16_t countW = text.getUTF8Width(countLine);
     const int16_t rangeX1 =

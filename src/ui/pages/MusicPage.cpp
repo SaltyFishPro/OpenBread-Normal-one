@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "../../bsp/DisplayMonoTft.h"
+#include "../AnimMath.h"
 #include "../IconBitmap.h"
 #include "../assets/musicapp/music_nav_icons.h"
 #include "../assets/ui/pop_up_window.h"
@@ -116,23 +117,10 @@ enum class NavTab : uint8_t {
 };
 
 const char* const kLabelsZh[] = {"音乐", "收藏", "音量", "详情"};
-const char* const kLabelsEn[] = {"Music", "Like", "Volume", "Play"};
 
-float clamp01(float value) {
-  if (value < 0.0f) {
-    return 0.0f;
-  }
-  if (value > 1.0f) {
-    return 1.0f;
-  }
-  return value;
-}
+float clamp01(float value) { return AnimMath::clamp01(value); }
 
-float easeOutCubic(float t) {
-  t = clamp01(t);
-  const float inv = 1.0f - t;
-  return 1.0f - inv * inv * inv;
-}
+float easeOutCubic(float t) { return AnimMath::easeOutCubic(t); }
 
 void clearMusicNavArea(DisplayMonoTft& display, int16_t yOffset) {
   auto& canvas = display.canvas();
@@ -152,28 +140,27 @@ void clearMusicListArea(DisplayMonoTft& display) {
 }
 
 int16_t lerpInt(int16_t start, int16_t end, float t) {
-  return static_cast<int16_t>(start + (end - start) * t + ((end >= start) ? 0.5f : -0.5f));
+  return AnimMath::lerpInt16Rounded(start, end, t);
 }
 
 int16_t easeOutCubicInt(int16_t start, int16_t end, float t) {
-  return lerpInt(start, end, easeOutCubic(t));
+  return AnimMath::easeOutCubicRoundedInt16(start, end, t);
 }
 
 int16_t translatedRightEdge(int16_t xOffset, int16_t localRight) {
   return static_cast<int16_t>(xOffset + localRight);
 }
 
-const char* listStateText(MusicService::ListState state, HomePage::Language language) {
-  const bool zh = language == HomePage::Language::Zh;
+const char* listStateText(MusicService::ListState state) {
   switch (state) {
     case MusicService::ListState::Scanning:
-      return zh ? "正在扫描音乐..." : "Scanning music...";
+      return "正在扫描音乐...";
     case MusicService::ListState::SdMissing:
-      return zh ? "SD卡未插入" : "SD missing";
+      return "SD卡未插入";
     case MusicService::ListState::Empty:
-      return zh ? "未找到音乐文件" : "No music files";
+      return "未找到音乐文件";
     case MusicService::ListState::Error:
-      return zh ? "SD卡读取失败" : "SD read failed";
+      return "SD卡读取失败";
     default:
       return "";
   }
@@ -293,19 +280,17 @@ const char* suffixByUtf8Chars(const char* value, uint8_t visibleChars) {
   return value;
 }
 
-void drawRevealedLabel(DisplayMonoTft& display, uint8_t index, HomePage::Language language,
-                       int16_t yOffset, float progress) {
+void drawRevealedLabel(DisplayMonoTft& display, uint8_t index, int16_t yOffset,
+                       float progress) {
   constexpr float kTextStartProgress = 0.45f;
   if (progress < kTextStartProgress) {
     return;
   }
 
   auto& text = display.text();
-  const bool zh = language == HomePage::Language::Zh;
-  const char* label = zh ? kLabelsZh[index % kTabCount]
-                         : kLabelsEn[index % kTabCount];
+  const char* label = kLabelsZh[index % kTabCount];
   if (index % kTabCount == static_cast<uint8_t>(NavTab::Info)) {
-    label = zh ? "播放" : "Play";
+    label = "播放";
   }
   const uint8_t labelChars = utf8CharCount(label);
   const float textProgress = clamp01((progress - kTextStartProgress) / (1.0f - kTextStartProgress));
@@ -315,7 +300,7 @@ void drawRevealedLabel(DisplayMonoTft& display, uint8_t index, HomePage::Languag
 
   const char* suffix = suffixByUtf8Chars(label, visibleChars);
   const int16_t finalRight = static_cast<int16_t>(tabX(index) + kTabWidth - 9);
-  text.setFont(zh ? chinese_font_all : u8g2_font_helvB10_tf);
+  text.setFont(chinese_font_all);
   text.setForegroundColor(ST7305_COLOR_BLACK);
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setFontMode(1);
@@ -325,7 +310,7 @@ void drawRevealedLabel(DisplayMonoTft& display, uint8_t index, HomePage::Languag
 }
 
 void drawMusicNavFrame(DisplayMonoTft& display, uint8_t selectedIndex, bool favoriteEnabled,
-                       HomePage::Language language, int16_t yOffset, float progress) {
+                       int16_t yOffset, float progress) {
   auto& canvas = display.canvas();
   progress = clamp01(progress);
 
@@ -354,7 +339,7 @@ void drawMusicNavFrame(DisplayMonoTft& display, uint8_t selectedIndex, bool favo
     drawBitmapIcon(canvas, iconForTab(selectedIndex, favoriteEnabled), iconX,
                    static_cast<int16_t>(yOffset + kTabY + kTabHeight / 2),
                    ST7305_COLOR_BLACK);
-    drawRevealedLabel(display, selectedIndex, language, yOffset, progress);
+    drawRevealedLabel(display, selectedIndex, yOffset, progress);
   }
 }
 
@@ -454,8 +439,8 @@ void drawMusicListProgress(DisplayMonoTft& display, const MusicService& music,
 }
 
 void drawMusicList(DisplayMonoTft& display, const MusicService& music, uint16_t pageIndex,
-                   uint8_t rowIndex, HomePage::Language language, uint32_t nowMs,
-                   bool focusAnimating, uint8_t focusFromRow, uint8_t focusToRow,
+                   uint8_t rowIndex, uint32_t nowMs, bool focusAnimating,
+                   uint8_t focusFromRow, uint8_t focusToRow,
                    uint32_t focusAnimStartMs, int16_t xOffset) {
   auto& canvas = display.canvas();
   auto& text = display.text();
@@ -469,7 +454,7 @@ void drawMusicList(DisplayMonoTft& display, const MusicService& music, uint16_t 
   text.setFontMode(1);
 
   if (music.listState() != MusicService::ListState::Ready) {
-    const char* state = listStateText(music.listState(), language);
+    const char* state = listStateText(music.listState());
     const int16_t stateW = text.getUTF8Width(state);
     text.drawUTF8(static_cast<int16_t>(xOffset + (kListAreaWidth - stateW) / 2), 52, state);
     if (music.errorText()[0] != '\0') {
@@ -979,8 +964,7 @@ uint8_t volumePercent(uint8_t volume) {
 }
 
 void drawVolumePopup(DisplayMonoTft& display, const MusicService& music,
-                     HomePage::Language language, uint32_t popupElapsedMs) {
-  (void)language;
+                     uint32_t popupElapsedMs) {
   auto& canvas = display.canvas();
   auto& text = display.text();
   const int16_t width = static_cast<int16_t>(display.width());
@@ -1028,9 +1012,7 @@ const char* playerTitleFor(const MusicService& music, uint8_t rowIndex) {
 }
 
 void drawPlayerPreviewSurface(DisplayMonoTft& display, const MusicService& music,
-                              uint8_t rowIndex, HomePage::Language language, uint32_t nowMs,
-                              bool playing) {
-  (void)language;
+                              uint8_t rowIndex, uint32_t nowMs, bool playing) {
   auto& canvas = display.canvas();
   auto& text = display.text();
   canvas.drawFilledRectangle(kPlayerAreaX, kPlayerAreaY,
@@ -1054,8 +1036,8 @@ void drawPlayerPreviewSurface(DisplayMonoTft& display, const MusicService& music
 
 void drawPlayerTransitionFrame(DisplayMonoTft& display, const MusicService& music,
                                uint16_t pageIndex, uint8_t rowIndex,
-                               HomePage::Language language, uint32_t nowMs,
-                               bool focusAnimating, uint8_t focusFromRow, uint8_t focusToRow,
+                               uint32_t nowMs, bool focusAnimating, uint8_t focusFromRow,
+                               uint8_t focusToRow,
                                uint32_t focusAnimStartMs, float progress) {
   auto& canvas = display.canvas();
   progress = clamp01(progress);
@@ -1069,7 +1051,7 @@ void drawPlayerTransitionFrame(DisplayMonoTft& display, const MusicService& musi
 
   const int16_t listOffsetX = lerpInt(0, static_cast<int16_t>(display.width()), phase1);
   if (listOffsetX < static_cast<int16_t>(display.width())) {
-    drawMusicList(display, music, pageIndex, rowIndex, language, nowMs, focusAnimating,
+    drawMusicList(display, music, pageIndex, rowIndex, nowMs, focusAnimating,
                   focusFromRow, focusToRow, focusAnimStartMs, listOffsetX);
   }
 
@@ -1280,8 +1262,8 @@ bool MusicPage::handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus, MusicS
 }
 
 bool MusicPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                             DisplayMonoTft& display, HomePage::Language language,
-                             const MusicService& music, uint32_t nowMs) {
+                             DisplayMonoTft& display, const MusicService& music,
+                             uint32_t nowMs) {
   if (!isMusicListSelection(homeFocus, sectionFocus)) {
     return false;
   }
@@ -1297,11 +1279,11 @@ bool MusicPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yO
       playerViewState_ = PlayerViewState::List;
       playerTransitionStartProgress_ = 0.0f;
       playerTransitionTargetProgress_ = 0.0f;
-      drawMusicList(display, music, pageIndex_, rowIndex_, language, nowMs, listFocusAnimating,
+      drawMusicList(display, music, pageIndex_, rowIndex_, nowMs, listFocusAnimating,
                     listFocusFromRow_, listFocusToRow_, listFocusAnimStartMs_, 0);
-      drawMusicNavFrame(display, selectedIndex_, favoriteEnabled_, language, yOffset, 1.0f);
+      drawMusicNavFrame(display, selectedIndex_, favoriteEnabled_, yOffset, 1.0f);
     } else {
-      drawPlayerTransitionFrame(display, music, pageIndex_, rowIndex_, language, nowMs,
+      drawPlayerTransitionFrame(display, music, pageIndex_, rowIndex_, nowMs,
                                 listFocusAnimating, listFocusFromRow_, listFocusToRow_,
                                 listFocusAnimStartMs_, playerProgress);
     }
@@ -1314,7 +1296,7 @@ bool MusicPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yO
     if (playerViewState_ == PlayerViewState::Player) {
       playerUiPlaying_ = isPlaybackActive(music);
       playerUiShuffle_ = music.shuffleEnabled();
-      drawPlayerPreviewSurface(display, music, rowIndex_, language, nowMs, playerUiPlaying_);
+      drawPlayerPreviewSurface(display, music, rowIndex_, nowMs, playerUiPlaying_);
       drawPlayerSideControls(display, playerControlIndex_, playerUiPlaying_, playerUiShuffle_);
     }
     if (!listFocusAnimating) {
@@ -1323,11 +1305,11 @@ bool MusicPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yO
     return true;
   }
 
-  drawMusicList(display, music, pageIndex_, rowIndex_, language, nowMs, listFocusAnimating,
+  drawMusicList(display, music, pageIndex_, rowIndex_, nowMs, listFocusAnimating,
                 listFocusFromRow_, listFocusToRow_, listFocusAnimStartMs_, 0);
-  drawMusicNavFrame(display, selectedIndex_, favoriteEnabled_, language, yOffset, progress);
+  drawMusicNavFrame(display, selectedIndex_, favoriteEnabled_, yOffset, progress);
   if (volumePopupOpen_) {
-    drawVolumePopup(display, music, language, nowMs - volumePopupStartMs_);
+    drawVolumePopup(display, music, nowMs - volumePopupStartMs_);
   }
   if (!isSelectionAnimating(nowMs)) {
     selectionAnimating_ = false;
@@ -1339,8 +1321,7 @@ bool MusicPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yO
 }
 
 bool MusicPage::renderDetailNavOnly(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                                    DisplayMonoTft& display, HomePage::Language language,
-                                    uint32_t nowMs) {
+                                    DisplayMonoTft& display, uint32_t nowMs) {
   if (!isMusicListSelection(homeFocus, sectionFocus) ||
       playerViewState_ != PlayerViewState::List) {
     return false;
@@ -1348,7 +1329,7 @@ bool MusicPage::renderDetailNavOnly(uint8_t homeFocus, uint8_t sectionFocus, int
 
   const float progress = selectionAnimating_ ? selectionProgress(nowMs) : 1.0f;
   clearMusicNavArea(display, yOffset);
-  drawMusicNavFrame(display, selectedIndex_, favoriteEnabled_, language, yOffset, progress);
+  drawMusicNavFrame(display, selectedIndex_, favoriteEnabled_, yOffset, progress);
   if (!isSelectionAnimating(nowMs)) {
     selectionAnimating_ = false;
   }
@@ -1356,8 +1337,8 @@ bool MusicPage::renderDetailNavOnly(uint8_t homeFocus, uint8_t sectionFocus, int
 }
 
 bool MusicPage::renderDetailListOnly(uint8_t homeFocus, uint8_t sectionFocus,
-                                     DisplayMonoTft& display, HomePage::Language language,
-                                     const MusicService& music, uint32_t nowMs) {
+                                     DisplayMonoTft& display, const MusicService& music,
+                                     uint32_t nowMs) {
   if (!isMusicListSelection(homeFocus, sectionFocus) ||
       playerViewState_ != PlayerViewState::List) {
     return false;
@@ -1365,7 +1346,7 @@ bool MusicPage::renderDetailListOnly(uint8_t homeFocus, uint8_t sectionFocus,
 
   const bool listFocusAnimating = isListFocusAnimating(nowMs);
   clearMusicListArea(display);
-  drawMusicList(display, music, pageIndex_, rowIndex_, language, nowMs, listFocusAnimating,
+  drawMusicList(display, music, pageIndex_, rowIndex_, nowMs, listFocusAnimating,
                 listFocusFromRow_, listFocusToRow_, listFocusAnimStartMs_, 0);
   if (!listFocusAnimating) {
     listFocusAnimating_ = false;

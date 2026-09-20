@@ -3,6 +3,8 @@
 #include <cstdio>
 
 #include "../IconBitmap.h"
+#include "../AnimMath.h"
+#include "../DrawUtils.h"
 #include "../Segment7Font.h"
 #include "../ThemeMono.h"
 #include "../assets/games/icons8_games.h"
@@ -113,84 +115,17 @@ constexpr int16_t kUncalibratedBreadScale = 2;
 
 const char* const kMenuNamesZh[6] = {"设置", "音乐", "阅读", "专注时钟", "无线功能", "游戏"};
 
-bool clipRectToDisplay(ST7305_2p9_BW_DisplayDriver& canvas, int16_t& x1, int16_t& y1,
-                       int16_t& x2, int16_t& y2) {
-  if (x1 > x2) {
-    const int16_t t = x1;
-    x1 = x2;
-    x2 = t;
-  }
-  if (y1 > y2) {
-    const int16_t t = y1;
-    y1 = y2;
-    y2 = t;
-  }
-
-  const int16_t maxX = static_cast<int16_t>(canvas.getDisplayWidth() - 1);
-  const int16_t maxY = static_cast<int16_t>(canvas.getDisplayHeight() - 1);
-  if (maxX < 0 || maxY < 0) {
-    return false;
-  }
-  if (x2 < 0 || y2 < 0 || x1 > maxX || y1 > maxY) {
-    return false;
-  }
-  if (x1 < 0) x1 = 0;
-  if (y1 < 0) y1 = 0;
-  if (x2 > maxX) x2 = maxX;
-  if (y2 > maxY) y2 = maxY;
-  return true;
-}
-
-void drawClippedRect(ST7305_2p9_BW_DisplayDriver& canvas, int16_t x1, int16_t y1, int16_t x2,
-                     int16_t y2, uint16_t color) {
-  if (!clipRectToDisplay(canvas, x1, y1, x2, y2)) {
-    return;
-  }
-  canvas.drawRectangle(static_cast<uint>(x1), static_cast<uint>(y1),
-                       static_cast<uint>(x2), static_cast<uint>(y2), color);
-}
-
-void drawClippedFilledRect(ST7305_2p9_BW_DisplayDriver& canvas, int16_t x1, int16_t y1,
-                           int16_t x2, int16_t y2, uint16_t color) {
-  if (!clipRectToDisplay(canvas, x1, y1, x2, y2)) {
-    return;
-  }
-  canvas.drawFilledRectangle(static_cast<uint>(x1), static_cast<uint>(y1),
-                             static_cast<uint>(x2), static_cast<uint>(y2), color);
-}
-
-void drawClippedPseudoRoundFilledRect(ST7305_2p9_BW_DisplayDriver& canvas, int16_t x1,
-                                      int16_t y1, int16_t x2, int16_t y2, uint16_t color) {
-  if ((x2 - x1) < 2 || (y2 - y1) < 2) {
-    drawClippedFilledRect(canvas, x1, y1, x2, y2, color);
-    return;
-  }
-  drawClippedFilledRect(canvas, static_cast<int16_t>(x1 + 1), y1,
-                        static_cast<int16_t>(x2 - 1), y2, color);
-  drawClippedFilledRect(canvas, x1, static_cast<int16_t>(y1 + 1), x2,
-                        static_cast<int16_t>(y2 - 1), color);
-}
-
-void drawClippedPseudoRoundOutline(ST7305_2p9_BW_DisplayDriver& canvas, int16_t x1,
-                                   int16_t y1, int16_t x2, int16_t y2, uint16_t borderColor,
-                                   uint16_t innerColor) {
-  drawClippedPseudoRoundFilledRect(canvas, x1, y1, x2, y2, borderColor);
-  drawClippedPseudoRoundFilledRect(canvas, static_cast<int16_t>(x1 + 1),
-                                   static_cast<int16_t>(y1 + 1),
-                                   static_cast<int16_t>(x2 - 1),
-                                   static_cast<int16_t>(y2 - 1), innerColor);
-}
-
 void drawHomeTimePreview(ST7305_2p9_BW_DisplayDriver& canvas, uint32_t nowMs, int16_t xOffset,
                          const HomePage::ClockData& clockData) {
   const int16_t boxX1 = static_cast<int16_t>(kTimeCardStyle.rect.x1 + xOffset);
   const int16_t boxY1 = kTimeCardStyle.rect.y1;
   const int16_t boxX2 = static_cast<int16_t>(kTimeCardStyle.rect.x2 + xOffset);
   const int16_t boxY2 = kTimeCardStyle.rect.y2;
-  drawClippedRect(canvas, boxX1, boxY1, boxX2, boxY2, ST7305_COLOR_BLACK);
-  drawClippedFilledRect(canvas, static_cast<int16_t>(boxX1 + 1),
-                        static_cast<int16_t>(boxY1 + 1), static_cast<int16_t>(boxX2 - 1),
-                        static_cast<int16_t>(boxY2 - 1), ST7305_COLOR_BLACK);
+  DrawUtils::drawClippedRect(canvas, boxX1, boxY1, boxX2, boxY2, ST7305_COLOR_BLACK);
+  DrawUtils::drawClippedFilledRect(canvas, static_cast<int16_t>(boxX1 + 1),
+                                   static_cast<int16_t>(boxY1 + 1),
+                                   static_cast<int16_t>(boxX2 - 1),
+                                   static_cast<int16_t>(boxY2 - 1), ST7305_COLOR_BLACK);
 
   if (!clockData.valid) {
     if (boxX1 >= 0 && boxY1 >= 0 && boxX2 < canvas.getDisplayWidth() &&
@@ -249,11 +184,12 @@ void drawHomeDatePreview(ST7305_2p9_BW_DisplayDriver& canvas, U8G2_FOR_ST73XX& t
   const int16_t boxX2 = static_cast<int16_t>(kDateCardStyle.rect.x2 + xOffset);
   const int16_t boxY2 = kDateCardStyle.rect.y2;
 
-  drawClippedRect(canvas, boxX1, boxY1, boxX2, boxY2, ST7305_COLOR_BLACK);
-  drawClippedFilledRect(canvas, static_cast<int16_t>(boxX1 + 1),
-                        static_cast<int16_t>(boxY1 + 1), static_cast<int16_t>(boxX2 - 1),
-                        static_cast<int16_t>(boxY2 - 1), ST7305_COLOR_BLACK);
-  drawClippedPseudoRoundOutline(
+  DrawUtils::drawClippedRect(canvas, boxX1, boxY1, boxX2, boxY2, ST7305_COLOR_BLACK);
+  DrawUtils::drawClippedFilledRect(canvas, static_cast<int16_t>(boxX1 + 1),
+                                   static_cast<int16_t>(boxY1 + 1),
+                                   static_cast<int16_t>(boxX2 - 1),
+                                   static_cast<int16_t>(boxY2 - 1), ST7305_COLOR_BLACK);
+  DrawUtils::drawClippedPseudoRoundOutline(
       canvas, static_cast<int16_t>(boxX1 + kDateCardStyle.outerInset),
       static_cast<int16_t>(boxY1 + kDateCardStyle.outerInset),
       static_cast<int16_t>(boxX2 - kDateCardStyle.outerInset),
@@ -294,7 +230,7 @@ void drawHomeDatePreview(ST7305_2p9_BW_DisplayDriver& canvas, U8G2_FOR_ST73XX& t
 
   const int16_t weekChipX1 = static_cast<int16_t>(boxX1 + kDateCardStyle.weekChipLeftInset);
   const int16_t weekChipX2 = static_cast<int16_t>(weekChipX1 + kDateCardStyle.weekChipWidth);
-  drawClippedPseudoRoundOutline(canvas, weekChipX1, chipTop, weekChipX2, chipBottom,
+  DrawUtils::drawClippedPseudoRoundOutline(canvas, weekChipX1, chipTop, weekChipX2, chipBottom,
                                 ST7305_COLOR_WHITE, ST7305_COLOR_BLACK);
   text.drawUTF8(static_cast<int16_t>(weekChipX1 + kDateCardStyle.chipTextInsetX),
                 static_cast<int16_t>(chipBottom - kDateCardStyle.chipTextBaselineInset),
@@ -304,7 +240,7 @@ void drawHomeDatePreview(ST7305_2p9_BW_DisplayDriver& canvas, U8G2_FOR_ST73XX& t
       static_cast<int16_t>(boxX2 - kDateCardStyle.monthChipRightInset);
   const int16_t monthChipX1 =
       static_cast<int16_t>(monthChipX2 - kDateCardStyle.monthChipWidth);
-  drawClippedPseudoRoundOutline(canvas, monthChipX1, chipTop, monthChipX2, chipBottom,
+  DrawUtils::drawClippedPseudoRoundOutline(canvas, monthChipX1, chipTop, monthChipX2, chipBottom,
                                 ST7305_COLOR_WHITE, ST7305_COLOR_BLACK);
   text.drawUTF8(static_cast<int16_t>(monthChipX1 + kDateCardStyle.chipTextInsetX),
                 static_cast<int16_t>(chipBottom - kDateCardStyle.chipTextBaselineInset),
@@ -421,7 +357,7 @@ int16_t HomePage::currentMenuOffset(uint32_t nowMs) const {
   const float t = static_cast<float>(nowMs - animStartMs_) /
                   static_cast<float>(ThemeMono::kSlideDurationMs);
   const float clamped = t > 1.0f ? 1.0f : t;
-  return easeOutCubic(animFromOffsetY_, animToOffsetY_, clamped);
+  return AnimMath::easeOutCubicInt16(animFromOffsetY_, animToOffsetY_, clamped);
 }
 
 bool HomePage::hasAnimationTick(uint32_t nowMs) const {
@@ -573,18 +509,6 @@ void HomePage::renderTransition(DisplayMonoTft& display, int16_t backgroundOffse
       text.drawUTF8(labelX, labelY, label);
     }
   }
-}
-
-int16_t HomePage::easeOutCubic(int16_t from, int16_t to, float t) const {
-  if (t <= 0.0f) {
-    return from;
-  }
-  if (t >= 1.0f) {
-    return to;
-  }
-  const float inv = 1.0f - t;
-  const float eased = 1.0f - (inv * inv * inv);
-  return static_cast<int16_t>(from + (to - from) * eased);
 }
 
 bool HomePage::isInteractiveAnimationWindow(uint32_t nowMs) const {

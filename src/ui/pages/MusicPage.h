@@ -3,7 +3,6 @@
 #include <stdint.h>
 
 #include "../../services/MusicService.h"
-#include "HomePage.h"
 
 class DisplayMonoTft;
 class SdCardService;
@@ -24,14 +23,11 @@ public:
   bool handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus, MusicService& music,
                         SdCardService& sd);
   bool renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                    DisplayMonoTft& display, HomePage::Language language,
-                    const MusicService& music, uint32_t nowMs);
+                    DisplayMonoTft& display, const MusicService& music, uint32_t nowMs);
   bool renderDetailNavOnly(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                           DisplayMonoTft& display, HomePage::Language language,
-                           uint32_t nowMs);
+                           DisplayMonoTft& display, uint32_t nowMs);
   bool renderDetailListOnly(uint8_t homeFocus, uint8_t sectionFocus, DisplayMonoTft& display,
-                            HomePage::Language language, const MusicService& music,
-                            uint32_t nowMs);
+                            const MusicService& music, uint32_t nowMs);
   bool needsAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus, uint32_t nowMs) const;
   bool needsNavAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus, uint32_t nowMs) const;
   bool needsListAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus, uint32_t nowMs) const;

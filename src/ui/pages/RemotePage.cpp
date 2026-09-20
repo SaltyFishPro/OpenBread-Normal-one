@@ -1,34 +1,11 @@
 #include "RemotePage.h"
 
 #include "../../bsp/DisplayMonoTft.h"
+#include "../DetailHeader.h"
 #include "../../services/BluetoothService.h"
 #include "../../services/RemoteService.h"
 
 namespace {
-constexpr int16_t kDetailHeaderHeight = 28;
-
-void renderDetailHeader(DisplayMonoTft& display, const char* title, int16_t yOffset) {
-  auto& canvas = display.canvas();
-  auto& text = display.text();
-  const int16_t width = static_cast<int16_t>(display.width());
-
-  canvas.drawFilledRectangle(0, yOffset, width - 1,
-                             static_cast<int16_t>(yOffset + kDetailHeaderHeight - 1),
-                             ST7305_COLOR_BLACK);
-
-  text.setFont(chinese_font_all);
-  text.setForegroundColor(ST7305_COLOR_WHITE);
-  text.setBackgroundColor(ST7305_COLOR_BLACK);
-  text.setFontMode(0);
-  const int16_t titleW = text.getUTF8Width(title);
-  const int16_t titleX = static_cast<int16_t>((width - titleW) / 2);
-  text.drawUTF8(titleX, static_cast<int16_t>(yOffset + 22), title);
-
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.setFontMode(1);
-}
-
 const char* btStateTextZh(BluetoothService::State state) {
   switch (state) {
     case BluetoothService::State::Advertising:
@@ -42,19 +19,6 @@ const char* btStateTextZh(BluetoothService::State state) {
   }
 }
 
-const char* btStateTextEn(BluetoothService::State state) {
-  switch (state) {
-    case BluetoothService::State::Advertising:
-      return "Waiting";
-    case BluetoothService::State::Connected:
-      return "Connected";
-    case BluetoothService::State::Error:
-      return "Error";
-    default:
-      return "Bluetooth Off";
-  }
-}
-
 const char* btErrorTextZh(BluetoothService::Error err) {
   switch (err) {
     case BluetoothService::Error::InitFailed:
@@ -65,19 +29,6 @@ const char* btErrorTextZh(BluetoothService::Error err) {
       return "等待超时";
     default:
       return "无";
-  }
-}
-
-const char* btErrorTextEn(BluetoothService::Error err) {
-  switch (err) {
-    case BluetoothService::Error::InitFailed:
-      return "init failed";
-    case BluetoothService::Error::StartFailed:
-      return "start failed";
-    case BluetoothService::Error::Timeout:
-      return "timeout";
-    default:
-      return "none";
   }
 }
 
@@ -98,22 +49,6 @@ const char* remoteStateTextZh(RemoteService::State state) {
   }
 }
 
-const char* remoteStateTextEn(RemoteService::State state) {
-  switch (state) {
-    case RemoteService::State::Sent:
-      return "Shutter Sent";
-    case RemoteService::State::NotConnected:
-      return "Connect Bluetooth First";
-    case RemoteService::State::Busy:
-      return "Too Fast";
-    case RemoteService::State::Ready:
-      return "Ready";
-    case RemoteService::State::Error:
-      return "Send Error";
-    default:
-      return "Idle";
-  }
-}
 }  // namespace
 
 bool RemotePage::isBluetoothSelection(uint8_t homeFocus, uint8_t sectionFocus) const {
@@ -176,8 +111,7 @@ void RemotePage::handleSectionExit(uint8_t homeFocus, BluetoothService& bluetoot
 }
 
 bool RemotePage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                              DisplayMonoTft& display, HomePage::Language language,
-                              const BluetoothService& bluetooth,
+                              DisplayMonoTft& display, const BluetoothService& bluetooth,
                               const RemoteService& remote) const {
   if (!isBluetoothSelection(homeFocus, sectionFocus) &&
       !isRemoteCamSelection(homeFocus, sectionFocus)) {
@@ -188,13 +122,11 @@ bool RemotePage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t y
   auto& text = display.text();
   const int16_t width = static_cast<int16_t>(display.width());
   const int16_t height = static_cast<int16_t>(display.height());
-  const bool zh = language == HomePage::Language::Zh;
-
-  renderDetailHeader(display,
-                     isBluetoothSelection(homeFocus, sectionFocus)
-                         ? (zh ? "蓝牙连接" : "Bluetooth Connect")
-                         : (zh ? "蓝牙远程拍照" : "BT Remote Cam"),
-                     yOffset);
+  DetailHeader::render(display,
+                       isBluetoothSelection(homeFocus, sectionFocus)
+                           ? "蓝牙连接"
+                           : "蓝牙远程拍照",
+                       yOffset);
 
   text.setFont(chinese_font_all);
   text.setForegroundColor(ST7305_COLOR_BLACK);
@@ -207,36 +139,27 @@ bool RemotePage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t y
   char line4[64];
 
   if (isBluetoothSelection(homeFocus, sectionFocus)) {
-    snprintf(line1, sizeof(line1), zh ? "设备名: %s" : "Device: %s", bluetooth.deviceName());
-    snprintf(line2, sizeof(line2), zh ? "状态: %s" : "State: %s",
-             zh ? btStateTextZh(bluetooth.state()) : btStateTextEn(bluetooth.state()));
-    snprintf(line3, sizeof(line3), zh ? "错误: %s" : "Error: %s",
-             zh ? btErrorTextZh(bluetooth.error()) : btErrorTextEn(bluetooth.error()));
+    snprintf(line1, sizeof(line1), "设备名: %s", bluetooth.deviceName());
+    snprintf(line2, sizeof(line2), "状态: %s", btStateTextZh(bluetooth.state()));
+    snprintf(line3, sizeof(line3), "错误: %s", btErrorTextZh(bluetooth.error()));
 
     if (bluetooth.state() == BluetoothService::State::Connected) {
-      snprintf(line4, sizeof(line4), "%s",
-               zh ? "可返回后进入蓝牙远程拍照" : "Ready for BT Remote Cam");
+      snprintf(line4, sizeof(line4), "%s", "可返回后进入蓝牙远程拍照");
     } else if (bluetooth.state() == BluetoothService::State::Advertising) {
-      snprintf(line4, sizeof(line4), "%s",
-               zh ? "请在手机蓝牙中配对本设备" : "Pair from your phone");
+      snprintf(line4, sizeof(line4), "%s", "请在手机蓝牙中配对本设备");
     } else {
-      snprintf(line4, sizeof(line4), "%s",
-               zh ? "按 OK 开始蓝牙广播" : "Press OK to start pairing");
+      snprintf(line4, sizeof(line4), "%s", "按 OK 开始蓝牙广播");
     }
   } else {
-    snprintf(line1, sizeof(line1), zh ? "蓝牙状态: %s" : "Bluetooth: %s",
-             zh ? btStateTextZh(bluetooth.state()) : btStateTextEn(bluetooth.state()));
-    snprintf(line2, sizeof(line2), zh ? "已发送: %lu" : "Sent: %lu",
+    snprintf(line1, sizeof(line1), "蓝牙状态: %s", btStateTextZh(bluetooth.state()));
+    snprintf(line2, sizeof(line2), "已发送: %lu",
              static_cast<unsigned long>(remote.triggerCount()));
-    snprintf(line3, sizeof(line3), zh ? "结果: %s" : "Result: %s",
-             zh ? remoteStateTextZh(remote.state()) : remoteStateTextEn(remote.state()));
+    snprintf(line3, sizeof(line3), "结果: %s", remoteStateTextZh(remote.state()));
 
     if (bluetooth.state() == BluetoothService::State::Connected) {
-      snprintf(line4, sizeof(line4), "%s",
-               zh ? "按 OK 发送一次快门事件" : "Press OK to send shutter");
+      snprintf(line4, sizeof(line4), "%s", "按 OK 发送一次快门事件");
     } else {
-      snprintf(line4, sizeof(line4), "%s",
-               zh ? "请先进入蓝牙连接完成配对" : "Pair in Bluetooth Connect first");
+      snprintf(line4, sizeof(line4), "%s", "请先进入蓝牙连接完成配对");
     }
   }
 

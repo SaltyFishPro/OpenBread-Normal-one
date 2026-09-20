@@ -3,7 +3,6 @@
 #include <stdint.h>
 
 #include "../../services/ReaderService.h"
-#include "HomePage.h"
 
 class DisplayMonoTft;
 class SdCardService;
@@ -19,8 +18,7 @@ public:
                          ReaderService& reader, SdCardService& sd);
   bool handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus, ReaderService& reader);
   bool renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                    DisplayMonoTft& display, HomePage::Language language,
-                    const ReaderService& reader) const;
+                    DisplayMonoTft& display, const ReaderService& reader) const;
   bool isStaticWordDetail(uint8_t homeFocus, uint8_t sectionFocus) const;
 
 private:
