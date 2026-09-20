@@ -109,6 +109,59 @@ void ST7305_2p9_BW_DisplayDriver::display() {
     digitalWrite(CS_PIN, HIGH);
 }
 
+void ST7305_2p9_BW_DisplayDriver::displayRegion(uint16_t x1, uint16_t y1, uint16_t x2,
+                                                uint16_t y2) {
+    if (x1 > x2) {
+        const uint16_t t = x1;
+        x1 = x2;
+        x2 = t;
+    }
+    if (y1 > y2) {
+        const uint16_t t = y1;
+        y1 = y2;
+        y2 = t;
+    }
+    if (x1 >= static_cast<uint16_t>(LCD_WIDTH) || y1 >= static_cast<uint16_t>(LCD_HIGH)) {
+        return;
+    }
+    if (x2 >= static_cast<uint16_t>(LCD_WIDTH)) {
+        x2 = static_cast<uint16_t>(LCD_WIDTH - 1);
+    }
+    if (y2 >= static_cast<uint16_t>(LCD_HIGH)) {
+        y2 = static_cast<uint16_t>(LCD_HIGH - 1);
+    }
+
+    // 列地址单元 = 3 字节 = 12 像素；行地址单元 = 1 数据行 = 2 像素行。
+    // 窗口会对齐到地址单元，因此实际刷新区域可能比请求区域略大。
+    const uint16_t colStartUnit = static_cast<uint16_t>((x1 / 4U) / 3U);
+    const uint16_t colEndUnit = static_cast<uint16_t>((x2 / 4U) / 3U);
+    const uint16_t byteStart = static_cast<uint16_t>(colStartUnit * 3U);
+    const uint16_t byteEnd = static_cast<uint16_t>(colEndUnit * 3U + 2U);
+    const uint16_t rowStart = static_cast<uint16_t>(y1 / 2U);
+    const uint16_t rowEnd = static_cast<uint16_t>(y2 / 2U);
+    const size_t bytesPerRow = static_cast<size_t>(byteEnd - byteStart + 1U);
+
+    Write_Register(0x2A);
+    Write_Parameter(static_cast<uint8_t>(0x17U + colStartUnit));
+    Write_Parameter(static_cast<uint8_t>(0x17U + colEndUnit));
+
+    Write_Register(0x2B);
+    Write_Parameter(static_cast<uint8_t>(rowStart));
+    Write_Parameter(static_cast<uint8_t>(rowEnd));
+
+    Write_Register(0x2C);
+
+    digitalWrite(DC_PIN, HIGH);
+    digitalWrite(CS_PIN, LOW);
+    for (uint16_t row = rowStart; row <= rowEnd; ++row) {
+        spiRef.writeBytes(
+            &display_buffer[static_cast<size_t>(row) * static_cast<size_t>(LCD_DATA_WIDTH) +
+                            byteStart],
+            bytesPerRow);
+    }
+    digitalWrite(CS_PIN, HIGH);
+}
+
 void ST7305_2p9_BW_DisplayDriver::Initial_ST7305() {
     digitalWrite(RES_PIN, HIGH);	
     delay(10);

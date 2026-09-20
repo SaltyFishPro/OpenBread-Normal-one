@@ -55,6 +55,38 @@ void DisplayMonoTft::clear() { display_.clearDisplay(); }
 
 void DisplayMonoTft::present() { display_.display(); }
 
+void DisplayMonoTft::presentRegion(int16_t x1, int16_t y1, int16_t x2, int16_t y2) {
+  if (x1 > x2) {
+    const int16_t t = x1;
+    x1 = x2;
+    x2 = t;
+  }
+  if (y1 > y2) {
+    const int16_t t = y1;
+    y1 = y2;
+    y2 = t;
+  }
+
+  const int16_t maxX = static_cast<int16_t>(display_.getDisplayWidth() - 1);
+  const int16_t maxY = static_cast<int16_t>(display_.getDisplayHeight() - 1);
+  if (maxX < 0 || maxY < 0 || x2 < 0 || y2 < 0 || x1 > maxX || y1 > maxY) {
+    return;
+  }
+  if (x1 < 0) x1 = 0;
+  if (y1 < 0) y1 = 0;
+  if (x2 > maxX) x2 = maxX;
+  if (y2 > maxY) y2 = maxY;
+
+  int16_t px1 = 0;
+  int16_t py1 = 0;
+  int16_t px2 = 0;
+  int16_t py2 = 0;
+  display_.logicalToPhysical(x1, y1, px1, py1);
+  display_.logicalToPhysical(x2, y2, px2, py2);
+  display_.displayRegion(static_cast<uint16_t>(px1), static_cast<uint16_t>(py1),
+                         static_cast<uint16_t>(px2), static_cast<uint16_t>(py2));
+}
+
 void DisplayMonoTft::prepareForSleepKeepDisplay() {
   display_.Low_Power_Mode();
   holdDisplayPins(true);

@@ -27,6 +27,12 @@ namespace {
 #define OB_SLEEP_LOG_ENABLED 1
 #endif
 
+// 局部刷新：音乐导航栏/列表动画只把脏区域推送到屏幕，降低 SPI 传输量。
+// 置 0 可退回整屏刷新以便对比排查。
+#ifndef OB_PARTIAL_REFRESH_ENABLED
+#define OB_PARTIAL_REFRESH_ENABLED 1
+#endif
+
 constexpr uint32_t kAutoSleepTimeoutMs = 20000;
 
 void sleepLog(const char* fmt, ...) {
@@ -75,6 +81,8 @@ constexpr int16_t kRestartPopupTitleTopOffset = 35;
 constexpr int16_t kRestartPopupOptionBottomMargin = 8;
 constexpr int16_t kRestartPopupOptionPadY = 4;
 constexpr uint32_t kHighFrameIntervalMs = 16;
+// 空闲时仍按输入采样周期轮询；射频/自检等需要协作式高频服务的子系统用 1ms。
+constexpr uint32_t kActivePollMs = 1;
 
 const IconBitmap::Anim kRestartPopupWindow = {
     reinterpret_cast<const uint8_t*>(&pop_up_window_frames[0][0]),
@@ -406,13 +414,17 @@ void UiManager::tick() {
   const InputEdges edges = pollInputEdges();
   updateState(edges, nowMs);
 
-  if (!shouldRedraw(nowMs)) {
-    return;
+  if (shouldRedraw(nowMs)) {
+    render(nowMs);
+    lastRenderMs_ = nowMs;
+    needsRedraw_ = false;
   }
 
-  render(nowMs);
-  lastRenderMs_ = nowMs;
-  needsRedraw_ = false;
+  // 空闲时让出 CPU，避免主循环全速空转。
+  const uint32_t idleDelayMs = nextIdleDelayMs(millis());
+  if (idleDelayMs > 0) {
+    delay(idleDelayMs);
+  }
 }
 
 UiManager::InputEdges UiManager::pollInputEdges() {
@@ -852,6 +864,38 @@ uint32_t UiManager::targetFrameIntervalMs(uint32_t nowMs) const {
   return 0;
 }
 
+uint32_t UiManager::nextIdleDelayMs(uint32_t nowMs) const {
+  if (needsRedraw_) {
+    return 0;
+  }
+
+  // 动画期间按剩余帧时间让出 CPU，保证帧节奏不被拉长。
+  const uint32_t frameIntervalMs = targetFrameIntervalMs(nowMs);
+  if (frameIntervalMs > 0) {
+    const uint32_t elapsed = nowMs - lastRenderMs_;
+    if (elapsed >= frameIntervalMs) {
+      return 0;
+    }
+    const uint32_t remaining = frameIntervalMs - elapsed;
+    return remaining < kActivePollMs ? remaining : kActivePollMs;
+  }
+
+  // 音频播放依赖 loop() 持续喂数据，保持原有不受限的调用节奏。
+  if (musicService_.playbackState() != MusicService::PlaybackState::Stopped) {
+    return 0;
+  }
+
+  // 配网、OTA、蓝牙和硬件自检需要高频协作式服务，最多让出 1ms。
+  if (wifiProvisionService_.isRadioActive() ||
+      otaService_.state() != OtaService::State::Idle ||
+      bluetoothService_.state() != BluetoothService::State::Off ||
+      iicScanService_.isBusy() || rtcTestService_.isBusy() || imuTestService_.isBusy()) {
+    return kActivePollMs;
+  }
+
+  return BoardConfig::kInputTickMs;
+}
+
 void UiManager::render(uint32_t nowMs) {
   const bool navOnlyMusicFrame =
       state_ == UiState::Detail && !needsRedraw_ &&
@@ -859,6 +903,12 @@ void UiManager::render(uint32_t nowMs) {
   const bool listOnlyMusicFrame =
       state_ == UiState::Detail && !needsRedraw_ && !navOnlyMusicFrame &&
       musicPage_.needsListAnimationFrame(homePage_.focusIndex(), sectionFocusIndex_, nowMs);
+  const bool homeBreadOnlyFrame = state_ == UiState::Home && !needsRedraw_ &&
+                                  !navOnlyMusicFrame && !listOnlyMusicFrame &&
+                                  homePage_.isBreadOnlyAnimationTick(nowMs);
+  const bool homeMenuOnlyFrame =
+      state_ == UiState::Home && !needsRedraw_ && !navOnlyMusicFrame && !listOnlyMusicFrame &&
+      !homeBreadOnlyFrame && homePage_.isMenuIconsOnlyAnimationTick(nowMs);
 
   renderer_.beginFrame();
   if (navOnlyMusicFrame) {
@@ -866,6 +916,12 @@ void UiManager::render(uint32_t nowMs) {
                         static_cast<int16_t>(display_.height() - 1));
   } else if (listOnlyMusicFrame) {
     renderer_.markDirty(0, 0, static_cast<int16_t>(display_.width() - 1), 111);
+  } else if (homeBreadOnlyFrame) {
+    const HomePage::Rect card = homePage_.timeCardBounds();
+    renderer_.markDirty(card.x1, card.y1, card.x2, card.y2);
+  } else if (homeMenuOnlyFrame) {
+    const HomePage::Rect icons = homePage_.menuIconBounds(display_);
+    renderer_.markDirty(icons.x1, icons.y1, icons.x2, icons.y2);
   } else {
     renderer_.markDirty(0, 0, static_cast<int16_t>(display_.width() - 1),
                         static_cast<int16_t>(display_.height() - 1));
@@ -875,7 +931,12 @@ void UiManager::render(uint32_t nowMs) {
     if (musicPage_.renderDetailNavOnly(homePage_.focusIndex(), sectionFocusIndex_, 0, display_,
                                        nowMs)) {
       if (renderer_.hasDirty()) {
+#if OB_PARTIAL_REFRESH_ENABLED
+        const Render1bpp::Rect region = renderer_.dirty();
+        display_.presentRegion(region.x1, region.y1, region.x2, region.y2);
+#else
         display_.present();
+#endif
       }
       return;
     }
@@ -885,10 +946,41 @@ void UiManager::render(uint32_t nowMs) {
     if (musicPage_.renderDetailListOnly(homePage_.focusIndex(), sectionFocusIndex_, display_,
                                         musicService_, nowMs)) {
       if (renderer_.hasDirty()) {
+#if OB_PARTIAL_REFRESH_ENABLED
+        const Render1bpp::Rect region = renderer_.dirty();
+        display_.presentRegion(region.x1, region.y1, region.x2, region.y2);
+#else
         display_.present();
+#endif
       }
       return;
     }
+  }
+
+  if (homeBreadOnlyFrame) {
+    homePage_.renderTimeCardOnly(display_, nowMs);
+    if (renderer_.hasDirty()) {
+#if OB_PARTIAL_REFRESH_ENABLED
+      const Render1bpp::Rect region = renderer_.dirty();
+      display_.presentRegion(region.x1, region.y1, region.x2, region.y2);
+#else
+      display_.present();
+#endif
+    }
+    return;
+  }
+
+  if (homeMenuOnlyFrame) {
+    homePage_.renderMenuIconsOnly(display_, nowMs);
+    if (renderer_.hasDirty()) {
+#if OB_PARTIAL_REFRESH_ENABLED
+      const Render1bpp::Rect region = renderer_.dirty();
+      display_.presentRegion(region.x1, region.y1, region.x2, region.y2);
+#else
+      display_.present();
+#endif
+    }
+    return;
   }
 
   display_.clear();

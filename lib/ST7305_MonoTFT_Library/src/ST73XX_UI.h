@@ -49,6 +49,15 @@ public:
     int16_t getDisplayWidth() const { return _displayWidth; }
     int16_t getDisplayHeight() const { return _displayHeight; }
 
+    // 逻辑坐标（旋转后）转为面板物理坐标，供局部刷新使用
+    void logicalToPhysical(int16_t lx, int16_t ly, int16_t& px, int16_t& py) const {
+        uint x = static_cast<uint>(lx);
+        uint y = static_cast<uint>(ly);
+        rotateCoordinates(x, y);
+        px = static_cast<int16_t>(x);
+        py = static_cast<int16_t>(y);
+    }
+
 protected:
     int16_t _displayWidth;
     int16_t _displayHeight;

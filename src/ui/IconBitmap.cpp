@@ -94,36 +94,53 @@ void drawFrame(ST7305_2p9_BW_DisplayDriver& canvas, const Anim& anim, uint16_t f
   uint8_t decodedRow[64];
   uint16_t cachedRow = 0xFFFFU;
 
+  // 源索引用增量步进推导，避免内层循环每像素做一次 32 位除法。
+  // sx(dx) = dx * srcW / dstW、sy(dy) = dy * srcH / dstH 的取值序列保持完全一致。
+  const uint32_t dstWidth = static_cast<uint32_t>(dstW);
+  const uint32_t dstHeight = static_cast<uint32_t>(dstH);
+  uint32_t rowAccum = 0;
+  uint16_t sy = 0;
+
   for (int16_t dy = 0; dy < dstH; ++dy) {
     const int16_t py = static_cast<int16_t>(dstY + dy);
-    if (py < clipTop || py > clipBottom) {
-      continue;
+    const bool rowVisible = (py >= clipTop) && (py <= clipBottom);
+
+    if (rowVisible) {
+      const uint16_t rowOffset = static_cast<uint16_t>(sy * srcStride);
+      if (rleEncoded && cachedRow != sy) {
+        if (srcStride > sizeof(decodedRow)) {
+          return;
+        }
+        decodeRleSpan(frame, frameBytes, rowOffset, srcStride, decodedRow);
+        cachedRow = sy;
+      }
+
+      uint32_t colAccum = 0;
+      uint16_t sx = 0;
+      for (int16_t dx = 0; dx < dstW; ++dx) {
+        const uint16_t byteIndex = static_cast<uint16_t>(sx >> 3);
+        const uint8_t bitMask = static_cast<uint8_t>(0x80U >> (sx & 0x7U));
+        uint8_t sourceByte = 0;
+        if (rleEncoded) {
+          sourceByte = decodedRow[byteIndex];
+        } else {
+          sourceByte = pgm_read_byte(frame + rowOffset + byteIndex);
+        }
+        const bool on = (sourceByte & bitMask) != 0;
+        writeLogicalPixel(canvas, static_cast<int16_t>(dstX + dx), py, invert ? !on : on);
+
+        colAccum += anim.frameWidth;
+        while (colAccum >= dstWidth) {
+          colAccum -= dstWidth;
+          ++sx;
+        }
+      }
     }
 
-    const uint16_t sy = static_cast<uint16_t>((static_cast<uint32_t>(dy) * anim.frameHeight) /
-                                              static_cast<uint16_t>(dstH));
-    const uint16_t rowOffset = static_cast<uint16_t>(sy * srcStride);
-    if (rleEncoded && cachedRow != sy) {
-      if (srcStride > sizeof(decodedRow)) {
-        return;
-      }
-      decodeRleSpan(frame, frameBytes, rowOffset, srcStride, decodedRow);
-      cachedRow = sy;
-    }
-
-    for (int16_t dx = 0; dx < dstW; ++dx) {
-      const uint16_t sx = static_cast<uint16_t>((static_cast<uint32_t>(dx) * anim.frameWidth) /
-                                                static_cast<uint16_t>(dstW));
-      const uint16_t byteIndex = static_cast<uint16_t>(sx >> 3);
-      const uint8_t bitMask = static_cast<uint8_t>(0x80U >> (sx & 0x7U));
-      uint8_t sourceByte = 0;
-      if (rleEncoded) {
-        sourceByte = decodedRow[byteIndex];
-      } else {
-        sourceByte = pgm_read_byte(frame + rowOffset + byteIndex);
-      }
-      const bool on = (sourceByte & bitMask) != 0;
-      writeLogicalPixel(canvas, static_cast<int16_t>(dstX + dx), py, invert ? !on : on);
+    rowAccum += anim.frameHeight;
+    while (rowAccum >= dstHeight) {
+      rowAccum -= dstHeight;
+      ++sy;
     }
   }
 }

@@ -70,6 +70,7 @@ private:
   void updateState(const InputEdges& edges, uint32_t nowMs);
   bool shouldRedraw(uint32_t nowMs) const;
   uint32_t targetFrameIntervalMs(uint32_t nowMs) const;
+  uint32_t nextIdleDelayMs(uint32_t nowMs) const;
   void render(uint32_t nowMs);
   void renderSection(int16_t xOffset, int16_t yOffset, uint32_t nowMs,
                      int16_t iconExtraOffsetX = 0,

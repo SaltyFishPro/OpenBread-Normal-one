@@ -12,6 +12,7 @@ public:
   bool begin();
   void clear();
   void present();
+  void presentRegion(int16_t x1, int16_t y1, int16_t x2, int16_t y2);
   void prepareForSleepKeepDisplay();
   void prepareForSleep();
   void restoreAfterSleep();

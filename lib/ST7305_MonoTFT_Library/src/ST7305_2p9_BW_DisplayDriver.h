@@ -26,6 +26,8 @@ public:
     void writePoint(uint x, uint y, uint16_t data) override;
 
     void display();
+    // 只刷新面板物理坐标区域 (x1,y1)-(x2,y2)；x 为 0..167，y 为 0..383
+    void displayRegion(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2);
 
     void Initial_ST7305();
     void Low_Power_Mode();

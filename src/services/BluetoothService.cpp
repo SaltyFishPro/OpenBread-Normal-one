@@ -275,7 +275,7 @@ bool BluetoothService::initializeStack() {
 }
 
 void BluetoothService::cleanupStack() {
-  if (!initialized_) {
+  if (!initialized_ && !bleStackReady_ && server_ == nullptr && hid_ == nullptr) {
     return;
   }
 
@@ -283,7 +283,25 @@ void BluetoothService::cleanupStack() {
   activeConnId_ = 0xFFFF;
   pendingReleaseMs_ = 0;
   shutterPressActive_ = false;
-  btLog("ble remote session stopped, stack kept");
+  inputReport_ = nullptr;
+  bootInput_ = nullptr;
+
+  // server_/client 及其服务与特征由 BLEDevice 统一回收；释放期间 callbacks_ 仍然有效。
+  if (bleStackReady_) {
+    BLEDevice::deinit(true);
+    bleStackReady_ = false;
+  }
+  server_ = nullptr;
+
+  // 本次会话自己分配的对象；BLEHIDDevice 析构为空，服务不在这里释放。
+  delete hid_;
+  hid_ = nullptr;
+  delete callbacks_;
+  callbacks_ = nullptr;
+  delete security_;
+  security_ = nullptr;
+
+  btLog("ble stack released");
 }
 
 void BluetoothService::onConnected(uint16_t connId) {

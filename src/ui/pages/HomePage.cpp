@@ -360,14 +360,14 @@ int16_t HomePage::currentMenuOffset(uint32_t nowMs) const {
   return AnimMath::easeOutCubicInt16(animFromOffsetY_, animToOffsetY_, clamped);
 }
 
-bool HomePage::hasAnimationTick(uint32_t nowMs) const {
-  if (!clockData_.valid) {
-    const uint16_t frame = IconBitmap::frameAt(kUncalibratedBread, nowMs);
-    if (frame != lastUncalibratedFrame_) {
-      return true;
-    }
+bool HomePage::hasUncalibratedBreadTick(uint32_t nowMs) const {
+  if (clockData_.valid) {
+    return false;
   }
+  return IconBitmap::frameAt(kUncalibratedBread, nowMs) != lastUncalibratedFrame_;
+}
 
+bool HomePage::hasMenuAnimationTick(uint32_t nowMs) const {
   if (!isAnimationActive(nowMs)) {
     return false;
   }
@@ -386,6 +386,72 @@ bool HomePage::hasAnimationTick(uint32_t nowMs) const {
 
   const uint16_t bgFrame = IconBitmap::frameAt(kHomeBackground, animNowMs);
   return bgFrame != lastBackgroundFrame_;
+}
+
+bool HomePage::hasAnimationTick(uint32_t nowMs) const {
+  // 轮盘布局刚变化（滑动结束那一帧）时，局部刷新无法更新焦点框与标签，
+  // 必须强制走一次整屏重绘把布局落到屏幕上。
+  if (!menuLayoutMatchesLastFullRender(nowMs)) {
+    return true;
+  }
+  return hasUncalibratedBreadTick(nowMs) || hasMenuAnimationTick(nowMs);
+}
+
+bool HomePage::isBreadOnlyAnimationTick(uint32_t nowMs) const {
+  if (slideState_ != SlideState::Idle) {
+    return false;
+  }
+  if (!menuLayoutMatchesLastFullRender(nowMs)) {
+    return false;
+  }
+  if (!hasUncalibratedBreadTick(nowMs)) {
+    return false;
+  }
+  return !hasMenuAnimationTick(nowMs);
+}
+
+HomePage::Rect HomePage::timeCardBounds() const {
+  return {kTimeCardStyle.rect.x1, kTimeCardStyle.rect.y1, kTimeCardStyle.rect.x2,
+          kTimeCardStyle.rect.y2};
+}
+
+void HomePage::renderTimeCardOnly(DisplayMonoTft& display, uint32_t nowMs) {
+  drawHomeTimePreview(display.canvas(), nowMs, 0, clockData_);
+  lastUncalibratedFrame_ = IconBitmap::frameAt(kUncalibratedBread, nowMs);
+}
+
+bool HomePage::isMenuIconsOnlyAnimationTick(uint32_t nowMs) const {
+  if (slideState_ != SlideState::Idle) {
+    return false;
+  }
+  if (!menuLayoutMatchesLastFullRender(nowMs)) {
+    return false;
+  }
+  // 小面包帧同时到期时退回整屏重绘，避免两条局部路径互相覆盖。
+  if (hasUncalibratedBreadTick(nowMs)) {
+    return false;
+  }
+  return hasMenuAnimationTick(nowMs);
+}
+
+bool HomePage::menuLayoutMatchesLastFullRender(uint32_t nowMs) const {
+  return focusIndex_ == lastRenderedFocusIndex_ &&
+         currentMenuOffset(nowMs) == lastRenderedMenuOffsetY_;
+}
+
+HomePage::Rect HomePage::menuIconBounds(const DisplayMonoTft& display) const {
+  const int16_t iconX = static_cast<int16_t>(
+      display.width() - kWheelFrameWidth - kWheelFrameRightMargin + kWheelItemInsetX);
+  return {iconX, kMenuClipTop, static_cast<int16_t>(iconX + ThemeMono::kIconFocusSize - 1),
+          kMenuClipBottom};
+}
+
+void HomePage::renderMenuIconsOnly(DisplayMonoTft& display, uint32_t nowMs) {
+  const int16_t width = static_cast<int16_t>(display.width());
+  const int16_t height = static_cast<int16_t>(display.height());
+  const int16_t frameBaseX =
+      static_cast<int16_t>(width - kWheelFrameWidth - kWheelFrameRightMargin);
+  drawMenuWheel(display, frameBaseX, static_cast<int16_t>(height / 2), 0, 0, 0, 0, nowMs, true);
 }
 
 bool HomePage::isAnimationActive(uint32_t nowMs) const {
@@ -418,6 +484,8 @@ void HomePage::renderTransition(DisplayMonoTft& display, int16_t backgroundOffse
   const int16_t menuOffsetY = currentMenuOffset(nowMs);
   const int16_t frameBaseX = static_cast<int16_t>(
       menuBaseOffsetX + width - kWheelFrameWidth - kWheelFrameRightMargin);
+  lastRenderedFocusIndex_ = focusIndex_;
+  lastRenderedMenuOffsetY_ = menuOffsetY;
   const int16_t centerY = static_cast<int16_t>(height / 2);
   const bool transitionVisualActive =
       (backgroundOffsetX != menuBaseOffsetX) || (menuUpExtraOffsetX != 0) ||
@@ -436,10 +504,23 @@ void HomePage::renderTransition(DisplayMonoTft& display, int16_t backgroundOffse
   }
   drawHomeDatePreview(canvas, text, nowMs, backgroundOffsetX, clockData_);
 
-  text.setFont(chinese_font_all);
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setFontMode(1);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
+  drawMenuWheel(display, frameBaseX, centerY, menuOffsetY, menuUpExtraOffsetX,
+                menuFocusExtraOffsetX, menuDownExtraOffsetX, animNowMs, false);
+}
+
+void HomePage::drawMenuWheel(DisplayMonoTft& display, int16_t frameBaseX, int16_t centerY,
+                             int16_t menuOffsetY, int16_t menuUpExtraOffsetX,
+                             int16_t menuFocusExtraOffsetX, int16_t menuDownExtraOffsetX,
+                             uint32_t animNowMs, bool iconsOnly) {
+  auto& canvas = display.canvas();
+  auto& text = display.text();
+
+  if (!iconsOnly) {
+    text.setFont(chinese_font_all);
+    text.setBackgroundColor(ST7305_COLOR_WHITE);
+    text.setFontMode(1);
+    text.setForegroundColor(ST7305_COLOR_BLACK);
+  }
 
   for (uint8_t i = 0; i < kMenuCount; ++i) {
     int8_t delta = static_cast<int8_t>(i) - static_cast<int8_t>(focusIndex_);
@@ -473,9 +554,10 @@ void HomePage::renderTransition(DisplayMonoTft& display, int16_t backgroundOffse
 
     const int16_t frameX = static_cast<int16_t>(frameBaseX + rowOffsetX);
 
-    if (isFocus) {
+    if (!iconsOnly && isFocus) {
       int16_t focusTop = static_cast<int16_t>(rowCenterY - (iconSize / 2 + kWheelFramePaddingY));
-      int16_t focusBottom = static_cast<int16_t>(rowCenterY + (iconSize / 2 + kWheelFramePaddingY));
+      int16_t focusBottom =
+          static_cast<int16_t>(rowCenterY + (iconSize / 2 + kWheelFramePaddingY));
       if (focusTop < kMenuClipTop) {
         focusTop = kMenuClipTop;
       }
@@ -492,14 +574,18 @@ void HomePage::renderTransition(DisplayMonoTft& display, int16_t backgroundOffse
     }
 
     const int16_t iconX = static_cast<int16_t>(frameX + kWheelItemInsetX);
-    const int16_t iconY = rowTop;
-    IconBitmap::drawFrame(canvas, anim, frame, iconX, iconY, iconSize, iconSize, false,
+    IconBitmap::drawFrame(canvas, anim, frame, iconX, rowTop, iconSize, iconSize, false,
                           kMenuClipTop, kMenuClipBottom);
+
+    if (iconsOnly) {
+      continue;
+    }
 
     const char* label = menuLabel(i);
     const int16_t labelW = text.getUTF8Width(label);
     const int16_t textBlockX = static_cast<int16_t>(iconX + iconSize + kWheelTextGap);
-    const int16_t textBlockW = static_cast<int16_t>(frameX + kWheelFrameWidth - textBlockX - kWheelItemInsetX);
+    const int16_t textBlockW =
+        static_cast<int16_t>(frameX + kWheelFrameWidth - textBlockX - kWheelItemInsetX);
     int16_t labelX = static_cast<int16_t>(textBlockX + (textBlockW - labelW) / 2);
     if (labelX < textBlockX) {
       labelX = textBlockX;
