@@ -442,6 +442,9 @@ void UiManager::tick() {
   if (readerService_.consumeChanged()) {
     needsRedraw_ = true;
   }
+  if (focusClockPage_.update(nowMs)) {
+    needsRedraw_ = true;
+  }
   musicService_.tick(nowMs);
   if (musicService_.consumeChanged() && !staticReaderDetail) {
     needsRedraw_ = true;
@@ -735,7 +738,8 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
                                               musicService_)) {
         needsRedraw_ = true;
       } else if (focusClockPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
-                                                   edges.up, edges.down, edges.ok, nowMs)) {
+                                                   false, edges.right, edges.up, edges.down,
+                                                   edges.ok, nowMs)) {
         needsRedraw_ = true;
       } else if (gamesPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
                                               edges.ok, edges.okPressed, edges.okChanged,

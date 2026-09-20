@@ -1,102 +1,193 @@
 #include "FocusClockPage.h"
 
-#include <cstdlib>
+#include <cstdio>
 
 #include "../../bsp/DisplayMonoTft.h"
 
 namespace {
-constexpr int16_t kHeaderHeight = 28;
-constexpr int16_t kFooterBaseline = 160;
-constexpr int16_t kCenterX = 132;
-constexpr int16_t kCenterY = 89;
-constexpr int16_t kOptionStepY = 24;
-constexpr int16_t kRailX = 24;
-constexpr int16_t kPanelLeft = 238;
-constexpr int16_t kPanelTop = 46;
-constexpr int16_t kPanelRight = 375;
-constexpr int16_t kPanelBottom = 132;
-constexpr int16_t kSelectionLeft = 49;
-constexpr int16_t kSelectionRight = 218;
-constexpr uint32_t kAnimationDurationMs = 170;
+constexpr int16_t kCardX = 20;
+constexpr int16_t kCardY = 20;
+constexpr int16_t kCardWidth = 344;
+constexpr int16_t kCardHeight = 128;
+constexpr int16_t kCardRadius = 18;
+constexpr int16_t kCardTitleX = 18;
+constexpr int16_t kCardTitleBaseline = 35;
+constexpr int16_t kCardCounterRight = 319;
+constexpr int16_t kOptionY = 66;
+constexpr int16_t kOptionHeight = 28;
+constexpr int16_t kOptionRadius = 12;
+constexpr int16_t kOptionGap = 9;
+constexpr int16_t kOptionPaddingX = 28;
+constexpr uint16_t kEaseScale = 1000;
 
-const char* const kOptionNamesZh[] = {
-    "开始专注",
-    "专注 25 分钟",
-    "专注 50 分钟",
-    "短休息 5 分钟",
-    "长休息 15 分钟",
-    "自定义时长",
+const char* const kContinuousOptions[] = {"10分钟", "15分钟", "20分钟"};
+const char* const kShortOptions[] = {"10分钟", "15分钟", "20分钟"};
+const char* const kLongOptions[] = {"30分钟", "60分钟"};
+
+const FocusClockPage::Card kCards[] = {
+    {"持续任务", "Continuous", kContinuousOptions, 3, 1},
+    {"短专注", "Short Focus", kShortOptions, 3, 1},
+    {"长专注", "Long Focus", kLongOptions, 2, 0},
 };
 
-const char* const kOptionValues[] = {
-    "READY",
-    "25:00",
-    "50:00",
-    "05:00",
-    "15:00",
-    "--:--",
-};
-
-int16_t clampInt16(int16_t value, int16_t low, int16_t high) {
-  if (value < low) {
-    return low;
+uint16_t clampProgress(uint32_t elapsed, uint32_t duration) {
+  if (elapsed >= duration) {
+    return kEaseScale;
   }
-  if (value > high) {
-    return high;
-  }
-  return value;
+  return static_cast<uint16_t>((elapsed * kEaseScale) / duration);
 }
 
-void drawDetailHeader(DisplayMonoTft& display, const char* title, int16_t yOffset) {
+uint16_t easeInOut(uint16_t progress) {
+  const uint32_t value = progress;
+  const uint32_t eased = (value * value * (3U * kEaseScale - 2U * value)) /
+                         (kEaseScale * kEaseScale);
+  return static_cast<uint16_t>(eased > kEaseScale ? kEaseScale : eased);
+}
+
+uint16_t easeOutCubic(uint16_t progress) {
+  const int32_t inverse = static_cast<int32_t>(kEaseScale - progress);
+  const int64_t eased = static_cast<int64_t>(kEaseScale) -
+                        (static_cast<int64_t>(inverse) * inverse * inverse) /
+                            (kEaseScale * kEaseScale);
+  return static_cast<uint16_t>(eased < 0 ? 0 : eased > kEaseScale ? kEaseScale : eased);
+}
+
+int16_t roundRectInset(int16_t row, int16_t height, int16_t radius) {
+  const int16_t edgeDistance = row < height / 2 ? row : height - row - 1;
+  if (edgeDistance >= radius) {
+    return 0;
+  }
+  const int16_t dy = static_cast<int16_t>(radius - edgeDistance);
+  int16_t dx = radius;
+  while (dx * dx + dy * dy > radius * radius) {
+    --dx;
+  }
+  return static_cast<int16_t>(radius - dx);
+}
+
+// Keep the original shape in card coordinates; clip only the emitted scanlines.
+// Recomputing the height/radius after clipping makes a departing card shrink.
+void drawRoundRect(ST7305_2p9_BW_DisplayDriver& canvas, int16_t x, int16_t y,
+                   int16_t width, int16_t height, int16_t radius, uint16_t fill,
+                   uint16_t outline) {
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+  if (x + width <= 0 || y + height <= 0 || x >= canvas.getDisplayWidth() ||
+      y >= canvas.getDisplayHeight()) {
+    return;
+  }
+  int16_t r = radius;
+  if (r > (width - 1) / 2) {
+    r = static_cast<int16_t>((width - 1) / 2);
+  }
+  if (r > (height - 1) / 2) {
+    r = static_cast<int16_t>((height - 1) / 2);
+  }
+  if (r < 0) r = 0;
+
+  const int16_t firstRow = y < 0 ? static_cast<int16_t>(-y) : 0;
+  const int16_t visibleHeight = static_cast<int16_t>(canvas.getDisplayHeight() - y);
+  const int16_t endRow = height < visibleHeight ? height : visibleHeight;
+  for (int16_t row = firstRow; row < endRow; ++row) {
+    const int16_t inset = roundRectInset(row, height, r);
+    const int16_t lineY = static_cast<int16_t>(y + row);
+    if (fill == outline || row == 0 || row == height - 1 || width <= 2) {
+      canvas.drawFastHLine(x + inset, lineY, width - 2 * inset, outline);
+      continue;
+    }
+    const int16_t innerRadius = r > 0 ? static_cast<int16_t>(r - 1) : 0;
+    const int16_t innerInset = static_cast<int16_t>(
+        1 + roundRectInset(row - 1, height - 2, innerRadius));
+    const int16_t borderWidth = static_cast<int16_t>(innerInset - inset);
+    canvas.drawFastHLine(x + inset, lineY, borderWidth, outline);
+    canvas.drawFastHLine(x + innerInset, lineY, width - 2 * innerInset, fill);
+    canvas.drawFastHLine(x + width - innerInset, lineY, borderWidth, outline);
+  }
+}
+
+void drawTextCentered(U8G2_FOR_ST73XX& text, const char* value, int16_t centerX,
+                      int16_t baseline, uint16_t foreground, uint16_t background) {
+  text.setBackgroundColor(background);
+  text.setForegroundColor(foreground);
+  text.setFontMode(1);
+  const int16_t width = text.getUTF8Width(value);
+  text.drawUTF8(static_cast<int16_t>(centerX - width / 2), baseline, value);
+}
+
+void drawCardShell(ST7305_2p9_BW_DisplayDriver& canvas, int16_t x, int16_t y) {
+  // The previously drawn white shadow was invisible against the white page and
+  // doubled the scanline cost of every card on every animation frame.
+  drawRoundRect(canvas, x, y, kCardWidth, kCardHeight, kCardRadius,
+                 ST7305_COLOR_BLACK, ST7305_COLOR_WHITE);
+}
+
+void drawCardContent(DisplayMonoTft& display, uint8_t cardIndex, int16_t x, int16_t y,
+                     int16_t selectionPosition) {
   auto& canvas = display.canvas();
   auto& text = display.text();
-  const int16_t width = static_cast<int16_t>(display.width());
-
-  canvas.drawFilledRectangle(0, yOffset, width - 1,
-                             static_cast<int16_t>(yOffset + kHeaderHeight - 1),
-                             ST7305_COLOR_BLACK);
+  if (y >= display.height() || y + kCardHeight + 2 <= 0) {
+    return;
+  }
+  const FocusClockPage::Card& card = kCards[cardIndex];
+  drawCardShell(canvas, x, y);
 
   text.setFont(chinese_font_all);
   text.setFontMode(0);
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setForegroundColor(ST7305_COLOR_WHITE);
-  const int16_t titleWidth = text.getUTF8Width(title);
-  text.drawUTF8(static_cast<int16_t>((width - titleWidth) / 2),
-                static_cast<int16_t>(yOffset + 22), title);
+  text.drawUTF8(static_cast<int16_t>(x + kCardTitleX),
+                static_cast<int16_t>(y + kCardTitleBaseline), card.titleZh);
 
-  text.setFontMode(1);
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-}
+  char pageNumber[4];
+  snprintf(pageNumber, sizeof(pageNumber), "%u", static_cast<unsigned>(cardIndex + 1U));
+  const int16_t pageWidth = text.getUTF8Width(pageNumber);
+  text.drawUTF8(static_cast<int16_t>(x + kCardCounterRight - pageWidth),
+                static_cast<int16_t>(y + 26), pageNumber);
 
-void drawOption(DisplayMonoTft& display, const char* label, int16_t x, int16_t baseline,
-                bool selected, int16_t yOffset) {
-  auto& canvas = display.canvas();
-  auto& text = display.text();
-  const int16_t labelWidth = text.getUTF8Width(label);
-  const int16_t textHeight = 15;
-  const int16_t left = selected ? kSelectionLeft : x;
-  const int16_t right = selected ? kSelectionRight : x + labelWidth + 8;
-  const int16_t top = static_cast<int16_t>(baseline - textHeight - 5);
-  const int16_t bottom = static_cast<int16_t>(baseline + 5);
-  const uint16_t background = selected ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE;
-  const uint16_t foreground = selected ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK;
-
-  if (top < yOffset + kHeaderHeight || bottom >= display.height()) {
-    return;
-  }
-
-  if (selected) {
-    canvas.drawFilledRectangle(left, top, right, bottom, background);
-  }
-
+  int16_t widths[3] = {0, 0, 0};
+  int16_t positions[3] = {0, 0, 0};
+  int16_t totalWidth = 0;
   text.setFont(chinese_font_all);
-  text.setFontMode(selected ? 0 : 1);
-  text.setBackgroundColor(background);
-  text.setForegroundColor(foreground);
-  const int16_t textX = selected ? static_cast<int16_t>(left + (right - left + 1 - labelWidth) / 2)
-                                 : x;
-  text.drawUTF8(textX, baseline, label);
+  for (uint8_t index = 0; index < card.optionCount; ++index) {
+    widths[index] = static_cast<int16_t>(text.getUTF8Width(card.options[index]) +
+                                         kOptionPaddingX);
+    totalWidth = static_cast<int16_t>(totalWidth + widths[index]);
+  }
+  totalWidth = static_cast<int16_t>(totalWidth + kOptionGap * (card.optionCount - 1U));
+  int16_t optionX = static_cast<int16_t>(x + (kCardWidth - totalWidth) / 2);
+  for (uint8_t index = 0; index < card.optionCount; ++index) {
+    positions[index] = optionX;
+    drawRoundRect(canvas, optionX, static_cast<int16_t>(y + kOptionY), widths[index],
+                   kOptionHeight, kOptionRadius, ST7305_COLOR_BLACK, ST7305_COLOR_WHITE);
+    optionX = static_cast<int16_t>(optionX + widths[index] + kOptionGap);
+  }
+
+  const uint8_t selection = static_cast<uint8_t>(selectionPosition / kEaseScale);
+  const uint8_t next = selection + 1U < card.optionCount ? selection + 1U : selection;
+  const int16_t fraction = static_cast<int16_t>(selectionPosition % kEaseScale);
+  const int16_t selectedX = static_cast<int16_t>(positions[selection] +
+      (positions[next] - positions[selection]) * fraction / kEaseScale);
+  const int16_t selectedWidth = static_cast<int16_t>(widths[selection] +
+      (widths[next] - widths[selection]) * fraction / kEaseScale);
+  drawRoundRect(canvas, selectedX, static_cast<int16_t>(y + kOptionY), selectedWidth,
+                 kOptionHeight, kOptionRadius, ST7305_COLOR_WHITE, ST7305_COLOR_BLACK);
+
+  for (uint8_t index = 0; index < card.optionCount; ++index) {
+    const int16_t center = static_cast<int16_t>(positions[index] + widths[index] / 2);
+    const bool selectedLabel = center >= selectedX && center <= selectedX + selectedWidth;
+    // Center the full glyph box inside the pill using the font's real ascent
+    // and descent instead of a fixed baseline.
+    const int16_t ascent = text.getFontAscent();
+    const int16_t descent = text.getFontDescent();
+    const int16_t textBoxHeight = static_cast<int16_t>(ascent - descent);
+    const int16_t optionBaseline = static_cast<int16_t>(
+        y + kOptionY + (kOptionHeight - textBoxHeight) / 2 + ascent);
+    drawTextCentered(text, card.options[index], center,
+                     optionBaseline,
+                     selectedLabel ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE,
+                     ST7305_COLOR_BLACK);
+  }
 }
 }  // namespace
 
@@ -104,50 +195,118 @@ bool FocusClockPage::isSelection(uint8_t homeFocus, uint8_t sectionFocus) const 
   return homeFocus == kHomeIndex && sectionFocus == kMenuItemIndex;
 }
 
-bool FocusClockPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool upEdge,
-                                       bool downEdge, bool okEdge, uint32_t nowMs) {
+bool FocusClockPage::update(uint32_t nowMs) {
+  bool changed = false;
+  if (cardAnimation_.active && nowMs - cardAnimation_.startMs >= kCardAnimationMs) {
+    cardIndex_ = cardAnimation_.toIndex;
+    cardAnimation_.active = false;
+    changed = true;
+  }
+  if (optionAnimationActive_ && nowMs - optionAnimationStartMs_ >= kOptionAnimationMs) {
+    optionAnimationActive_ = false;
+    changed = true;
+  }
+  return changed;
+}
+
+uint8_t FocusClockPage::optionIndexForCard(uint8_t cardIndex) const {
+  return cardIndex < kCardCount ? optionIndex_[cardIndex] : 0;
+}
+
+void FocusClockPage::resetOptionForCard(uint8_t cardIndex) {
+  if (cardIndex < kCardCount) {
+    optionIndex_[cardIndex] = kCards[cardIndex].defaultOption;
+  }
+}
+
+void FocusClockPage::moveOption(int8_t direction, uint32_t nowMs) {
+  if (direction == 0) {
+    return;
+  }
+  // Input belongs to the destination as soon as a card switch starts.
+  const uint8_t visibleIndex = cardAnimation_.active ? cardAnimation_.toIndex : cardIndex_;
+  const Card& card = kCards[visibleIndex];
+  const uint8_t current = optionIndexForCard(visibleIndex);
+  const uint8_t target = direction < 0
+                             ? (current == 0 ? static_cast<uint8_t>(card.optionCount - 1U)
+                                             : static_cast<uint8_t>(current - 1U))
+                             : static_cast<uint8_t>((current + 1U) % card.optionCount);
+  // Retarget from the interpolated position, never jump to the last destination.
+  optionAnimationFromPosition_ = optionPosition(nowMs);
+  optionAnimationStartMs_ = nowMs;
+  optionAnimationActive_ = true;
+  optionIndex_[visibleIndex] = target;
+}
+
+int16_t FocusClockPage::optionPosition(uint32_t nowMs) const {
+  const uint8_t visibleIndex = cardAnimation_.active ? cardAnimation_.toIndex : cardIndex_;
+  const int16_t target = static_cast<int16_t>(optionIndexForCard(visibleIndex) * kEaseScale);
+  if (!optionAnimationActive_) {
+    return target;
+  }
+  const uint16_t progress = easeOutCubic(
+      clampProgress(nowMs - optionAnimationStartMs_, kOptionAnimationMs));
+  return static_cast<int16_t>(optionAnimationFromPosition_ +
+      (target - optionAnimationFromPosition_) * progress / kEaseScale);
+}
+
+void FocusClockPage::moveCard(int8_t direction, uint32_t nowMs) {
+  if (direction == 0) {
+    return;
+  }
+  if (cardAnimation_.active) {
+    const uint16_t progress = clampProgress(nowMs - cardAnimation_.startMs, kCardAnimationMs);
+    const bool completed = progress >= (kEaseScale / 2U);
+    cardIndex_ = (direction == cardAnimation_.direction || completed)
+                     ? cardAnimation_.toIndex
+                     : cardAnimation_.fromIndex;
+    cardAnimation_.active = false;
+    optionAnimationActive_ = false;
+  }
+  const uint8_t target = direction < 0
+                             ? (cardIndex_ == 0 ? static_cast<uint8_t>(kCardCount - 1U)
+                                                : static_cast<uint8_t>(cardIndex_ - 1U))
+                             : static_cast<uint8_t>((cardIndex_ + 1U) % kCardCount);
+  cardAnimation_ = {true, static_cast<int8_t>(direction < 0 ? -1 : 1), cardIndex_, target,
+                    nowMs};
+  optionAnimationActive_ = false;
+  resetOptionForCard(target);
+}
+
+bool FocusClockPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool leftEdge,
+                                       bool rightEdge, bool upEdge, bool downEdge, bool okEdge,
+                                       uint32_t nowMs) {
   if (!isSelection(homeFocus, sectionFocus)) {
     return false;
   }
-
+  if (leftEdge) {
+    moveOption(-1, nowMs);
+    return true;
+  }
+  if (rightEdge) {
+    moveOption(1, nowMs);
+    return true;
+  }
   if (upEdge) {
-    moveSelection(-1, nowMs);
+    moveCard(-1, nowMs);
     return true;
   }
   if (downEdge) {
-    moveSelection(1, nowMs);
+    moveCard(1, nowMs);
     return true;
   }
-
-  // The preview consumes OK so it cannot fall through to the generic detail pager.
   return okEdge;
 }
 
-void FocusClockPage::moveSelection(int8_t direction, uint32_t nowMs) {
-  if (direction < 0) {
-    selectedIndex_ = selectedIndex_ == 0 ? static_cast<uint8_t>(kOptionCount - 1U)
-                                         : static_cast<uint8_t>(selectedIndex_ - 1U);
-  } else {
-    selectedIndex_ = static_cast<uint8_t>((selectedIndex_ + 1U) % kOptionCount);
-  }
-  animationDirection_ = direction < 0 ? -1 : 1;
-  animationStartMs_ = nowMs;
-}
-
-int8_t FocusClockPage::relativeIndex(uint8_t optionIndex) const {
-  int8_t relative = static_cast<int8_t>(optionIndex) - static_cast<int8_t>(selectedIndex_);
-  if (relative > static_cast<int8_t>(kOptionCount / 2U)) {
-    relative = static_cast<int8_t>(relative - kOptionCount);
-  } else if (relative < -static_cast<int8_t>(kOptionCount / 2U)) {
-    relative = static_cast<int8_t>(relative + kOptionCount);
-  }
-  return relative;
-}
-
 bool FocusClockPage::isAnimating(uint8_t homeFocus, uint8_t sectionFocus,
-                                  uint32_t nowMs) const {
-  return isSelection(homeFocus, sectionFocus) && animationDirection_ != 0 &&
-         nowMs - animationStartMs_ < kSelectionSlideMs;
+                                 uint32_t nowMs) const {
+  if (!isSelection(homeFocus, sectionFocus)) {
+    return false;
+  }
+  if (cardAnimation_.active && nowMs - cardAnimation_.startMs < kCardAnimationMs) {
+    return true;
+  }
+  return optionAnimationActive_ && nowMs - optionAnimationStartMs_ < kOptionAnimationMs;
 }
 
 bool FocusClockPage::needsAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus,
@@ -161,86 +320,39 @@ bool FocusClockPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16
   if (!isSelection(homeFocus, sectionFocus)) {
     return false;
   }
-
   if (yOffset >= display.height()) {
     return true;
   }
 
-  auto& canvas = display.canvas();
-  auto& text = display.text();
-  const int16_t width = static_cast<int16_t>(display.width());
-  const int16_t height = static_cast<int16_t>(display.height());
-  const bool zh = language == HomePage::Language::Zh;
-  drawDetailHeader(display, zh ? "专注时钟" : "Focus Clock", yOffset);
+  (void)language;
 
-  const bool animationActive = animationDirection_ != 0 &&
-                               nowMs - animationStartMs_ < kAnimationDurationMs;
-  uint16_t progress = 100;
-  if (animationActive) {
-    progress = static_cast<uint16_t>(((nowMs - animationStartMs_) * 100U) /
-                                     kAnimationDurationMs);
-    if (progress > 100U) {
-      progress = 100;
-    }
-  }
-  const int16_t slide = static_cast<int16_t>(animationDirection_ * (100U - progress));
-
-  canvas.drawLine(kRailX, static_cast<int16_t>(yOffset + 46), kRailX,
-                  static_cast<int16_t>(yOffset + 134), ST7305_COLOR_BLACK);
-  canvas.drawFilledCircle(kRailX, static_cast<int>(yOffset + kCenterY), 4,
-                          ST7305_COLOR_BLACK);
-
-  text.setFont(chinese_font_all);
-  text.setFontMode(1);
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-
-  for (uint8_t index = 0; index < kOptionCount; ++index) {
-    const int8_t relative = relativeIndex(index);
-    const int16_t position = static_cast<int16_t>(relative * 100 + slide);
-    if (position < -260 || position > 260) {
-      continue;
-    }
-
-    const int16_t distance = static_cast<int16_t>(std::abs(position));
-    const int16_t x = static_cast<int16_t>(kCenterX - 68 + (distance * 22) / 100);
-    const int16_t baseline = static_cast<int16_t>(yOffset + kCenterY +
-                                                  (position * kOptionStepY) / 100);
-    const bool selected = index == selectedIndex_ && position > -35 && position < 35;
-    const int16_t dotX = clampInt16(static_cast<int16_t>(kRailX + 8 + distance / 5), 0,
-                                    static_cast<int16_t>(width - 1));
-    if (baseline >= yOffset + kHeaderHeight && baseline < height - 20) {
-      canvas.drawFilledCircle(dotX, baseline - 5, selected ? 3 : 2,
-                              ST7305_COLOR_BLACK);
-    }
-    drawOption(display, kOptionNamesZh[index], x, baseline, selected, yOffset);
+  if (!cardAnimation_.active) {
+    drawCardContent(display, cardIndex_, kCardX, static_cast<int16_t>(yOffset + kCardY),
+                    optionPosition(nowMs));
+    return true;
   }
 
-  canvas.drawRectangle(kPanelLeft, static_cast<int16_t>(yOffset + kPanelTop), kPanelRight,
-                       static_cast<int16_t>(yOffset + kPanelBottom), ST7305_COLOR_BLACK);
-  text.setFontMode(1);
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.drawUTF8(static_cast<int16_t>(kPanelLeft + 12), static_cast<int16_t>(yOffset + 68),
-                "当前预览");
-  canvas.drawFilledRectangle(static_cast<int16_t>(kPanelLeft + 10),
-                             static_cast<int16_t>(yOffset + 76),
-                             static_cast<int16_t>(kPanelRight - 10),
-                             static_cast<int16_t>(yOffset + 108), ST7305_COLOR_BLACK);
-  text.setFontMode(0);
-  text.setBackgroundColor(ST7305_COLOR_BLACK);
-  text.setForegroundColor(ST7305_COLOR_WHITE);
-  const char* value = kOptionValues[selectedIndex_];
-  const int16_t valueWidth = text.getUTF8Width(value);
-  text.drawUTF8(static_cast<int16_t>(kPanelLeft + (kPanelRight - kPanelLeft + 1 - valueWidth) / 2),
-                static_cast<int16_t>(yOffset + 103), value);
-  text.setFontMode(1);
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.drawUTF8(static_cast<int16_t>(kPanelLeft + 12), static_cast<int16_t>(yOffset + 123),
-                "功能预览");
+  const uint16_t raw = clampProgress(nowMs - cardAnimation_.startMs, kCardAnimationMs);
+  const uint16_t eased = easeInOut(raw);
+  const uint8_t source = cardAnimation_.fromIndex;
+  const uint8_t target = cardAnimation_.toIndex;
+  const int16_t restingY = static_cast<int16_t>(yOffset + kCardY);
+  const int16_t offscreenY = static_cast<int16_t>(yOffset + display.height() + 2);
+  const int16_t travel = static_cast<int16_t>(offscreenY - restingY);
+  const int16_t sourceOption = static_cast<int16_t>(optionIndexForCard(source) * kEaseScale);
 
-  text.drawUTF8(54, static_cast<int16_t>(yOffset + kFooterBaseline),
-                zh ? "UP/DOWN 选择   OK 预留   LEFT 返回" : "UP/DOWN Select   LEFT Back");
+  if (cardAnimation_.direction > 0) {
+    const int16_t incomingY = static_cast<int16_t>(restingY -
+        6 * (kEaseScale - eased) / kEaseScale);
+    const int16_t outgoingY = static_cast<int16_t>(restingY + travel * eased / kEaseScale);
+    drawCardContent(display, target, kCardX, incomingY, optionPosition(nowMs));
+    // The outgoing card keeps its own title/options as it crosses the bottom edge.
+    drawCardContent(display, source, kCardX, outgoingY, sourceOption);
+  } else {
+    const int16_t incomingY = static_cast<int16_t>(offscreenY -
+        travel * easeOutCubic(raw) / kEaseScale);
+    drawCardContent(display, source, kCardX, restingY, sourceOption);
+    drawCardContent(display, target, kCardX, incomingY, optionPosition(nowMs));
+  }
   return true;
 }
