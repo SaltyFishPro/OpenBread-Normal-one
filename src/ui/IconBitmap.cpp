@@ -69,6 +69,67 @@ void writeLogicalPixel(ST7305_2p9_BW_DisplayDriver& canvas, int16_t lx, int16_t 
   }
   canvas.writePoint(static_cast<uint>(rx), static_cast<uint>(ry), colorOn);
 }
+
+// RLE 图标整帧解码缓存。逐行解码时每一行都要从游程流起点扫描到该行：
+// 主界面菜单一帧的 4 个 RLE 图标合计约 2.8 万次游程扫描，而像素写入只有
+// 约 6.9 千次，扫描是实际瓶颈。这里改成整帧解码一次（约 1.6 千次扫描），
+// 之后各行直接按行偏移索引，直到该图标的动画帧号变化才重新解码。
+// 槽位需覆盖 100x100 1bpp 图标：13 字节/行 × 100 行 = 1300 字节（此前写成 1280，
+// 结果主界面菜单图标全部落到兜底路径、缓存从未命中）。更大的图（150x150 子菜单
+// 图标 2850 字节、全屏背景 8685 字节）仍走逐行解码。
+constexpr uint16_t kFrameCacheSlotBytes = 1300;
+constexpr uint8_t kFrameCacheSlots = 8;
+
+struct FrameCacheSlot {
+  const uint8_t* frames = nullptr;
+  uint16_t frameIndex = 0xFFFFU;
+  bool valid = false;
+  uint8_t data[kFrameCacheSlotBytes];
+};
+
+FrameCacheSlot gFrameCache[kFrameCacheSlots];
+uint8_t gFrameCacheNext = 0;
+
+const uint8_t* decodeFrameCached(const uint8_t* frames, uint16_t frameIndex, const uint8_t* frame,
+                                 uint16_t frameBytes, uint16_t decodedBytes) {
+  for (uint8_t i = 0; i < kFrameCacheSlots; ++i) {
+    const FrameCacheSlot& slot = gFrameCache[i];
+    if (slot.valid && slot.frames == frames && slot.frameIndex == frameIndex) {
+      return slot.data;
+    }
+  }
+
+  FrameCacheSlot& slot = gFrameCache[gFrameCacheNext];
+  gFrameCacheNext = static_cast<uint8_t>((gFrameCacheNext + 1U) % kFrameCacheSlots);
+
+  uint16_t decoded = 0;
+  uint16_t encoded = 0;
+  while ((encoded + 1U) < frameBytes && decoded < decodedBytes) {
+    const uint8_t runLen = pgm_read_byte(frame + encoded);
+    if (runLen == 0) {
+      break;
+    }
+    const uint8_t runValue = pgm_read_byte(frame + encoded + 1U);
+    uint16_t len = runLen;
+    if (static_cast<uint16_t>(decoded + len) > decodedBytes) {
+      len = static_cast<uint16_t>(decodedBytes - decoded);
+    }
+    for (uint16_t i = 0; i < len; ++i) {
+      slot.data[decoded + i] = runValue;
+    }
+    decoded = static_cast<uint16_t>(decoded + len);
+    encoded = static_cast<uint16_t>(encoded + 2U);
+  }
+  // 编码提前结束时剩余部分按 0 处理，与逐行解码的零填充行为一致。
+  for (uint16_t i = decoded; i < decodedBytes; ++i) {
+    slot.data[i] = 0;
+  }
+
+  slot.frames = frames;
+  slot.frameIndex = frameIndex;
+  slot.valid = true;
+  return slot.data;
+}
 }  // namespace
 
 namespace IconBitmap {
@@ -94,6 +155,14 @@ void drawFrame(ST7305_2p9_BW_DisplayDriver& canvas, const Anim& anim, uint16_t f
   uint8_t decodedRow[64];
   uint16_t cachedRow = 0xFFFFU;
 
+  // 逐行解码只作为超出缓存容量的兜底路径，例如全屏背景这类大图。
+  const uint32_t decodedFrameBytes = static_cast<uint32_t>(srcStride) * anim.frameHeight;
+  const uint8_t* decodedFrame =
+      (rleEncoded && decodedFrameBytes <= kFrameCacheSlotBytes)
+          ? decodeFrameCached(anim.frames, idx, frame, frameBytes,
+                              static_cast<uint16_t>(decodedFrameBytes))
+          : nullptr;
+
   // 源索引用增量步进推导，避免内层循环每像素做一次 32 位除法。
   // sx(dx) = dx * srcW / dstW、sy(dy) = dy * srcH / dstH 的取值序列保持完全一致。
   const uint32_t dstWidth = static_cast<uint32_t>(dstW);
@@ -107,12 +176,20 @@ void drawFrame(ST7305_2p9_BW_DisplayDriver& canvas, const Anim& anim, uint16_t f
 
     if (rowVisible) {
       const uint16_t rowOffset = static_cast<uint16_t>(sy * srcStride);
-      if (rleEncoded && cachedRow != sy) {
+      const uint8_t* rowSource = nullptr;
+      if (decodedFrame != nullptr) {
+        rowSource = decodedFrame + rowOffset;
+      } else if (rleEncoded) {
         if (srcStride > sizeof(decodedRow)) {
           return;
         }
-        decodeRleSpan(frame, frameBytes, rowOffset, srcStride, decodedRow);
-        cachedRow = sy;
+        if (cachedRow != sy) {
+          decodeRleSpan(frame, frameBytes, rowOffset, srcStride, decodedRow);
+          cachedRow = sy;
+        }
+        rowSource = decodedRow;
+      } else {
+        rowSource = frame + rowOffset;
       }
 
       uint32_t colAccum = 0;
@@ -120,13 +197,7 @@ void drawFrame(ST7305_2p9_BW_DisplayDriver& canvas, const Anim& anim, uint16_t f
       for (int16_t dx = 0; dx < dstW; ++dx) {
         const uint16_t byteIndex = static_cast<uint16_t>(sx >> 3);
         const uint8_t bitMask = static_cast<uint8_t>(0x80U >> (sx & 0x7U));
-        uint8_t sourceByte = 0;
-        if (rleEncoded) {
-          sourceByte = decodedRow[byteIndex];
-        } else {
-          sourceByte = pgm_read_byte(frame + rowOffset + byteIndex);
-        }
-        const bool on = (sourceByte & bitMask) != 0;
+        const bool on = (rowSource[byteIndex] & bitMask) != 0;
         writeLogicalPixel(canvas, static_cast<int16_t>(dstX + dx), py, invert ? !on : on);
 
         colAccum += anim.frameWidth;
@@ -145,4 +216,3 @@ void drawFrame(ST7305_2p9_BW_DisplayDriver& canvas, const Anim& anim, uint16_t f
   }
 }
 }  // namespace IconBitmap
-
