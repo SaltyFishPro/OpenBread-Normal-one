@@ -27,13 +27,15 @@ public:
   static constexpr uint8_t kWifiProvisionItemIndex = 2;
   static constexpr uint8_t kTimeCalibrationItemIndex = 3;
   static constexpr uint8_t kDeviceSelfTestItemIndex = 4;
-  static constexpr uint8_t kAboutDeviceItemIndex = 6;
+  static constexpr uint8_t kUsbSerialItemIndex = 5;
+  static constexpr uint8_t kAboutDeviceItemIndex = 7;
 
   PopupKind popupForSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
   bool isAboutDeviceSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
   bool isOtaSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
   bool isWifiProvisionSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
   bool isDeviceSelfTestSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
+  bool isUsbSerialSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
   uint8_t detailPageCount(uint8_t homeFocus, uint8_t sectionFocus) const;
   bool handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, uint8_t detailPageIndex,
                          bool okEdge,

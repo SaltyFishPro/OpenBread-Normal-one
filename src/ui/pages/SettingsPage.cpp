@@ -5,7 +5,9 @@
 #include "../DetailHeader.h"
 #include "../../services/OtaService.h"
 #include "../../services/TimeService.h"
+#include "../../bsp/UsbSerial.h"
 #include "../assets/submenu/desktopclock.h"
+#include "../assets/submenu/language.h"
 #include "../../services/WifiProvisionService.h"
 #include "../assets/submenu/about.h"
 #include "../assets/submenu/author.h"
@@ -54,6 +56,10 @@ const SettingsPage::MenuItem kSettingsItems[] = {
     {"设备自检",
      {reinterpret_cast<const uint8_t*>(&reset_frames[0][0]), RESET_FRAME_BYTES,
       RESET_FRAME_WIDTH, RESET_FRAME_HEIGHT, RESET_FRAME_DELAY, RESET_FRAME_COUNT}},
+    {"USB串口",
+     {reinterpret_cast<const uint8_t*>(&language_frames[0][0]), LANGUAGE_FRAME_BYTES,
+      LANGUAGE_FRAME_WIDTH, LANGUAGE_FRAME_HEIGHT, LANGUAGE_FRAME_DELAY,
+      LANGUAGE_FRAME_COUNT}},
     {"恢复默认设置",
      {reinterpret_cast<const uint8_t*>(&reset_frames[0][0]), RESET_FRAME_BYTES,
       RESET_FRAME_WIDTH, RESET_FRAME_HEIGHT, RESET_FRAME_DELAY, RESET_FRAME_COUNT}},
@@ -348,6 +354,29 @@ void renderOtaDetail(DisplayMonoTft& display, const OtaService& ota, int16_t yOf
   canvas.drawRectangle(4, static_cast<int16_t>(yOffset + 32), width - 5,
                        static_cast<int16_t>(yOffset + height - 5), ST7305_COLOR_BLACK);
 }
+
+void renderUsbSerialDetail(DisplayMonoTft& display, int16_t yOffset) {
+  auto& canvas = display.canvas();
+  auto& text = display.text();
+  const int16_t width = static_cast<int16_t>(display.width());
+  const int16_t height = static_cast<int16_t>(display.height());
+  const bool enabled = UsbSerial::isEnabled();
+
+  DetailHeader::render(display, "USB 串口", yOffset);
+
+  text.setFont(chinese_font_all);
+  text.setForegroundColor(ST7305_COLOR_BLACK);
+  text.setBackgroundColor(ST7305_COLOR_WHITE);
+  text.setFontMode(1);
+  text.drawUTF8(10, static_cast<int16_t>(yOffset + 58),
+                enabled ? "当前状态：已开启" : "当前状态：已关闭");
+  text.drawUTF8(10, static_cast<int16_t>(yOffset + 86),
+                enabled ? "主机可枚举为USB串口" : "主机侧已断开");
+  text.drawUTF8(8, static_cast<int16_t>(yOffset + height - 10), "LEFT: 返回  OK: 切换");
+
+  canvas.drawRectangle(4, static_cast<int16_t>(yOffset + 32), width - 5,
+                       static_cast<int16_t>(yOffset + height - 5), ST7305_COLOR_BLACK);
+}
 }  // namespace
 
 SettingsPage::PopupKind SettingsPage::popupForSelection(uint8_t homeFocus,
@@ -378,6 +407,10 @@ bool SettingsPage::isDeviceSelfTestSelection(uint8_t homeFocus, uint8_t sectionF
   return homeFocus == kHomeIndex && sectionFocus == kDeviceSelfTestItemIndex;
 }
 
+bool SettingsPage::isUsbSerialSelection(uint8_t homeFocus, uint8_t sectionFocus) const {
+  return homeFocus == kHomeIndex && sectionFocus == kUsbSerialItemIndex;
+}
+
 uint8_t SettingsPage::detailPageCount(uint8_t homeFocus, uint8_t sectionFocus) const {
   if (isWifiProvisionSelection(homeFocus, sectionFocus) ||
       isOtaSelection(homeFocus, sectionFocus) ||
@@ -394,6 +427,11 @@ bool SettingsPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, ui
   (void)detailPageIndex;
   if (!okEdge) {
     return false;
+  }
+
+  if (isUsbSerialSelection(homeFocus, sectionFocus)) {
+    (void)UsbSerial::setEnabled(!UsbSerial::isEnabled());
+    return true;
   }
 
   if (isOtaSelection(homeFocus, sectionFocus)) {
@@ -452,6 +490,11 @@ bool SettingsPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, uint8_t
 
   if (isWifiProvisionSelection(homeFocus, sectionFocus)) {
     renderWifiProvisionDetail(display, wifi, time, yOffset);
+    return true;
+  }
+
+  if (isUsbSerialSelection(homeFocus, sectionFocus)) {
+    renderUsbSerialDetail(display, yOffset);
     return true;
   }
 
