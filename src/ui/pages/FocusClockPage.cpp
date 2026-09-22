@@ -3,6 +3,7 @@
 #include <cstdio>
 
 #include "../../bsp/DisplayMonoTft.h"
+#include "../../services/TimeService.h"
 #include "../AnimMath.h"
 #include "../DrawUtils.h"
 #include "../Segment7Font.h"
@@ -68,7 +69,7 @@ void drawCardShell(ST7305_2p9_BW_DisplayDriver& canvas, int16_t x, int16_t y) {
                            ST7305_COLOR_BLACK, ST7305_COLOR_WHITE);
 }
 
-// 计时界面顶部黑条：左侧标题/阶段，右侧目标或状态。
+// 计时界面顶部黑条：左侧标题/阶段，右侧当前时间。
 void drawHeaderBand(DisplayMonoTft& display, int16_t yOffset, const char* leftText,
                     const char* rightText) {
   auto& canvas = display.canvas();
@@ -535,7 +536,8 @@ bool FocusClockPage::needsAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus
 }
 
 bool FocusClockPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                                  DisplayMonoTft& display, uint32_t nowMs) const {
+                                  DisplayMonoTft& display, uint32_t nowMs,
+                                  const TimeService& timeService) const {
   if (!isSelection(homeFocus, sectionFocus)) {
     return false;
   }
@@ -551,10 +553,12 @@ bool FocusClockPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16
     const int16_t height = static_cast<int16_t>(display.height());
     const int16_t outOffset = static_cast<int16_t>(-height * eased / kEaseScale);
     const int16_t inOffset = static_cast<int16_t>(height - height * eased / kEaseScale);
-    drawView(viewTransition_.from, display, static_cast<int16_t>(yOffset + outOffset), nowMs);
-    drawView(viewTransition_.to, display, static_cast<int16_t>(yOffset + inOffset), nowMs);
+    drawView(viewTransition_.from, display, static_cast<int16_t>(yOffset + outOffset), nowMs,
+              timeService);
+    drawView(viewTransition_.to, display, static_cast<int16_t>(yOffset + inOffset), nowMs,
+              timeService);
   } else {
-    drawView(view_, display, yOffset, nowMs);
+    drawView(view_, display, yOffset, nowMs, timeService);
   }
 
   PopupView::drawConfirm(display, yOffset, abandonConfirm_, "放弃本次专注？", "继续", "放弃",
@@ -563,14 +567,14 @@ bool FocusClockPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16
 }
 
 void FocusClockPage::drawView(View view, DisplayMonoTft& display, int16_t yOffset,
-                              uint32_t nowMs) const {
+                              uint32_t nowMs, const TimeService& timeService) const {
   switch (view) {
     case View::Selection:
       drawSelection(display, yOffset, nowMs);
       break;
     case View::Focus:
     case View::Break:
-      drawTimer(display, yOffset, nowMs);
+      drawTimer(display, yOffset, nowMs, timeService);
       break;
     case View::Finished:
       drawFinished(display, yOffset);
@@ -611,29 +615,29 @@ void FocusClockPage::drawSelection(DisplayMonoTft& display, int16_t yOffset,
   }
 }
 
-void FocusClockPage::drawTimer(DisplayMonoTft& display, int16_t yOffset, uint32_t nowMs) const {
+void FocusClockPage::drawTimer(DisplayMonoTft& display, int16_t yOffset, uint32_t nowMs,
+                               const TimeService& timeService) const {
   auto& canvas = display.canvas();
   auto& text = display.text();
   const int16_t width = static_cast<int16_t>(display.width());
   const bool breakPhase = view_ == View::Break;
 
   char headerLeft[48];
+  const char* phaseLabel = breakPhase ? "休息" : "专注";
   if (cardIndex_ == kContinuousCardIndex) {
-    snprintf(headerLeft, sizeof(headerLeft), "%s · %s %u/%u", sessionTitle(),
-             breakPhase ? "休息" : "专注", static_cast<unsigned>(roundIndex_ + 1U),
+    snprintf(headerLeft, sizeof(headerLeft), "%s %u/%u", phaseLabel,
+             static_cast<unsigned>(roundIndex_ + 1U),
              static_cast<unsigned>(kContinuousRounds));
   } else {
     snprintf(headerLeft, sizeof(headerLeft), "%s", sessionTitle());
   }
 
-  char headerRight[16];
-  if (timerPaused_) {
-    snprintf(headerRight, sizeof(headerRight), "已暂停");
-  } else if (breakPhase) {
-    snprintf(headerRight, sizeof(headerRight), "休息 %u 分钟",
-             static_cast<unsigned>(kBreakMinutes));
-  } else {
-    formatMinutesSeconds(phaseTargetMs(), headerRight, sizeof(headerRight));
+  // 只读已有时间快照，不额外访问 RTC 或发起校时。
+  char headerRight[8] = {};
+  const TimeService::Snapshot& clock = timeService.snapshot();
+  if (clock.valid) {
+    snprintf(headerRight, sizeof(headerRight), "%02u:%02u",
+             static_cast<unsigned>(clock.now.hour), static_cast<unsigned>(clock.now.minute));
   }
   drawHeaderBand(display, yOffset, headerLeft, headerRight);
 
@@ -646,18 +650,15 @@ void FocusClockPage::drawTimer(DisplayMonoTft& display, int16_t yOffset, uint32_
                          kTimerDigitStyle);
 
   char infoText[64];
+  const unsigned targetMinutes = static_cast<unsigned>(phaseTargetMs() / 60000U);
   if (timerPaused_) {
     snprintf(infoText, sizeof(infoText), "已暂停 · OK 继续");
   } else if (cardIndex_ == kContinuousCardIndex) {
     char sessionText[16];
     formatMinutesSeconds(sessionElapsedMs(nowMs), sessionText, sizeof(sessionText));
-    snprintf(infoText, sizeof(infoText), "累计 %s · 第 %u/%u 次", sessionText,
-             static_cast<unsigned>(roundIndex_ + 1U),
-             static_cast<unsigned>(kContinuousRounds));
+    snprintf(infoText, sizeof(infoText), "目标 %u分钟 · 累计 %s", targetMinutes, sessionText);
   } else {
-    char targetText[16];
-    formatMinutesSeconds(phaseTargetMs(), targetText, sizeof(targetText));
-    snprintf(infoText, sizeof(infoText), "目标 %s", targetText);
+    snprintf(infoText, sizeof(infoText), "目标 %u分钟", targetMinutes);
   }
   text.setFont(chinese_font_all);
   drawTextCentered(text, infoText, static_cast<int16_t>(width / 2),

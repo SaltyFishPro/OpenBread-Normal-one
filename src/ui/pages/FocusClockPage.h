@@ -5,6 +5,7 @@
 #include "../PopupView.h"
 
 class DisplayMonoTft;
+class TimeService;
 
 class FocusClockPage {
 public:
@@ -33,7 +34,7 @@ public:
   // Left 键：选择界面返回上级；计时中弹出"放弃专注"确认；完成页返回上级。
   bool handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus, uint32_t nowMs);
   bool renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                    DisplayMonoTft& display, uint32_t nowMs) const;
+                    DisplayMonoTft& display, uint32_t nowMs, const TimeService& timeService) const;
   bool needsAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus, uint32_t nowMs) const;
   bool isAnimating(uint8_t homeFocus, uint8_t sectionFocus, uint32_t nowMs) const;
 
@@ -80,11 +81,13 @@ private:
   void stopSession(uint32_t nowMs);
   void beginViewTransition(View to, bool resetSessionAfter, uint32_t nowMs);
   void applyViewTransition();
-  void drawView(View view, DisplayMonoTft& display, int16_t yOffset, uint32_t nowMs) const;
+  void drawView(View view, DisplayMonoTft& display, int16_t yOffset, uint32_t nowMs,
+                const TimeService& timeService) const;
 
   const char* sessionTitle() const;
   void drawSelection(DisplayMonoTft& display, int16_t yOffset, uint32_t nowMs) const;
-  void drawTimer(DisplayMonoTft& display, int16_t yOffset, uint32_t nowMs) const;
+  void drawTimer(DisplayMonoTft& display, int16_t yOffset, uint32_t nowMs,
+                 const TimeService& timeService) const;
   void drawFinished(DisplayMonoTft& display, int16_t yOffset) const;
 
   uint8_t cardIndex_ = 0;

@@ -1605,7 +1605,7 @@ void UiManager::renderDetail(int16_t yOffset) {
   } else if (gamesPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_)) {
     handled = true;
   } else if (focusClockPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset,
-                                          display_, millis())) {
+                                          display_, millis(), timeService_)) {
     handled = true;
   } else if (musicPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
                                      musicService_, millis())) {
