@@ -150,7 +150,7 @@ const SectionContent kSectionContents[] = {
 // 主菜单里直接进入详情页、跳过单条目二级目录的入口。
 bool isDirectDetailHomeIndex(uint8_t homeFocus) {
   return homeFocus == FocusClockPage::kHomeIndex || homeFocus == HomePage::kAlarmMenuIndex ||
-         homeFocus == HomePage::kCalendarMenuIndex;
+         homeFocus == HomePage::kCalendarMenuIndex || homeFocus == HomePage::kApiStatsMenuIndex;
 }
 
 SectionContent sectionContentFor(uint8_t homeFocus, const SettingsPage& settingsPage) {

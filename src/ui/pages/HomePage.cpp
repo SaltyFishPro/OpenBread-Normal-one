@@ -16,6 +16,7 @@
 #include "../assets/main_menu/icons8-itunes.h"
 #include "../assets/main_menu/icons8-settings.h"
 #include "../assets/main_menu/icons8-wifi.h"
+#include "../assets/main_menu/api_stats.h"
 #include "../assets/ui/uncalibrated_bread.h"
 #include "../assets/ui/UI_background.h"
 
@@ -82,7 +83,7 @@ constexpr DateCardStyle kDateCardStyle = {
     6,
     -2};
 
-const IconBitmap::Anim kMenuIcons[8] = {
+const IconBitmap::Anim kMenuIcons[] = {
     {reinterpret_cast<const uint8_t*>(&setting_frames[0][0]), SETTING_FRAME_BYTES,
      SETTING_FRAME_WIDTH, SETTING_FRAME_HEIGHT, SETTING_FRAME_DELAY, SETTING_FRAME_COUNT},
     {reinterpret_cast<const uint8_t*>(&itunes_frames[0][0]), ITUNES_FRAME_BYTES,
@@ -100,6 +101,8 @@ const IconBitmap::Anim kMenuIcons[8] = {
      ALARM_FRAME_WIDTH, ALARM_FRAME_HEIGHT, ALARM_FRAME_DELAY, ALARM_FRAME_COUNT},
     {reinterpret_cast<const uint8_t*>(&calendar_frames[0][0]), CALENDAR_FRAME_BYTES,
      CALENDAR_FRAME_WIDTH, CALENDAR_FRAME_HEIGHT, CALENDAR_FRAME_DELAY, CALENDAR_FRAME_COUNT},
+    {reinterpret_cast<const uint8_t*>(&api_stats_frames[0][0]), API_STATS_FRAME_BYTES,
+     API_STATS_FRAME_WIDTH, API_STATS_FRAME_HEIGHT, API_STATS_FRAME_DELAY, API_STATS_FRAME_COUNT},
 };
 
 const IconBitmap::Anim kHomeBackground = {
@@ -120,8 +123,12 @@ const IconBitmap::Anim kUncalibratedBread = {
 
 constexpr int16_t kUncalibratedBreadScale = 2;
 
-const char* const kMenuNamesZh[8] = {"设置", "音乐", "阅读", "专注时钟", "无线功能", "游戏",
-                                     "闹钟", "课程表"};
+const char* const kMenuNamesZh[] = {"设置", "音乐", "阅读", "专注时钟", "无线功能", "游戏",
+                                   "闹钟", "课程表", "api统计板"};
+static_assert(sizeof(kMenuIcons) / sizeof(kMenuIcons[0]) ==
+              sizeof(kMenuNamesZh) / sizeof(kMenuNamesZh[0]), "Menu icons and labels must match");
+static_assert(HomePage::kApiStatsMenuIndex + 1U == sizeof(kMenuIcons) / sizeof(kMenuIcons[0]),
+              "API statistics must match its main menu slot");
 
 void drawHomeTimePreview(ST7305_2p9_BW_DisplayDriver& canvas, uint32_t nowMs, int16_t xOffset,
                          const HomePage::ClockData& clockData) {
@@ -284,6 +291,8 @@ void drawHomeDatePreview(ST7305_2p9_BW_DisplayDriver& canvas, U8G2_FOR_ST73XX& t
 }  // namespace
 
 bool HomePage::begin() {
+  static_assert(kMenuCount == sizeof(kMenuIcons) / sizeof(kMenuIcons[0]),
+                "Main menu count must match icon resources");
   focusIndex_ = 0;
   targetIndex_ = 0;
   slideState_ = SlideState::Idle;

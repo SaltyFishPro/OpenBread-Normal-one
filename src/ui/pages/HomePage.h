@@ -9,6 +9,7 @@ public:
   // 主菜单里直接进入详情页、跳过单条目二级目录的入口。
   static constexpr uint8_t kAlarmMenuIndex = 6;
   static constexpr uint8_t kCalendarMenuIndex = 7;
+  static constexpr uint8_t kApiStatsMenuIndex = 8;
 
   struct ClockData {
     uint8_t second = 0;
@@ -95,6 +96,6 @@ private:
   uint32_t animationTimeMs_ = 0;
   ClockData clockData_;
 
-  static constexpr uint8_t kMenuCount = 8;
+  static constexpr uint8_t kMenuCount = 9;
   static constexpr uint32_t kIdleAnimationTimeoutMs = 4000;
 };

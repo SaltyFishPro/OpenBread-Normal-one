@@ -37,6 +37,16 @@ python tools/gif_to_c/gif_to_c.py your.gif -o src/generated_wifi.h -n wifi -W 32
 - `--resize nearest|bilinear|bicubic|lanczos` (default `nearest`)
 - `--dedupe` drop consecutive identical frames
 - `--bg` background gray for transparent pixels (default `255`)
+- `--rle` encode run/value pairs compatible with the project's `IconBitmap` decoder
+
+Main menu icons use 100x100 frames (1300 decoded bytes, within the icon cache):
+
+```powershell
+python tools/gif_to_c/gif_to_c.py 'F:/下载/system-outline-1327-api-morph-select.gif' -o src/ui/assets/main_menu/api_stats.h -n api_stats -W 100 -H 100 --resize lanczos --dedupe --rle
+```
+
+The generated animation uses the same fixed 42ms frame interval as the existing
+menu icons; GIF per-frame delays are not preserved.
 
 ## 5) Integration
 
