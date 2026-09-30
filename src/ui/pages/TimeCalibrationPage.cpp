@@ -32,8 +32,6 @@ void drawSelectionButton(DisplayMonoTft& display, int16_t x1, int16_t y1, int16_
 
 const char* syncSourceTextZh(TimeService::SyncSource source) {
   switch (source) {
-    case TimeService::SyncSource::Bluetooth:
-      return "蓝牙校时";
     case TimeService::SyncSource::Ntp:
       return "网络校时";
     default:
@@ -68,8 +66,6 @@ const char* errorTextZh(TimeService::Error err) {
       return "NTP超时";
     case TimeService::Error::RtcWriteFailed:
       return "RTC写入失败";
-    case TimeService::Error::InvalidInput:
-      return "输入无效";
     case TimeService::Error::Busy:
       return "服务忙";
     default:

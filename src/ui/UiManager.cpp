@@ -29,6 +29,10 @@ namespace {
 #define OB_SLEEP_LOG_ENABLED 1
 #endif
 
+#ifndef OB_POWER_WORK_LOG_ENABLED
+#define OB_POWER_WORK_LOG_ENABLED 1
+#endif
+
 // 局部刷新：音乐导航栏/列表动画只把脏区域推送到屏幕，降低 SPI 传输量。
 // 置 0 可退回整屏刷新以便对比排查。
 #ifndef OB_PARTIAL_REFRESH_ENABLED
@@ -926,14 +930,14 @@ uint32_t UiManager::nextIdleDelayMs(uint32_t nowMs) const {
   }
 
   // 音频播放依赖 loop() 持续喂数据，保持原有不受限的调用节奏。
-  if (musicService_.playbackState() != MusicService::PlaybackState::Stopped) {
+  if (musicService_.needsRealtimeAudio()) {
     return 0;
   }
 
   // 配网、OTA、蓝牙和硬件自检需要高频协作式服务，最多让出 1ms。
   if (wifiProvisionService_.isRadioActive() ||
-      otaService_.state() != OtaService::State::Idle ||
-      bluetoothService_.state() != BluetoothService::State::Off ||
+      otaService_.isBusy() ||
+      bluetoothService_.isRadioActive() ||
       iicScanService_.isBusy() || rtcTestService_.isBusy() || imuTestService_.isBusy()) {
     return kActivePollMs;
   }
@@ -942,18 +946,33 @@ uint32_t UiManager::nextIdleDelayMs(uint32_t nowMs) const {
 }
 
 void UiManager::updateCpuClock(uint32_t nowMs) {
-  const bool audioActive =
-      musicService_.playbackState() != MusicService::PlaybackState::Stopped;
+  const bool audioActive = musicService_.needsRealtimeAudio();
+  const bool otaBusy = otaService_.isBusy();
+  const bool bluetoothActive = bluetoothService_.isRadioActive();
   // NTP 校时会自行打开 WiFi，不经过配网服务，需要单独判断。
   const bool radioActive = wifiProvisionService_.isRadioActive() ||
-                           otaService_.state() != OtaService::State::Idle ||
-                           bluetoothService_.state() != BluetoothService::State::Off ||
+                           otaBusy || bluetoothActive ||
                            timeService_.snapshot().syncState ==
                                TimeService::SyncState::Syncing;
   const bool selfTestActive =
       iicScanService_.isBusy() || rtcTestService_.isBusy() || imuTestService_.isBusy();
   // 满屏渲染后保持一段满速窗口；期间只画脏区域的局部帧可以降频执行。
   const bool uiActive = (nowMs - cpuBoostStartMs_) < kCpuBoostHoldMs;
+
+#if OB_POWER_WORK_LOG_ENABLED
+  const bool musicBusy = musicService_.isBusy();
+  const uint8_t workMask = (otaBusy ? 1U : 0U) | (audioActive ? 2U : 0U) |
+                           (musicBusy ? 4U : 0U) | (bluetoothActive ? 8U : 0U);
+  static uint8_t lastWorkMask = 0xFF;
+  if (workMask != lastWorkMask) {
+    lastWorkMask = workMask;
+    if (Serial) {
+      Serial.printf("[POWER] ota_busy=%u audio_realtime=%u music_busy=%u bt_active=%u\n",
+                    otaBusy ? 1U : 0U, audioActive ? 1U : 0U,
+                    musicBusy ? 1U : 0U, bluetoothActive ? 1U : 0U);
+    }
+  }
+#endif
 
   CpuClock::setBoost(CpuClock::Boost::Audio, audioActive);
   CpuClock::setBoost(CpuClock::Boost::Radio, radioActive);
@@ -1475,8 +1494,9 @@ void UiManager::renderSection(int16_t xOffset, int16_t yOffset, uint32_t nowMs,
   int16_t thumbY = progressY;
   if (itemCount > 0 && progressH > thumbH) {
     const int16_t travel = static_cast<int16_t>(progressH - thumbH);
+    const uint8_t positionCount = itemCount > 1U ? static_cast<uint8_t>(itemCount - 1U) : 1U;
     thumbY = static_cast<int16_t>(
-        progressY + (static_cast<int32_t>(travel) * selected) / itemCount);
+        progressY + (static_cast<int32_t>(travel) * selected) / positionCount);
   }
   canvas.drawFilledRectangle(progressX, thumbY, static_cast<int16_t>(progressX + progressW - 1),
                              static_cast<int16_t>(thumbY + thumbH - 1), ST7305_COLOR_BLACK);
@@ -1692,16 +1712,16 @@ bool UiManager::isSleepAllowed() const {
   if (iicScanService_.isBusy() || rtcTestService_.isBusy() || imuTestService_.isBusy()) {
     return false;
   }
-  if (bluetoothService_.state() != BluetoothService::State::Off) {
+  if (bluetoothService_.isRadioActive()) {
     return false;
   }
   if (wifiProvisionService_.isRadioActive()) {
     return false;
   }
-  if (otaService_.state() != OtaService::State::Idle) {
+  if (otaService_.isBusy()) {
     return false;
   }
-  if (musicService_.playbackState() != MusicService::PlaybackState::Stopped) {
+  if (musicService_.isBusy()) {
     return false;
   }
   if (timeService_.snapshot().syncState == TimeService::SyncState::Syncing) {

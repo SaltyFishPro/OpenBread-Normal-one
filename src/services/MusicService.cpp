@@ -99,12 +99,7 @@ void MusicService::tick(uint32_t nowMs) {
                (nowMs - openingStartMs_) >= kOpenDurationTimeoutMs &&
                (lastAudioInfoMs_ == 0 ||
                 (nowMs - lastAudioInfoMs_) >= kOpenNoProgressTimeoutMs)) {
-      audio_.stopSong();
-      dac_.powerOff();
-      playbackState_ = PlaybackState::Error;
-      vuLevel_ = 0;
-      clearSpectrumBands();
-      setError("audio open timeout");
+      failPlayback("audio open timeout");
     }
   }
 
@@ -562,30 +557,25 @@ bool MusicService::toggleFavorite(const TrackInfo& track) {
 bool MusicService::playTrack(uint32_t absoluteIndex) {
   clearAudioDebug();
   if (trackCount_ == 0 || absoluteIndex >= trackCount_) {
-    playbackState_ = PlaybackState::Error;
-    setError("track index invalid");
+    failPlayback("track index invalid");
     return false;
   }
 
   if (!readRecord(absoluteIndex, currentTrack_)) {
-    playbackState_ = PlaybackState::Error;
+    failPlayback(nullptr);  // 保留 readRecord() 已记录的具体错误。
     return false;
   }
 
   resetPlaybackRuntime();
   audio_.stopSong();
   if (!dac_.powerOn()) {
-    playbackState_ = PlaybackState::Error;
-    setError("audio power failed");
+    failPlayback("audio power failed");
     return false;
   }
   audio_.setPinout(BoardConfig::kPinPcmBck, BoardConfig::kPinPcmLrck, BoardConfig::kPinPcmDin);
   audio_.setVolume(volume_);
   if (!audio_.connecttoFS(SD_MMC, currentTrack_.path)) {
-    dac_.powerOff();
-    playbackState_ = PlaybackState::Error;
-    clearSpectrumBands();
-    setError("audio open failed");
+    failPlayback("audio open failed");
     return false;
   }
 
@@ -606,9 +596,7 @@ bool MusicService::togglePause(uint32_t nowMs) {
     return false;
   }
   if (!audio_.pauseResume()) {
-    playbackState_ = PlaybackState::Error;
-    setError("pause failed");
-    markChanged();
+    failPlayback("pause failed");
     return false;
   }
   if (playbackState_ == PlaybackState::Playing) {
@@ -709,18 +697,13 @@ bool MusicService::resumeSuspended() {
     return false;
   }
   if (!dac_.powerOn()) {
-    playbackState_ = PlaybackState::Error;
-    clearSpectrumBands();
-    setError("audio power failed");
+    failPlayback("audio power failed");
     return false;
   }
   audio_.setPinout(BoardConfig::kPinPcmBck, BoardConfig::kPinPcmLrck, BoardConfig::kPinPcmDin);
   audio_.setVolume(volume_);
   if (!audio_.connecttoFS(SD_MMC, currentTrack_.path, static_cast<int32_t>(suspendedSecond_))) {
-    dac_.powerOff();
-    playbackState_ = PlaybackState::Error;
-    clearSpectrumBands();
-    setError("resume failed");
+    failPlayback("resume failed");
     return false;
   }
   playbackState_ = PlaybackState::Opening;
@@ -782,6 +765,19 @@ bool MusicService::advanceAfterTrackEnd() {
   MUSIC_LOG("[AUDIO]", "track end mode=%s",
             playMode_ == PlayMode::Shuffle ? "shuffle" : "sequential");
   return playTrack(nextTrackIndex());
+}
+
+void MusicService::failPlayback(const char* error) {
+  audio_.stopSong();
+  dac_.powerOff();
+  playbackState_ = PlaybackState::Error;
+  vuLevel_ = 0;
+  streamReady_ = false;
+  trackEndPending_ = false;
+  clearSpectrumBands();
+  MUSIC_LOG("[AUDIO]", "playback failed; decoder stopped, power off");
+  if (error != nullptr) setError(error);
+  else markChanged();
 }
 
 void MusicService::setError(const char* error) {

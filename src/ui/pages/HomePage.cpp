@@ -124,7 +124,7 @@ const IconBitmap::Anim kUncalibratedBread = {
 constexpr int16_t kUncalibratedBreadScale = 2;
 
 const char* const kMenuNamesZh[] = {"设置", "音乐", "阅读", "专注时钟", "无线功能", "游戏",
-                                   "闹钟", "课程表", "api统计板"};
+                                   "闹钟", "课程表", "Api统计板"};
 static_assert(sizeof(kMenuIcons) / sizeof(kMenuIcons[0]) ==
               sizeof(kMenuNamesZh) / sizeof(kMenuNamesZh[0]), "Menu icons and labels must match");
 static_assert(HomePage::kApiStatsMenuIndex + 1U == sizeof(kMenuIcons) / sizeof(kMenuIcons[0]),

@@ -146,42 +146,6 @@ void TimeService::tick(uint32_t nowMs) {
   (void)refreshFromRtc();
 }
 
-bool TimeService::setBluetoothTime(const DateTime& dt) {
-  if (syncPhase_ != SyncPhase::None) {
-    setError(Error::Busy);
-    return false;
-  }
-
-  DateTime normalized = dt;
-  if (normalized.year >= 2024 && normalized.year <= 2099 && normalized.month >= 1 &&
-      normalized.month <= 12 && normalized.day >= 1 &&
-      normalized.day <= daysInMonth(normalized.year, normalized.month)) {
-    normalized.weekday = weekdayFromDays(
-        daysFromCivil(normalized.year, normalized.month, normalized.day));
-  }
-
-  if (!validateDateTime(normalized)) {
-    setSyncState(SyncState::Failed);
-    setError(Error::InvalidInput);
-    return false;
-  }
-
-  const uint32_t epoch = localDateTimeToEpoch(normalized);
-  if (!applyDateTime(normalized, SyncSource::Bluetooth, epoch)) {
-    setSyncState(SyncState::Failed);
-    return false;
-  }
-
-  setSyncState(SyncState::Success);
-  setError(Error::None);
-  timeLog("bluetooth time applied %04u-%02u-%02u %02u:%02u:%02u weekday=%u",
-          static_cast<unsigned>(normalized.year), static_cast<unsigned>(normalized.month),
-          static_cast<unsigned>(normalized.day), static_cast<unsigned>(normalized.hour),
-          static_cast<unsigned>(normalized.minute), static_cast<unsigned>(normalized.second),
-          static_cast<unsigned>(normalized.weekday));
-  return true;
-}
-
 bool TimeService::requestNtpSync(uint32_t nowMs, const char* ssid, const char* pass,
                                  bool reuseConnectedStation) {
   if (syncPhase_ != SyncPhase::None) {
@@ -329,51 +293,10 @@ bool TimeService::refreshFromRtc(bool logStartupRead) {
   }
 
   // Display availability follows successful RTC reads, not calibration history
-  // or clock integrity. Keep input validation on calibration writes.
+  // or clock integrity.
   updateSnapshotTime(dt, true);
   setError(Error::None);
   return true;
-}
-
-bool TimeService::validateDateTime(const DateTime& dt) const {
-  if (dt.year < 2024 || dt.year > 2099) {
-    return false;
-  }
-  if (dt.month == 0 || dt.month > 12) {
-    return false;
-  }
-  if (dt.day == 0 || dt.day > daysInMonth(dt.year, dt.month)) {
-    return false;
-  }
-  if (dt.weekday > 6) {
-    return false;
-  }
-  if (dt.hour > 23 || dt.minute > 59 || dt.second > 59) {
-    return false;
-  }
-  return true;
-}
-
-uint8_t TimeService::daysInMonth(uint16_t year, uint8_t month) const {
-  static const uint8_t kDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-  if (month == 2) {
-    const bool leap = ((year % 4U) == 0U && (year % 100U) != 0U) || ((year % 400U) == 0U);
-    return leap ? 29 : 28;
-  }
-  return kDays[month - 1U];
-}
-
-int32_t TimeService::daysFromCivil(uint16_t year, uint8_t month, uint8_t day) const {
-  int32_t y = static_cast<int32_t>(year);
-  const int32_t m = static_cast<int32_t>(month);
-  const int32_t d = static_cast<int32_t>(day);
-  y -= (m <= 2) ? 1 : 0;
-  const int32_t era = (y >= 0 ? y : y - 399) / 400;
-  const uint32_t yoe = static_cast<uint32_t>(y - era * 400);
-  const uint32_t doy =
-      static_cast<uint32_t>((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1);
-  const uint32_t doe = yoe * 365U + yoe / 4U - yoe / 100U + doy;
-  return era * 146097 + static_cast<int32_t>(doe) - 719468;
 }
 
 void TimeService::civilFromDays(int32_t z, uint16_t& year, uint8_t& month, uint8_t& day) const {
@@ -395,15 +318,6 @@ void TimeService::civilFromDays(int32_t z, uint16_t& year, uint8_t& month, uint8
 uint8_t TimeService::weekdayFromDays(int32_t z) const {
   const int32_t weekday = (z + 4) % 7;
   return static_cast<uint8_t>(weekday < 0 ? weekday + 7 : weekday);
-}
-
-uint32_t TimeService::localDateTimeToEpoch(const DateTime& dt) const {
-  const int32_t days = daysFromCivil(dt.year, dt.month, dt.day);
-  const int64_t seconds = static_cast<int64_t>(dt.hour) * 3600LL +
-                          static_cast<int64_t>(dt.minute) * 60LL +
-                          static_cast<int64_t>(dt.second);
-  const int64_t epoch = static_cast<int64_t>(days) * 86400LL + seconds - kUtcOffsetSeconds;
-  return static_cast<uint32_t>(epoch);
 }
 
 TimeService::DateTime TimeService::epochToLocalDateTime(uint32_t epoch) const {
@@ -464,8 +378,10 @@ void TimeService::loadPersistedState() {
     return;
   }
   persistedValid_ = prefs.getBool(kTimeValidKey, false);
-  snapshot_.lastSource =
-      static_cast<SyncSource>(prefs.getUChar(kTimeSourceKey, static_cast<uint8_t>(SyncSource::None)));
+  const uint8_t source = prefs.getUChar(kTimeSourceKey, static_cast<uint8_t>(SyncSource::None));
+  snapshot_.lastSource = source == static_cast<uint8_t>(SyncSource::Ntp)
+                             ? SyncSource::Ntp
+                             : SyncSource::None;
   snapshot_.lastSyncEpoch = prefs.getULong(kTimeEpochKey, 0);
   prefs.end();
 }

@@ -78,6 +78,14 @@ public:
   uint16_t pageCount() const;
   ListState listState() const;
   PlaybackState playbackState() const;
+  bool needsRealtimeAudio() const {
+    return playbackState_ == PlaybackState::Opening || playbackState_ == PlaybackState::Playing;
+  }
+  // 暂停后仍需运行断电计时；扫描和未释放的音频电源也不能被浅睡中断。
+  bool isBusy() const {
+    return scanPending_ || needsRealtimeAudio() || playbackState_ == PlaybackState::Paused ||
+           dac_.powered();
+  }
   PlayMode playMode() const;
   bool shuffleEnabled() const;
   const TrackInfo& currentTrack() const;
@@ -133,6 +141,7 @@ private:
   void basenameFromPath(const char* path, char* out, size_t outSize) const;
   bool readFavoriteLine(File& file, char* out, size_t outSize) const;
   void setError(const char* error);
+  void failPlayback(const char* error);
   void clearAudioDebug();
   void clearSpectrumBands();
   void resetPlaybackRuntime();

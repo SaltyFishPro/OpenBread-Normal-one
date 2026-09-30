@@ -3,6 +3,7 @@
 #include <cstdio>
 
 #include "../../bsp/DisplayMonoTft.h"
+#include "../DrawUtils.h"
 #include "../TextUtils.h"
 #include "../../services/IicScanService.h"
 #include "../../services/RtcTestService.h"
@@ -368,10 +369,10 @@ void DeviceSelfTestPage::renderList(DisplayMonoTft& display, int16_t yOffset) co
       if (right > kDividerX - 10) {
         right = static_cast<int16_t>(kDividerX - 10);
       }
-      canvas.drawFilledRectangle(kListX - kFocusPadX,
-                                 static_cast<int16_t>(baselineY - kTextHeight - kFocusPadY),
-                                 right, static_cast<int16_t>(baselineY + kFocusPadY),
-                                 ST7305_COLOR_BLACK);
+      DrawUtils::fillRoundRect(
+          canvas, static_cast<int16_t>(kListX - kFocusPadX),
+          static_cast<int16_t>(baselineY - kTextHeight - kFocusPadY), right,
+          static_cast<int16_t>(baselineY + kFocusPadY), 8, ST7305_COLOR_BLACK);
       text.setBackgroundColor(ST7305_COLOR_BLACK);
       text.setForegroundColor(ST7305_COLOR_WHITE);
       text.setFontMode(0);

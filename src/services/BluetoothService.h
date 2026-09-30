@@ -35,6 +35,8 @@ public:
   Error error() const;
   const char* deviceName() const;
   bool isConnected() const;
+  // 超时错误可保留在页面上，无线栈释放后不再占用高频与休眠条件。
+  bool isRadioActive() const { return initialized_ || bleStackReady_; }
   bool consumeChanged();
 
   // Internal server callbacks route through these hooks.
