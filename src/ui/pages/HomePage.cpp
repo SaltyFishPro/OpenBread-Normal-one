@@ -10,6 +10,7 @@
 #include "../TextUtils.h"
 #include "../assets/games/icons8_games.h"
 #include "../assets/main_menu/alarm.h"
+#include "../assets/main_menu/answers_book.h"
 #include "../assets/main_menu/icons8-book.h"
 #include "../assets/main_menu/calendar.h"
 #include "../assets/main_menu/icons8-clock.h"
@@ -103,6 +104,9 @@ const IconBitmap::Anim kMenuIcons[] = {
      CALENDAR_FRAME_WIDTH, CALENDAR_FRAME_HEIGHT, CALENDAR_FRAME_DELAY, CALENDAR_FRAME_COUNT},
     {reinterpret_cast<const uint8_t*>(&api_stats_frames[0][0]), API_STATS_FRAME_BYTES,
      API_STATS_FRAME_WIDTH, API_STATS_FRAME_HEIGHT, API_STATS_FRAME_DELAY, API_STATS_FRAME_COUNT},
+    {reinterpret_cast<const uint8_t*>(&answers_book_frames[0][0]), ANSWERS_BOOK_FRAME_BYTES,
+     ANSWERS_BOOK_FRAME_WIDTH, ANSWERS_BOOK_FRAME_HEIGHT, ANSWERS_BOOK_FRAME_DELAY,
+     ANSWERS_BOOK_FRAME_COUNT},
 };
 
 const IconBitmap::Anim kHomeBackground = {
@@ -124,11 +128,11 @@ const IconBitmap::Anim kUncalibratedBread = {
 constexpr int16_t kUncalibratedBreadScale = 2;
 
 const char* const kMenuNamesZh[] = {"设置", "音乐", "阅读", "专注时钟", "无线功能", "游戏",
-                                   "闹钟", "课程表", "Api统计板"};
+                                   "闹钟", "课程表", "Api统计板", "答案之书"};
 static_assert(sizeof(kMenuIcons) / sizeof(kMenuIcons[0]) ==
               sizeof(kMenuNamesZh) / sizeof(kMenuNamesZh[0]), "Menu icons and labels must match");
-static_assert(HomePage::kApiStatsMenuIndex + 1U == sizeof(kMenuIcons) / sizeof(kMenuIcons[0]),
-              "API statistics must match its main menu slot");
+static_assert(HomePage::kAnswersBookMenuIndex + 1U == sizeof(kMenuIcons) / sizeof(kMenuIcons[0]),
+              "Answer book must match the last main menu slot");
 
 void drawHomeTimePreview(ST7305_2p9_BW_DisplayDriver& canvas, uint32_t nowMs, int16_t xOffset,
                          const HomePage::ClockData& clockData) {
