@@ -34,6 +34,8 @@ class ConvertOptions:
     dedupe: bool
     bg: int
     rle: bool = False
+    frame_step: int = 1
+    frame_delay: int = 42
 
 
 def parse_args() -> argparse.Namespace:
@@ -81,6 +83,18 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--rle", action="store_true", help="Encode run/value pairs for IconBitmap"
+    )
+    parser.add_argument(
+        "--frame-step",
+        type=int,
+        default=1,
+        help="Keep every Nth GIF frame (default: 1)",
+    )
+    parser.add_argument(
+        "--frame-delay",
+        type=int,
+        default=42,
+        help="Output frame delay in milliseconds (default: 42)",
     )
     return parser.parse_args()
 
@@ -167,7 +181,7 @@ def render_c(opts: ConvertOptions, frames: List[List[int]]) -> str:
     lines.append("")
     lines.append(f"#define {upper}_FRAME_WIDTH {opts.width}")
     lines.append(f"#define {upper}_FRAME_HEIGHT {opts.height}")
-    lines.append(f"#define {upper}_FRAME_DELAY 42")
+    lines.append(f"#define {upper}_FRAME_DELAY {opts.frame_delay}")
     if opts.rle:
         lines.append(f"#define {upper}_FRAME_RLE_BYTES {stride}")
         lines.append(f"#define {upper}_FRAME_BYTES (0x8000U | {upper}_FRAME_RLE_BYTES)")
@@ -212,6 +226,8 @@ def collect_frames_from_gif(input_path: Path, opts: ConvertOptions) -> List[List
         raise RuntimeError(f"Input GIF not found: {input_path}")
     if opts.width <= 0 or opts.height <= 0:
         raise RuntimeError("Width and height must be > 0")
+    if opts.frame_step <= 0:
+        raise RuntimeError("Frame step must be > 0")
 
     img = Image.open(input_path)
     frames: List[List[int]] = []
@@ -219,10 +235,11 @@ def collect_frames_from_gif(input_path: Path, opts: ConvertOptions) -> List[List
 
     frame_index = 0
     while True:
-        packed = frame_to_mono_bytes(img.copy(), opts)
-        if not (opts.dedupe and prev == packed):
-            frames.append(packed)
-            prev = packed
+        if frame_index % opts.frame_step == 0:
+            packed = frame_to_mono_bytes(img.copy(), opts)
+            if not (opts.dedupe and prev == packed):
+                frames.append(packed)
+                prev = packed
         frame_index += 1
         try:
             img.seek(frame_index)
@@ -277,6 +294,8 @@ def main() -> None:
         dedupe=args.dedupe,
         bg=max(0, min(255, args.bg)),
         rle=args.rle,
+        frame_step=args.frame_step,
+        frame_delay=max(1, args.frame_delay),
     )
 
     try:

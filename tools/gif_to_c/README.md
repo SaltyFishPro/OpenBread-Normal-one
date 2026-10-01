@@ -38,6 +38,8 @@ python tools/gif_to_c/gif_to_c.py your.gif -o src/generated_wifi.h -n wifi -W 32
 - `--dedupe` drop consecutive identical frames
 - `--bg` background gray for transparent pixels (default `255`)
 - `--rle` encode run/value pairs compatible with the project's `IconBitmap` decoder
+- `--frame-step` keep every Nth GIF frame to reduce flash usage
+- `--frame-delay` set the generated animation frame interval in milliseconds
 
 Main menu icons use 100x100 frames (1300 decoded bytes, within the icon cache):
 
