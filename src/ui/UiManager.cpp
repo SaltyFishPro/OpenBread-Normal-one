@@ -155,7 +155,8 @@ const SectionContent kSectionContents[] = {
 bool isDirectDetailHomeIndex(uint8_t homeFocus) {
   return homeFocus == FocusClockPage::kHomeIndex || homeFocus == HomePage::kAlarmMenuIndex ||
          homeFocus == HomePage::kCalendarMenuIndex || homeFocus == HomePage::kApiStatsMenuIndex ||
-         homeFocus == HomePage::kAnswersBookMenuIndex;
+         homeFocus == HomePage::kAnswersBookMenuIndex ||
+         homeFocus == HomePage::kTodayDrawMenuIndex;
 }
 
 SectionContent sectionContentFor(uint8_t homeFocus, const SettingsPage& settingsPage) {

@@ -47,8 +47,9 @@ Main menu icons use 100x100 frames (1300 decoded bytes, within the icon cache):
 python tools/gif_to_c/gif_to_c.py 'F:/下载/system-outline-1327-api-morph-select.gif' -o src/ui/assets/main_menu/api_stats.h -n api_stats -W 100 -H 100 --resize lanczos --dedupe --rle
 ```
 
-The generated animation uses the same fixed 42ms frame interval as the existing
-menu icons; GIF per-frame delays are not preserved.
+The generated animation uses a 42ms frame interval by default; use `--frame-delay`
+when frame sampling needs to preserve a longer animation cycle. GIF per-frame
+delays are not preserved automatically.
 
 ## 5) Integration
 
