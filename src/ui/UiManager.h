@@ -21,6 +21,7 @@
 #include "Render1bpp.h"
 #include "pages/TimeCalibrationPage.h"
 #include "pages/DeviceSelfTestPage.h"
+#include "pages/AnswersBookPage.h"
 #include "pages/FocusClockPage.h"
 #include "pages/GamesPage.h"
 #include "pages/HomePage.h"
@@ -116,6 +117,7 @@ private:
   ReaderPage readerPage_;
   TimeCalibrationPage timeCalibrationPage_;
   DeviceSelfTestPage deviceSelfTestPage_;
+  AnswersBookPage answersBookPage_;
   FocusClockPage focusClockPage_;
   GamesPage gamesPage_;
   RemotePage remotePage_;

@@ -412,6 +412,9 @@ void UiManager::tick() {
   if (focusClockPage_.update(nowMs)) {
     needsRedraw_ = true;
   }
+  if (answersBookPage_.update(nowMs)) {
+    needsRedraw_ = true;
+  }
   musicService_.tick(nowMs);
   if (musicService_.consumeChanged() && !staticReaderDetail) {
     needsRedraw_ = true;
@@ -535,6 +538,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
       if (nowMs - transitionStartMs_ >= kDetailTransitionMs) {
         // 专注时钟是直接从主界面进入的详情页，进入时回到卡片选择界面。
         focusClockPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_);
+        answersBookPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_);
         state_ = UiState::Detail;
         needsRedraw_ = true;
       }
@@ -697,6 +701,8 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         } else if (readerPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                                 readerService_)) {
           needsRedraw_ = true;
+        } else if (answersBookPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_)) {
+          needsRedraw_ = true;
         } else if (focusClockPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                                    nowMs)) {
           needsRedraw_ = true;
@@ -733,6 +739,8 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         } else if (readerPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                                 readerService_)) {
           needsRedraw_ = true;
+        } else if (answersBookPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_)) {
+          needsRedraw_ = true;
         } else if (focusClockPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                                    nowMs)) {
           // 长按 Left 同样不能绕过"放弃专注"确认。
@@ -753,6 +761,9 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
       } else if (focusClockPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
                                                    false, edges.right, edges.up, edges.down,
                                                    edges.ok, nowMs)) {
+        needsRedraw_ = true;
+      } else if (answersBookPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
+                                                    edges.ok, nowMs)) {
         needsRedraw_ = true;
       } else if (gamesPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
                                               edges.ok, edges.okPressed, edges.okChanged,
@@ -867,6 +878,11 @@ bool UiManager::shouldRedraw(uint32_t nowMs) const {
   }
 
   if (state_ == UiState::Detail &&
+      answersBookPage_.needsAnimationFrame(homePage_.focusIndex(), sectionFocusIndex_)) {
+    return true;
+  }
+
+  if (state_ == UiState::Detail &&
       settingsPage_.isDeviceSelfTestSelection(homePage_.focusIndex(), sectionFocusIndex_) &&
       deviceSelfTestPage_.needsAnimationFrame()) {
     return true;
@@ -902,6 +918,11 @@ uint32_t UiManager::targetFrameIntervalMs(uint32_t nowMs) const {
 
   if (state_ == UiState::Detail &&
       focusClockPage_.isAnimating(homePage_.focusIndex(), sectionFocusIndex_, nowMs)) {
+    return kHighFrameIntervalMs;
+  }
+
+  if (state_ == UiState::Detail &&
+      answersBookPage_.isAnimating(homePage_.focusIndex(), sectionFocusIndex_)) {
     return kHighFrameIntervalMs;
   }
 
@@ -1628,6 +1649,9 @@ void UiManager::renderDetail(int16_t yOffset) {
     handled = true;
   } else if (focusClockPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset,
                                           display_, millis(), timeService_)) {
+    handled = true;
+  } else if (answersBookPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset,
+                                           display_, millis())) {
     handled = true;
   } else if (musicPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
                                      musicService_, millis())) {
