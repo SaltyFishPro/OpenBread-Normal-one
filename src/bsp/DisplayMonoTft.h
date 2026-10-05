@@ -12,6 +12,7 @@ public:
   bool begin();
   void clear();
   void present();
+  void presentSynced();
   void presentRegion(int16_t x1, int16_t y1, int16_t x2, int16_t y2);
   void prepareForSleepKeepDisplay();
   void prepareForSleep();
@@ -27,6 +28,10 @@ public:
   U8G2_FOR_ST73XX& text();
 
 private:
+  enum class TeState : uint8_t { Unknown, Available, Unavailable };
+  bool waitForTe();
+
   ST7305_2p9_BW_DisplayDriver display_;
   U8G2_FOR_ST73XX text_;
+  TeState teState_ = TeState::Unknown;
 };

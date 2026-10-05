@@ -6,6 +6,12 @@
 #include "BoardConfig.h"
 
 namespace {
+#ifndef OB_DISPLAY_TE_LOG_ENABLED
+#define OB_DISPLAY_TE_LOG_ENABLED 1
+#endif
+
+constexpr uint32_t kTeWaitTimeoutUs = 35000;
+
 const ST73xxPins kDisplayPins = {
     BoardConfig::kPinDc,
     BoardConfig::kPinCs,
@@ -42,6 +48,8 @@ bool DisplayMonoTft::begin() {
   display_.display_on(true);
   display_.display_Inversion(false);
   display_.setRotation(BoardConfig::kDisplayRotation);
+  pinMode(BoardConfig::kPinTftTe, INPUT);
+  teState_ = TeState::Unknown;
 
   text_.begin(display_);
   text_.setFontMode(1);
@@ -54,6 +62,44 @@ bool DisplayMonoTft::begin() {
 void DisplayMonoTft::clear() { display_.clearDisplay(); }
 
 void DisplayMonoTft::present() { display_.display(); }
+
+void DisplayMonoTft::presentSynced() {
+  if (teState_ != TeState::Unavailable) {
+    (void)waitForTe();
+  }
+  display_.display();
+}
+
+bool DisplayMonoTft::waitForTe() {
+  const uint32_t startUs = micros();
+  int previousLevel = digitalRead(BoardConfig::kPinTftTe);
+  while (micros() - startUs < kTeWaitTimeoutUs) {
+    const int level = digitalRead(BoardConfig::kPinTftTe);
+    if (previousLevel == LOW && level == HIGH) {
+      if (teState_ == TeState::Unknown) {
+#if OB_DISPLAY_TE_LOG_ENABLED
+        if (Serial) {
+          Serial.println("[DISPLAY] TE pulse detected; transition sync active");
+        }
+#endif
+        teState_ = TeState::Available;
+      }
+      return true;
+    }
+    previousLevel = level;
+    delayMicroseconds(50);
+  }
+
+#if OB_DISPLAY_TE_LOG_ENABLED
+  if (Serial) {
+    Serial.printf(
+        "[DISPLAY] TE timeout on GPIO%d; check TE wiring and pulse, using unsynced refresh\n",
+        BoardConfig::kPinTftTe);
+  }
+#endif
+  teState_ = TeState::Unavailable;
+  return false;
+}
 
 void DisplayMonoTft::presentRegion(int16_t x1, int16_t y1, int16_t x2, int16_t y2) {
   if (x1 > x2) {
@@ -103,6 +149,8 @@ void DisplayMonoTft::restoreAfterSleep() {
   display_.High_Power_Mode();
   display_.display_on(true);
   display_.display_Inversion(false);
+  pinMode(BoardConfig::kPinTftTe, INPUT);
+  teState_ = TeState::Unknown;
 }
 
 int DisplayMonoTft::width() const { return display_.getDisplayWidth(); }

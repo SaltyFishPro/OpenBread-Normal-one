@@ -11,8 +11,8 @@ public:
   bool isSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
   void handleDetailEnter(uint8_t homeFocus, uint8_t sectionFocus);
   bool update(uint32_t nowMs);
-  bool handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool okEdge,
-                         uint32_t nowMs);
+  bool handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool upEdge,
+                         bool downEdge, bool okEdge, uint32_t nowMs);
   bool handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus);
   bool renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
                     DisplayMonoTft& display, uint32_t nowMs) const;
@@ -24,16 +24,21 @@ private:
     Prompt,
     Thinking,
     RevealAnimation,
+    History,
     Answer,
   };
 
   void startThinking(uint32_t nowMs);
   void chooseAnswer();
+  void recordAnswer();
 
   View view_ = View::Prompt;
   uint32_t phaseStartMs_ = 0;
   uint16_t answerIndex_ = 0;
   uint16_t lastAnswerIndex_ = 0xFFFFU;
+  uint16_t historyIndices_[3] = {0};
+  uint8_t historyCount_ = 0;
+  uint8_t historyCursor_ = 0;
   bool hasAnswer_ = false;
 
   static constexpr uint32_t kThinkingDurationMs = 5000U;

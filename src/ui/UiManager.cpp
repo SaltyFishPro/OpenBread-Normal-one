@@ -82,6 +82,7 @@ constexpr uint32_t kSectionFocusSlideMs = 170;
 constexpr uint8_t kSectionPageSize = 5;
 constexpr uint8_t kMaxSectionItemsForAnim = 8;
 constexpr uint32_t kHighFrameIntervalMs = 16;
+constexpr uint32_t kTransitionFrameIntervalMs = 32;
 // 空闲时仍按输入采样周期轮询；射频/自检等需要协作式高频服务的子系统用 1ms。
 constexpr uint32_t kActivePollMs = 1;
 // 满屏渲染后保持满速的时长，避免降频状态下执行整帧绘制。
@@ -763,7 +764,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
                                                    edges.ok, nowMs)) {
         needsRedraw_ = true;
       } else if (answersBookPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
-                                                    edges.ok, nowMs)) {
+                                                    edges.up, edges.down, edges.ok, nowMs)) {
         needsRedraw_ = true;
       } else if (gamesPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
                                               edges.ok, edges.okPressed, edges.okChanged,
@@ -900,7 +901,7 @@ uint32_t UiManager::targetFrameIntervalMs(uint32_t nowMs) const {
       state_ == UiState::ToHomeFromDirectDetailTransition ||
       state_ == UiState::ToDetailTransition ||
       state_ == UiState::ToSectionFromDetailTransition) {
-    return kHighFrameIntervalMs;
+    return kTransitionFrameIntervalMs;
   }
 
   if (state_ == UiState::Home && homePage_.isSliding()) {
@@ -1376,17 +1377,30 @@ void UiManager::render(uint32_t nowMs) {
   }
 
   if (renderer_.hasDirty()) {
+    const bool transitionFrame =
+        state_ == UiState::ToSectionTransition ||
+        state_ == UiState::ToDirectDetailTransition ||
+        state_ == UiState::ToHomeTransition ||
+        state_ == UiState::ToHomeFromDirectDetailTransition ||
+        state_ == UiState::ToDetailTransition ||
+        state_ == UiState::ToSectionFromDetailTransition;
 #if OB_PARTIAL_REFRESH_ENABLED
     // 滑动中只有菜单列在变；静态图层是整帧回填的，其余区域与屏幕内容一致，
     // 因此只需把菜单列推给面板。
     if (homeSlideFrame && homePage_.frameUsedStaticLayer()) {
       const HomePage::Rect region = homePage_.menuColumnBounds(display_);
       display_.presentRegion(region.x1, region.y1, region.x2, region.y2);
+    } else if (transitionFrame) {
+      display_.presentSynced();
     } else {
       display_.present();
     }
 #else
-    display_.present();
+    if (transitionFrame) {
+      display_.presentSynced();
+    } else {
+      display_.present();
+    }
 #endif
   }
 }
