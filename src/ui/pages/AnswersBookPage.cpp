@@ -26,7 +26,7 @@ constexpr int16_t kAnswerMaxWidth = 320;
 constexpr int16_t kAnswerFirstBaseline = 94;
 constexpr int16_t kAnswerLineGap = 18;
 constexpr uint8_t kHistoryCapacity = 3;
-constexpr int16_t kHistoryFirstBaseline = 58;
+constexpr int16_t kHistoryFirstBaseline = 49;
 constexpr int16_t kHistoryLineGap = 24;
 
 void drawCentered(U8G2_FOR_ST73XX& text, const char* value, int16_t centerX,
@@ -317,14 +317,6 @@ bool AnswersBookPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int1
                                           row * kHistoryLineGap),
                      static_cast<int16_t>(width / 2), row == historyCursor_);
     }
-    text.setForegroundColor(ST7305_COLOR_BLACK);
-    text.setBackgroundColor(ST7305_COLOR_WHITE);
-    char pageText[8];
-    snprintf(pageText, sizeof(pageText), "%u/%u",
-             static_cast<unsigned>(historyCursor_ + 1U),
-             static_cast<unsigned>(historyCount_));
-    drawCentered(text, pageText, static_cast<int16_t>(width / 2),
-                 static_cast<int16_t>(yOffset + 132));
     drawFooter(text, yOffset, "UP/DOWN 浏览   OK 再问   LEFT 返回", width, height);
     return true;
   }
