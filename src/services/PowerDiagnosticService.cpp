@@ -21,14 +21,62 @@
 bool PowerDiagnosticService::run(PeripheralPower& peripheralPower) {
   audioLdoEnabled_ = peripheralPower.isAudioEnabled();
   sensorLdoEnabled_ = peripheralPower.isSensorEnabled();
-  reading_ = Max17048Driver::Reading{};
-  if (!driver_.read(reading_)) {
-    state_ = State::Failed;
+  if (!readAndClassify()) {
     changed_ = true;
     POWER_ERROR("MAX17048 read failed address=0x36");
     return false;
   }
 
+  changed_ = true;
+  POWER_LOG("battery=3800mV/4350mV/800mAh version=0x%04X voltage_mv=%u soc_x100=%u remaining_mah=%u rate_x100=%ld estimated_current_x10_ma=%ld status=0x%04X audio_ldo=%u sensor_ldo=%u result=%s",
+            reading_.version, reading_.voltageMv, reading_.stateOfChargeX100,
+            estimatedRemainingMah(), static_cast<long>(reading_.chargeRateX100),
+            static_cast<long>(estimatedCurrentMaX10()), reading_.status,
+            audioLdoEnabled_ ? 1U : 0U,
+            sensorLdoEnabled_ ? 1U : 0U, state_ == State::Passed ? "passed" : "warning");
+  return true;
+}
+
+bool PowerDiagnosticService::refresh() {
+  const State previousState = state_;
+  const VoltageState previousVoltageState = voltageState_;
+  const Max17048Driver::Reading previousReading = reading_;
+  if (!readAndClassify()) {
+    if (previousState != State::Failed) {
+      POWER_ERROR("MAX17048 refresh failed address=0x36");
+    }
+    if (state_ != previousState) {
+      changed_ = true;
+    }
+    return false;
+  }
+
+  const bool changed = state_ != previousState || voltageState_ != previousVoltageState ||
+                       reading_.version != previousReading.version ||
+                       reading_.voltageMv != previousReading.voltageMv ||
+                       reading_.stateOfChargeX100 != previousReading.stateOfChargeX100 ||
+                       reading_.chargeRateX100 != previousReading.chargeRateX100;
+  if (changed) {
+    changed_ = true;
+  }
+  if (state_ != previousState || voltageState_ != previousVoltageState) {
+    POWER_LOG("refresh voltage_mv=%u soc_x100=%u state=%u voltage_state=%u",
+              reading_.voltageMv, reading_.stateOfChargeX100,
+              static_cast<unsigned>(state_), static_cast<unsigned>(voltageState_));
+  }
+  return true;
+}
+
+bool PowerDiagnosticService::readAndClassify() {
+  Max17048Driver::Reading nextReading{};
+  if (!driver_.read(nextReading)) {
+    reading_ = Max17048Driver::Reading{};
+    state_ = State::Failed;
+    voltageState_ = VoltageState::Normal;
+    return false;
+  }
+
+  reading_ = nextReading;
   const bool versionValid = reading_.version != 0U && reading_.version != 0xFFFFU;
   if (reading_.voltageMv < kMinimumVoltageMv) {
     voltageState_ = VoltageState::Low;
@@ -40,13 +88,6 @@ bool PowerDiagnosticService::run(PeripheralPower& peripheralPower) {
   const bool voltagePlausible = voltageState_ == VoltageState::Normal;
   const bool socPlausible = reading_.stateOfChargeX100 <= 10500U;
   state_ = versionValid && voltagePlausible && socPlausible ? State::Passed : State::Warning;
-  changed_ = true;
-  POWER_LOG("battery=3800mV/4350mV/800mAh version=0x%04X voltage_mv=%u soc_x100=%u remaining_mah=%u rate_x100=%ld estimated_current_x10_ma=%ld status=0x%04X audio_ldo=%u sensor_ldo=%u result=%s",
-            reading_.version, reading_.voltageMv, reading_.stateOfChargeX100,
-            estimatedRemainingMah(), static_cast<long>(reading_.chargeRateX100),
-            static_cast<long>(estimatedCurrentMaX10()), reading_.status,
-            audioLdoEnabled_ ? 1U : 0U,
-            sensorLdoEnabled_ ? 1U : 0U, state_ == State::Passed ? "passed" : "warning");
   return true;
 }
 

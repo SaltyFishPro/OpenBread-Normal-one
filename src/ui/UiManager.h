@@ -98,6 +98,7 @@ private:
   void renderDetail(int16_t yOffset = 0);
   void startSectionFocusAnimation(uint8_t toIndex, uint32_t nowMs);
   void syncHomeClockFromTimeService();
+  void refreshHomeBattery(uint32_t nowMs);
   void refreshSdStatus();
   bool isSectionAnimationActive(uint32_t nowMs) const;
   uint32_t sectionAnimationRenderTime(uint32_t nowMs) const;
@@ -162,6 +163,8 @@ private:
   bool needsRedraw_ = true;
   bool leftLongReported_ = false;
   uint32_t lastActivityMs_ = 0;
+  uint32_t lastBatteryRefreshMs_ = 0;
+  bool batteryRefreshStarted_ = false;
 
   ButtonEdge buttons_[5] = {
       {0, false, false, 0},

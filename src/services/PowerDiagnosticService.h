@@ -18,6 +18,8 @@ public:
   static constexpr uint16_t kMaximumVoltageMv = 4400;
 
   bool run(PeripheralPower& peripheralPower);
+  // 按需读取最新电量；不改变外设电源状态，仅更新电量计读数。
+  bool refresh();
   State state() const;
   VoltageState voltageState() const;
   const Max17048Driver::Reading& reading() const;
@@ -28,6 +30,8 @@ public:
   bool consumeChanged();
 
 private:
+  bool readAndClassify();
+
   Max17048Driver driver_;
   Max17048Driver::Reading reading_{};
   State state_ = State::Idle;

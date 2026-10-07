@@ -40,6 +40,7 @@ namespace {
 #endif
 
 constexpr uint32_t kAutoSleepTimeoutMs = 20000;
+constexpr uint32_t kBatteryRefreshIntervalMs = 10000;
 
 void sleepLog(const char* fmt, ...) {
 #if OB_SLEEP_LOG_ENABLED
@@ -338,6 +339,7 @@ bool UiManager::begin() {
 
   initDeviceInfoCache();
   syncHomeClockFromTimeService();
+  refreshHomeBattery(nowMs);
   state_ = UiState::Home;
   lastActivityMs_ = millis();
   leftLongReported_ = false;
@@ -392,6 +394,10 @@ void UiManager::tick() {
     timeService_.tick(nowMs);
   }
   syncHomeClockFromTimeService();
+  if (state_ == UiState::Home &&
+      (!batteryRefreshStarted_ || nowMs - lastBatteryRefreshMs_ >= kBatteryRefreshIntervalMs)) {
+    refreshHomeBattery(nowMs);
+  }
   if (timeService_.consumeChanged() && !staticReaderDetail) {
     needsRedraw_ = true;
   }
@@ -1743,6 +1749,29 @@ void UiManager::syncHomeClockFromTimeService() {
     clock.valid = false;
   }
   homePage_.setClockData(clock);
+}
+
+void UiManager::refreshHomeBattery(uint32_t nowMs) {
+  if (!powerDiagnosticService_.refresh()) {
+    const bool displayChanged = homePage_.setBatteryData({0, false});
+    lastBatteryRefreshMs_ = nowMs;
+    batteryRefreshStarted_ = true;
+    if (state_ == UiState::Home && displayChanged) {
+      needsRedraw_ = true;
+    }
+    return;
+  }
+
+  const uint16_t socX100 = powerDiagnosticService_.reading().stateOfChargeX100;
+  const uint8_t percent = socX100 >= 10000U
+                              ? 100U
+                              : static_cast<uint8_t>((socX100 + 50U) / 100U);
+  const bool displayChanged = homePage_.setBatteryData({percent, true});
+  lastBatteryRefreshMs_ = nowMs;
+  batteryRefreshStarted_ = true;
+  if (state_ == UiState::Home && displayChanged) {
+    needsRedraw_ = true;
+  }
 }
 
 bool UiManager::isSleepAllowed() const {

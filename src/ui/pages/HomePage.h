@@ -24,6 +24,11 @@ public:
     bool valid = false;
   };
 
+  struct BatteryData {
+    uint8_t percent = 0;
+    bool valid = false;
+  };
+
   struct Rect {
     int16_t x1;
     int16_t y1;
@@ -57,6 +62,7 @@ public:
   uint8_t focusIndex() const;
   const char* focusName() const;
   void setClockData(const ClockData& data);
+  bool setBatteryData(const BatteryData& data);
 
 private:
   enum class SlideState : uint8_t { Idle, Sliding };
@@ -97,6 +103,7 @@ private:
   uint32_t lastInteractionMs_ = 0;
   uint32_t animationTimeMs_ = 0;
   ClockData clockData_;
+  BatteryData batteryData_;
 
   static constexpr uint8_t kMenuCount = 11;
   static constexpr uint32_t kIdleAnimationTimeoutMs = 4000;

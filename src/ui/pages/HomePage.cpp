@@ -85,6 +85,9 @@ constexpr DateCardStyle kDateCardStyle = {
     6,
     -2};
 
+// 左下角位于日期卡片下方，保持电量框完整落在屏幕内。
+constexpr HomePage::Rect kBatteryStatusRect = {10, 143, 50, 166};
+
 const IconBitmap::Anim kMenuIcons[] = {
     {reinterpret_cast<const uint8_t*>(&setting_frames[0][0]), SETTING_FRAME_BYTES,
      SETTING_FRAME_WIDTH, SETTING_FRAME_HEIGHT, SETTING_FRAME_DELAY, SETTING_FRAME_COUNT},
@@ -295,6 +298,47 @@ void drawHomeDatePreview(ST7305_2p9_BW_DisplayDriver& canvas, U8G2_FOR_ST73XX& t
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setForegroundColor(ST7305_COLOR_BLACK);
   text.setFontMode(1);
+}
+
+void drawHomeBatteryPreview(ST7305_2p9_BW_DisplayDriver& canvas, U8G2_FOR_ST73XX& text,
+                            const HomePage::BatteryData& batteryData) {
+  const int16_t x1 = kBatteryStatusRect.x1;
+  const int16_t y1 = kBatteryStatusRect.y1;
+  const int16_t x2 = kBatteryStatusRect.x2;
+  const int16_t y2 = kBatteryStatusRect.y2;
+  canvas.drawFilledRectangle(x1, y1, x2, y2, ST7305_COLOR_WHITE);
+  canvas.drawRectangle(x1, y1, x2, y2, ST7305_COLOR_BLACK);
+
+  const int16_t iconX = static_cast<int16_t>(x1 + 3);
+  const int16_t iconY = static_cast<int16_t>(y1 + 7);
+  const int16_t iconRight = static_cast<int16_t>(iconX + 14);
+  const int16_t iconBottom = static_cast<int16_t>(iconY + 9);
+  canvas.drawRectangle(iconX, iconY, iconRight, iconBottom, ST7305_COLOR_BLACK);
+  canvas.drawFilledRectangle(static_cast<int16_t>(iconRight + 1),
+                             static_cast<int16_t>(iconY + 3),
+                             static_cast<int16_t>(iconRight + 2),
+                             static_cast<int16_t>(iconY + 6), ST7305_COLOR_BLACK);
+
+  const uint8_t percent = batteryData.percent > 100U ? 100U : batteryData.percent;
+  if (batteryData.valid && percent > 0U) {
+    const int16_t fillWidth = static_cast<int16_t>((percent * 10U + 50U) / 100U);
+    canvas.drawFilledRectangle(static_cast<int16_t>(iconX + 2),
+                               static_cast<int16_t>(iconY + 2),
+                               static_cast<int16_t>(iconX + 1 + fillWidth),
+                               static_cast<int16_t>(iconBottom - 2), ST7305_COLOR_BLACK);
+  }
+
+  char percentText[5];
+  if (batteryData.valid) {
+    snprintf(percentText, sizeof(percentText), "%u%%", static_cast<unsigned>(percent));
+  } else {
+    snprintf(percentText, sizeof(percentText), "--%%");
+  }
+  text.setFont(u8g2_font_6x12_mf);
+  text.setFontMode(1);
+  text.setForegroundColor(ST7305_COLOR_BLACK);
+  text.setBackgroundColor(ST7305_COLOR_WHITE);
+  text.drawUTF8(static_cast<int16_t>(x1 + 20), static_cast<int16_t>(y1 + 16), percentText);
 }
 }  // namespace
 
@@ -516,6 +560,17 @@ void HomePage::setClockData(const ClockData& data) {
   }
 }
 
+bool HomePage::setBatteryData(const BatteryData& data) {
+  const uint8_t percent = data.percent > 100U ? 100U : data.percent;
+  if (batteryData_.valid == data.valid && batteryData_.percent == percent) {
+    return false;
+  }
+  batteryData_ = data;
+  batteryData_.percent = percent;
+  staticLayerValid_ = false;
+  return true;
+}
+
 void HomePage::render(DisplayMonoTft& display, int16_t pageOffsetX, uint32_t nowMs) {
   renderTransition(display, pageOffsetX, pageOffsetX, 0, 0, 0, nowMs);
 }
@@ -560,6 +615,9 @@ void HomePage::renderTransition(DisplayMonoTft& display, int16_t backgroundOffse
       lastUncalibratedFrame_ = IconBitmap::frameAt(kUncalibratedBread, nowMs);
     }
     drawHomeDatePreview(canvas, text, nowMs, backgroundOffsetX, clockData_);
+    if (backgroundOffsetX == 0 && menuBaseOffsetX == 0) {
+      drawHomeBatteryPreview(canvas, text, batteryData_);
+    }
     frameUsedStaticLayer_ = false;
     if (canUseStaticLayer && display.frameBufferBytes() == kStaticLayerBytes) {
       display.captureFrame(staticLayer_);
