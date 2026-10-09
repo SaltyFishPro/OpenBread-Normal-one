@@ -11,11 +11,15 @@ public:
   static constexpr uint8_t kHomeIndex = 4;
   static constexpr uint8_t kBluetoothConnectItemIndex = 0;
   static constexpr uint8_t kBluetoothRemoteCamItemIndex = 1;
+  static constexpr uint8_t kBluetoothPagerItemIndex = 2;
 
   bool isBluetoothSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
   bool isRemoteCamSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
+  bool isPagerSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
+  bool isPortraitSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
   uint8_t detailPageCount(uint8_t homeFocus, uint8_t sectionFocus) const;
-  bool handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool okEdge, uint32_t nowMs,
+  bool handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool upEdge, bool downEdge,
+                         bool okEdge, uint32_t nowMs,
                          BluetoothService& bluetooth, RemoteService& remote) const;
   bool handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus,
                         BluetoothService& bluetooth) const;

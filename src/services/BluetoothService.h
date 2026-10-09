@@ -30,6 +30,9 @@ public:
   bool start(uint32_t nowMs);
   void stop();
   bool triggerCameraShutter(uint32_t nowMs);
+  bool triggerPageUp(uint32_t nowMs);
+  bool triggerPageDown(uint32_t nowMs);
+  bool triggerPlayPause(uint32_t nowMs);
 
   State state() const;
   Error error() const;
@@ -45,6 +48,8 @@ public:
 
 private:
   void setState(State next, Error err = Error::None);
+  bool sendKeyboardUsage(uint32_t nowMs, uint8_t usage, const char* label);
+  bool sendConsumerUsage(uint32_t nowMs, uint16_t usage, const char* label);
   bool initializeStack();
   void cleanupStack();
   State state_ = State::Off;
@@ -53,6 +58,8 @@ private:
   bool initialized_ = false;
   bool bleStackReady_ = false;
   bool shuttingDown_ = false;
+  enum class ActiveReport : uint8_t { None, Keyboard, Consumer };
+  ActiveReport activeReport_ = ActiveReport::None;
   uint32_t advertiseStartMs_ = 0;
   uint32_t pendingReleaseMs_ = 0;
   uint32_t lastShutterMs_ = 0;
@@ -63,6 +70,7 @@ private:
   BLEServer* server_ = nullptr;
   BLEHIDDevice* hid_ = nullptr;
   BLECharacteristic* inputReport_ = nullptr;
+  BLECharacteristic* consumerInputReport_ = nullptr;
   BLECharacteristic* bootInput_ = nullptr;
   BLEServerCallbacks* callbacks_ = nullptr;
   BLESecurity* security_ = nullptr;
@@ -70,4 +78,5 @@ private:
   static constexpr uint32_t kAdvertiseTimeoutMs = 60000;
   static constexpr uint32_t kShutterReleaseDelayMs = 60;
   static constexpr uint32_t kShutterCooldownMs = 250;
+  static constexpr uint32_t kPagerCooldownMs = 120;
 };

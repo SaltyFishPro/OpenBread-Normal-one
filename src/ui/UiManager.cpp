@@ -33,6 +33,10 @@ namespace {
 #define OB_POWER_WORK_LOG_ENABLED 1
 #endif
 
+#ifndef OB_DISPLAY_ROTATION_LOG_ENABLED
+#define OB_DISPLAY_ROTATION_LOG_ENABLED 1
+#endif
+
 // 局部刷新：音乐导航栏/列表动画只把脏区域推送到屏幕，降低 SPI 传输量。
 // 置 0 可退回整屏刷新以便对比排查。
 #ifndef OB_PARTIAL_REFRESH_ENABLED
@@ -127,7 +131,10 @@ const SectionItem kWirelessItems[] = {
      {reinterpret_cast<const uint8_t*>(&bluetoothconnet_frames[0][0]),
       BLUETOOTHCONNET_FRAME_BYTES, BLUETOOTHCONNET_FRAME_WIDTH, BLUETOOTHCONNET_FRAME_HEIGHT,
       BLUETOOTHCONNET_FRAME_DELAY, BLUETOOTHCONNET_FRAME_COUNT}},
-    {"蓝牙远程拍照",
+    {"蓝牙拍照",
+     {reinterpret_cast<const uint8_t*>(&remote_frames[0][0]), REMOTE_FRAME_BYTES,
+      REMOTE_FRAME_WIDTH, REMOTE_FRAME_HEIGHT, REMOTE_FRAME_DELAY, REMOTE_FRAME_COUNT}},
+    {"翻页器",
      {reinterpret_cast<const uint8_t*>(&remote_frames[0][0]), REMOTE_FRAME_BYTES,
       REMOTE_FRAME_WIDTH, REMOTE_FRAME_HEIGHT, REMOTE_FRAME_DELAY, REMOTE_FRAME_COUNT}},
 };
@@ -580,6 +587,8 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         musicPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_, musicService_,
                                      sdCardService_);
         readerPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_);
+        setRemotePagePortrait(remotePage_.isPortraitSelection(homePage_.focusIndex(),
+                                                              sectionFocusIndex_));
         state_ = UiState::Detail;
         needsRedraw_ = true;
       }
@@ -588,6 +597,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
 
     case UiState::ToSectionFromDetailTransition: {
       if (nowMs - transitionStartMs_ >= kDetailTransitionMs) {
+        setRemotePagePortrait(false);
         state_ = UiState::Section;
         needsRedraw_ = true;
       }
@@ -716,6 +726,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         } else {
           settingsPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                           wifiProvisionService_, otaService_, timeService_);
+          setRemotePagePortrait(false);
           state_ = isDirectDetailHomeIndex(homePage_.focusIndex())
                        ? UiState::ToHomeFromDirectDetailTransition
                        : UiState::ToSectionFromDetailTransition;
@@ -755,6 +766,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         } else {
           settingsPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                           wifiProvisionService_, otaService_, timeService_);
+          setRemotePagePortrait(false);
           state_ = isDirectDetailHomeIndex(homePage_.focusIndex())
                        ? UiState::ToHomeFromDirectDetailTransition
                        : UiState::ToSectionFromDetailTransition;
@@ -777,7 +789,8 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
                                               nowMs)) {
         needsRedraw_ = true;
         } else if (remotePage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
-                                               edges.ok, nowMs, bluetoothService_,
+                                               edges.up, edges.down, edges.ok, nowMs,
+                                               bluetoothService_,
                                                remoteService_)) {
           needsRedraw_ = true;
       } else if (timeCalibrationPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
@@ -1648,6 +1661,22 @@ void UiManager::performFactoryReset() {
 void UiManager::renderPopup(uint32_t nowMs) {
   PopupView::drawConfirm(display_, 0, confirmState_, confirmTitle_, confirmPrimaryLabel_,
                          confirmDangerLabel_, nowMs);
+}
+
+void UiManager::setRemotePagePortrait(bool enabled) {
+  // Default is 90 degrees clockwise; rotation 2 is the next clockwise quarter-turn.
+  const uint8_t desiredRotation = enabled ? 2U : BoardConfig::kDisplayRotation;
+  if (display_.rotation() == desiredRotation) {
+    return;
+  }
+  display_.setRotation(desiredRotation);
+#if OB_DISPLAY_ROTATION_LOG_ENABLED
+  if (Serial) {
+    Serial.printf("[DISPLAY] UI rotation=%u (%s)\n", static_cast<unsigned>(desiredRotation),
+                  enabled ? "portrait remote" : "default landscape");
+  }
+#endif
+  needsRedraw_ = true;
 }
 
 void UiManager::renderDetail(int16_t yOffset) {

@@ -90,6 +90,7 @@ private:
                      uint8_t rowExtraCount = 0,
                      int16_t focusBoxExtraOffsetX = 0);
   void renderPopup(uint32_t nowMs);
+  void setRemotePagePortrait(bool enabled);
   void openConfirm(const char* title, const char* primaryLabel, const char* dangerLabel,
                    ConfirmAction action, bool overSection, uint32_t nowMs);
   void performConfirmAction(uint32_t nowMs);

@@ -19,6 +19,9 @@ public:
   void restoreAfterSleep();
   int width() const;
   int height() const;
+  // 页面级布局需要时切换逻辑坐标方向；硬件面板本身不重新初始化。
+  void setRotation(uint8_t rotation) { display_.setRotation(rotation); }
+  uint8_t rotation() const { return display_.getRotation(); }
   // 帧缓冲整帧快照/回填，供上层缓存静态图层，避免每帧重画整屏
   size_t frameBufferBytes() const;
   void captureFrame(uint8_t* dst) const;

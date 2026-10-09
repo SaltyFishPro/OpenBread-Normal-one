@@ -414,7 +414,7 @@ void ST7305_2p9_BW_DisplayDriver::Initial_ST7305() {
     Write_Parameter(0X60); //384 line 
 
     Write_Register(0x11); //Sleep out 
-    delay(10); 
+    delay(120); 
 
     Write_Register(0xC9); //Source Voltage Select  
     Write_Parameter(0X00); //VSHP1; VSLP1 ; VSHN1 ; VSLN1
