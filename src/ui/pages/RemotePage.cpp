@@ -226,7 +226,7 @@ bool RemotePage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t y
              static_cast<unsigned long>(remote.pagerDownCount()));
     snprintf(line3, sizeof(line3), "暂停: %lu", static_cast<unsigned long>(remote.pagerPauseCount()));
     snprintf(line4, sizeof(line4), "%s", bluetooth.state() == BluetoothService::State::Connected
-                                               ? "UP/DOWN 翻页    OK 暂停"
+                                               ? "UP/DOWN 上下滑动    OK 点按"
                                                : "请先进入蓝牙连接完成配对");
   }
 
@@ -258,10 +258,10 @@ bool RemotePage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t y
     drawCentered(portraitLine1, 84);
     drawCentered(portraitLine2, 138);
     drawCentered(portraitLine3, 192);
-    drawCentered(isPagerSelection(homeFocus, sectionFocus) ? "UP/DOWN 翻页" : "OK 拍照",
+    drawCentered(isPagerSelection(homeFocus, sectionFocus) ? "UP/DOWN 上下滑动" : "OK 拍照",
                  isPagerSelection(homeFocus, sectionFocus) ? 314 : 332);
     if (isPagerSelection(homeFocus, sectionFocus)) {
-      drawCentered("OK 暂停", 346);
+      drawCentered("OK 点按", 346);
     }
     drawCentered("LEFT 返回", isPagerSelection(homeFocus, sectionFocus) ? 378 : 366);
   } else {

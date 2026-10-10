@@ -48,8 +48,9 @@ public:
 
 private:
   void setState(State next, Error err = Error::None);
-  bool sendKeyboardUsage(uint32_t nowMs, uint8_t usage, const char* label);
-  bool sendConsumerUsage(uint32_t nowMs, uint16_t usage, const char* label);
+  bool sendTouchTap(uint32_t nowMs, uint16_t x, uint16_t y, const char* label);
+  bool sendTouchSwipe(uint32_t nowMs, bool upward, const char* label);
+  void sendTouchReport(bool contact, uint16_t x, uint16_t y);
   bool initializeStack();
   void cleanupStack();
   State state_ = State::Off;
@@ -58,25 +59,28 @@ private:
   bool initialized_ = false;
   bool bleStackReady_ = false;
   bool shuttingDown_ = false;
-  enum class ActiveReport : uint8_t { None, Keyboard, Consumer };
-  ActiveReport activeReport_ = ActiveReport::None;
+  enum class TouchGesture : uint8_t { None, Tap, Swipe };
+  TouchGesture touchGesture_ = TouchGesture::None;
+  bool touchSwipeUp_ = false;
+  uint8_t touchStep_ = 0;
+  uint16_t touchX_ = 0;
+  uint16_t touchY_ = 0;
   uint32_t advertiseStartMs_ = 0;
   uint32_t pendingReleaseMs_ = 0;
   uint32_t lastShutterMs_ = 0;
-  bool shutterPressActive_ = false;
   uint16_t activeConnId_ = 0xFFFF;
   char deviceName_[32] = {0};
 
   BLEServer* server_ = nullptr;
   BLEHIDDevice* hid_ = nullptr;
   BLECharacteristic* inputReport_ = nullptr;
-  BLECharacteristic* consumerInputReport_ = nullptr;
-  BLECharacteristic* bootInput_ = nullptr;
   BLEServerCallbacks* callbacks_ = nullptr;
   BLESecurity* security_ = nullptr;
 
   static constexpr uint32_t kAdvertiseTimeoutMs = 60000;
-  static constexpr uint32_t kShutterReleaseDelayMs = 60;
+  static constexpr uint32_t kTouchTapDurationMs = 60;
+  static constexpr uint32_t kTouchSwipeStepMs = 24;
+  static constexpr uint8_t kTouchSwipeSteps = 5;
   static constexpr uint32_t kShutterCooldownMs = 250;
   static constexpr uint32_t kPagerCooldownMs = 120;
 };

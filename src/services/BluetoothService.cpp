@@ -13,50 +13,55 @@ namespace {
 #endif
 
 constexpr uint8_t kHidReportDescriptor[] = {
-    0x05, 0x01,        // Usage Page (Generic Desktop)
-    0x09, 0x06,        // Usage (Keyboard)
+    0x05, 0x0D,        // Usage Page (Digitizers)
+    0x09, 0x04,        // Usage (Touch Screen)
     0xA1, 0x01,        // Collection (Application)
     0x85, 0x01,        //   Report ID (1)
-    0x05, 0x07,        //   Usage Page (Key Codes)
-    0x19, 0xE0,        //   Usage Minimum (224)
-    0x29, 0xE7,        //   Usage Maximum (231)
+    0x09, 0x22,        //   Usage (Finger)
+    0xA1, 0x02,        //   Collection (Logical)
+    0x09, 0x42,        //     Usage (Tip Switch)
+    0x09, 0x32,        //     Usage (In Range)
     0x15, 0x00,        //   Logical Minimum (0)
     0x25, 0x01,        //   Logical Maximum (1)
     0x75, 0x01,        //   Report Size (1)
-    0x95, 0x08,        //   Report Count (8)
-    0x81, 0x02,        //   Input (Data, Variable, Absolute): Modifier byte
-    0x95, 0x01,        //   Report Count (1)
-    0x75, 0x08,        //   Report Size (8)
-    0x81, 0x01,        //   Input (Constant): Reserved byte
+    0x95, 0x02,        //   Report Count (2)
+    0x81, 0x02,        //   Input (Data, Variable, Absolute)
     0x95, 0x06,        //   Report Count (6)
-    0x75, 0x08,        //   Report Size (8)
-    0x15, 0x00,        //   Logical Minimum (0)
-    0x25, 0x65,        //   Logical Maximum (101)
-    0x05, 0x07,        //   Usage Page (Key Codes)
-    0x19, 0x00,        //   Usage Minimum (0)
-    0x29, 0x65,        //   Usage Maximum (101)
-    0x81, 0x00,        //   Input (Data, Array)
-    0xC0,              // End keyboard collection
-    0x05, 0x0C,        // Usage Page (Consumer)
-    0x09, 0x01,        // Usage (Consumer Control)
-    0xA1, 0x01,        // Collection (Application)
-    0x85, 0x02,        //   Report ID (2)
-    0x09, 0xCD,        //   Usage (Play/Pause)
+    0x81, 0x03,        //   Input (Constant)
+    0x09, 0x51,        //     Usage (Contact Identifier)
+    0x75, 0x08,        //     Report Size (8)
+    0x95, 0x01,        //     Report Count (1)
+    0x15, 0x00,        //     Logical Minimum (0)
+    0x25, 0xFF,        //     Logical Maximum (255)
+    0x81, 0x02,        //     Input (Data, Variable, Absolute)
+    0x05, 0x01,        //     Usage Page (Generic Desktop)
+    0x09, 0x30,        //     Usage (X)
+    0x09, 0x31,        //     Usage (Y)
+    0x16, 0x00, 0x00,  //     Logical Minimum (0)
+    0x26, 0xFF, 0x7F,  //     Logical Maximum (32767)
+    0x75, 0x10,        //     Report Size (16)
+    0x95, 0x02,        //     Report Count (2)
+    0x81, 0x02,        //     Input (Data, Variable, Absolute)
+    0xC0,              //   End Finger collection
+    0x05, 0x0D,        //   Usage Page (Digitizers)
+    0x09, 0x54,        //   Usage (Contact Count)
     0x15, 0x00,        //   Logical Minimum (0)
     0x25, 0x01,        //   Logical Maximum (1)
-    0x75, 0x01,        //   Report Size (1)
+    0x75, 0x08,        //   Report Size (8)
     0x95, 0x01,        //   Report Count (1)
     0x81, 0x02,        //   Input (Data, Variable, Absolute)
-    0x75, 0x07,        //   Report Size (7)
-    0x95, 0x01,        //   Report Count (1)
-    0x81, 0x01,        //   Input (Constant)
-    0xC0               // End consumer collection
+    0xC0               // End touch screen collection
 };
 
-constexpr uint8_t kKeyboardEnterUsage = 0x28;
-constexpr uint8_t kKeyboardArrowDownUsage = 0x51;
-constexpr uint8_t kKeyboardArrowUpUsage = 0x52;
-constexpr uint8_t kConsumerPlayPauseUsage = 0xCD;
+constexpr uint16_t kTouchCoordinateMax = 32767;
+constexpr uint16_t kTapCenterX = kTouchCoordinateMax / 2;
+constexpr uint16_t kTapCenterY = kTouchCoordinateMax / 2;
+constexpr uint16_t kCameraShutterX = kTouchCoordinateMax / 2;
+constexpr uint16_t kCameraShutterY = (kTouchCoordinateMax * 9U) / 10U;
+constexpr uint16_t kSwipeStartY = (kTouchCoordinateMax * 3U) / 4U;
+constexpr uint16_t kSwipeEndY = kTouchCoordinateMax / 4U;
+constexpr size_t kTouchReportBytes = 7;  // Tip/in-range + contact ID + X/Y + contact count.
+constexpr uint16_t kHidDigitizerAppearance = 0x03C5;
 
 void btLog(const char* fmt, ...) {
 #if OB_BT_LOG_ENABLED
@@ -111,34 +116,40 @@ bool BluetoothService::begin() {
            static_cast<unsigned>(chip));
   pendingReleaseMs_ = 0;
   lastShutterMs_ = 0;
-  shutterPressActive_ = false;
-  activeReport_ = ActiveReport::None;
+  touchGesture_ = TouchGesture::None;
+  touchSwipeUp_ = false;
+  touchStep_ = 0;
+  touchX_ = 0;
+  touchY_ = 0;
   setState(State::Off, Error::None);
   return true;
 }
 
 void BluetoothService::tick(uint32_t nowMs) {
-  if (shutterPressActive_ && nowMs >= pendingReleaseMs_) {
-    if (activeReport_ == ActiveReport::Consumer && consumerInputReport_ != nullptr) {
-      const uint8_t releaseReport[1] = {0x00};
-      consumerInputReport_->setValue(releaseReport, sizeof(releaseReport));
-      consumerInputReport_->notify();
-    } else if (activeReport_ == ActiveReport::Keyboard && inputReport_ != nullptr) {
-      const uint8_t releaseReport[9] = {0x01, 0x00, 0x00, 0x00, 0x00,
-                                        0x00, 0x00, 0x00, 0x00};
-      const uint8_t bootRelease[8] = {0x00, 0x00, 0x00, 0x00,
-                                      0x00, 0x00, 0x00, 0x00};
-      inputReport_->setValue(releaseReport, sizeof(releaseReport));
-      inputReport_->notify();
-      if (bootInput_ != nullptr) {
-        bootInput_->setValue(bootRelease, sizeof(bootRelease));
-        bootInput_->notify();
-      }
+  if (touchGesture_ != TouchGesture::None && nowMs >= pendingReleaseMs_) {
+    if (touchGesture_ == TouchGesture::Tap) {
+      sendTouchReport(false, touchX_, touchY_);
+      btLog("touch tap released");
+      touchGesture_ = TouchGesture::None;
+      touchStep_ = 0;
+      pendingReleaseMs_ = 0;
+    } else if (touchStep_ <= kTouchSwipeSteps) {
+      const uint16_t startY = touchSwipeUp_ ? kSwipeStartY : kSwipeEndY;
+      const uint16_t endY = touchSwipeUp_ ? kSwipeEndY : kSwipeStartY;
+      const uint32_t progress = touchStep_;
+      touchY_ = static_cast<uint16_t>(startY +
+                                      ((static_cast<int32_t>(endY) - startY) * progress) /
+                                          kTouchSwipeSteps);
+      sendTouchReport(true, touchX_, touchY_);
+      ++touchStep_;
+      pendingReleaseMs_ = nowMs + kTouchSwipeStepMs;
+    } else {
+      sendTouchReport(false, touchX_, touchY_);
+      btLog("touch swipe released direction=%s", touchSwipeUp_ ? "up" : "down");
+      touchGesture_ = TouchGesture::None;
+      touchStep_ = 0;
+      pendingReleaseMs_ = 0;
     }
-    shutterPressActive_ = false;
-    activeReport_ = ActiveReport::None;
-    pendingReleaseMs_ = 0;
-    btLog("camera shutter release");
   }
 
   if (state_ != State::Advertising) {
@@ -167,8 +178,8 @@ bool BluetoothService::start(uint32_t nowMs) {
 
   advertiseStartMs_ = nowMs;
   pendingReleaseMs_ = 0;
-  shutterPressActive_ = false;
-  activeReport_ = ActiveReport::None;
+  touchGesture_ = TouchGesture::None;
+  touchStep_ = 0;
   BLEDevice::startAdvertising();
   btLog("advertising started name=%s", deviceName_);
   setState(State::Advertising, Error::None);
@@ -182,7 +193,8 @@ void BluetoothService::stop() {
   }
 
   shuttingDown_ = true;
-  shutterPressActive_ = false;
+  touchGesture_ = TouchGesture::None;
+  touchStep_ = 0;
   pendingReleaseMs_ = 0;
   if (server_ != nullptr && activeConnId_ != 0xFFFF) {
     server_->disconnect(activeConnId_);
@@ -197,60 +209,68 @@ bool BluetoothService::triggerCameraShutter(uint32_t nowMs) {
   if ((nowMs - lastShutterMs_) < kShutterCooldownMs) {
     return false;
   }
-  return sendKeyboardUsage(nowMs, kKeyboardEnterUsage, "camera shutter");
+  return sendTouchTap(nowMs, kCameraShutterX, kCameraShutterY, "camera shutter");
 }
 
 bool BluetoothService::triggerPageUp(uint32_t nowMs) {
-  return sendKeyboardUsage(nowMs, kKeyboardArrowUpUsage, "pager up");
+  return sendTouchSwipe(nowMs, true, "pager swipe up");
 }
 
 bool BluetoothService::triggerPageDown(uint32_t nowMs) {
-  return sendKeyboardUsage(nowMs, kKeyboardArrowDownUsage, "pager down");
+  return sendTouchSwipe(nowMs, false, "pager swipe down");
 }
 
 bool BluetoothService::triggerPlayPause(uint32_t nowMs) {
-  return sendConsumerUsage(nowMs, kConsumerPlayPauseUsage, "pager play pause");
+  return sendTouchTap(nowMs, kTapCenterX, kTapCenterY, "pager play pause");
 }
 
-bool BluetoothService::sendKeyboardUsage(uint32_t nowMs, uint8_t usage, const char* label) {
+bool BluetoothService::sendTouchTap(uint32_t nowMs, uint16_t x, uint16_t y, const char* label) {
   if (!initialized_ || state_ != State::Connected || inputReport_ == nullptr ||
-      shutterPressActive_ || (nowMs - lastShutterMs_) < kPagerCooldownMs) {
+      touchGesture_ != TouchGesture::None || (nowMs - lastShutterMs_) < kPagerCooldownMs) {
     return false;
   }
 
-  const uint8_t pressReport[9] = {0x01, 0x00, 0x00, usage, 0x00,
-                                  0x00, 0x00, 0x00, 0x00};
-  const uint8_t bootPress[8] = {0x00, 0x00, usage, 0x00,
-                                0x00, 0x00, 0x00, 0x00};
-  inputReport_->setValue(pressReport, sizeof(pressReport));
-  inputReport_->notify();
-  if (bootInput_ != nullptr) {
-    bootInput_->setValue(bootPress, sizeof(bootPress));
-    bootInput_->notify();
-  }
-  shutterPressActive_ = true;
-  activeReport_ = ActiveReport::Keyboard;
-  pendingReleaseMs_ = nowMs + kShutterReleaseDelayMs;
+  touchX_ = x;
+  touchY_ = y;
+  sendTouchReport(true, touchX_, touchY_);
+  touchGesture_ = TouchGesture::Tap;
+  pendingReleaseMs_ = nowMs + kTouchTapDurationMs;
   lastShutterMs_ = nowMs;
-  btLog("%s press sent usage=0x%02X", label, static_cast<unsigned>(usage));
+  btLog("%s sent x=%u y=%u", label, static_cast<unsigned>(x), static_cast<unsigned>(y));
   return true;
 }
 
-bool BluetoothService::sendConsumerUsage(uint32_t nowMs, uint16_t usage, const char* label) {
-  if (!initialized_ || state_ != State::Connected || consumerInputReport_ == nullptr ||
-      shutterPressActive_ || (nowMs - lastShutterMs_) < kPagerCooldownMs) {
+bool BluetoothService::sendTouchSwipe(uint32_t nowMs, bool upward, const char* label) {
+  if (!initialized_ || state_ != State::Connected || inputReport_ == nullptr ||
+      touchGesture_ != TouchGesture::None || (nowMs - lastShutterMs_) < kPagerCooldownMs) {
     return false;
   }
 
-  const uint8_t pressReport[1] = {0x01};
-  consumerInputReport_->setValue(pressReport, sizeof(pressReport));
-  consumerInputReport_->notify();
-  shutterPressActive_ = true;
-  activeReport_ = ActiveReport::Consumer;
-  pendingReleaseMs_ = nowMs + kShutterReleaseDelayMs;
+  touchX_ = kTapCenterX;
+  touchSwipeUp_ = upward;
+  touchY_ = upward ? kSwipeStartY : kSwipeEndY;
+  touchStep_ = 1;
+  sendTouchReport(true, touchX_, touchY_);
+  touchGesture_ = TouchGesture::Swipe;
+  pendingReleaseMs_ = nowMs + kTouchSwipeStepMs;
   lastShutterMs_ = nowMs;
-  btLog("%s sent usage=0x%03X", label, static_cast<unsigned>(usage));
+  btLog("%s started x=%u y=%u", label, static_cast<unsigned>(touchX_),
+        static_cast<unsigned>(touchY_));
   return true;
+}
+
+void BluetoothService::sendTouchReport(bool contact, uint16_t x, uint16_t y) {
+  if (inputReport_ == nullptr) {
+    return;
+  }
+
+  const uint8_t report[kTouchReportBytes] = {
+      static_cast<uint8_t>(contact ? 0x03 : 0x00), 0x00,
+      static_cast<uint8_t>(x & 0xFF), static_cast<uint8_t>((x >> 8) & 0xFF),
+      static_cast<uint8_t>(y & 0xFF), static_cast<uint8_t>((y >> 8) & 0xFF),
+      static_cast<uint8_t>(contact ? 0x01 : 0x00)};
+  inputReport_->setValue(report, sizeof(report));
+  inputReport_->notify();
 }
 
 BluetoothService::State BluetoothService::state() const { return state_; }
@@ -312,18 +332,17 @@ bool BluetoothService::initializeStack() {
     hid_->hidInfo(0x00, 0x01);
     hid_->reportMap(const_cast<uint8_t*>(kHidReportDescriptor), sizeof(kHidReportDescriptor));
     inputReport_ = hid_->inputReport(1);
-    consumerInputReport_ = hid_->inputReport(2);
-    bootInput_ = hid_->bootInput();
-    if (inputReport_ == nullptr || consumerInputReport_ == nullptr) {
-      btErr("hid input report allocation failed keyboard=%d consumer=%d",
-            inputReport_ != nullptr ? 1 : 0, consumerInputReport_ != nullptr ? 1 : 0);
+    if (inputReport_ == nullptr) {
+      btErr("hid input report allocation failed id=1");
+      cleanupStack();
+      return false;
     }
     hid_->setBatteryLevel(100);
     hid_->startServices();
   }
 
   BLEAdvertising* advertising = BLEDevice::getAdvertising();
-  advertising->setAppearance(HID_KEYBOARD);
+  advertising->setAppearance(kHidDigitizerAppearance);
   advertising->addServiceUUID(hid_->hidService()->getUUID());
   advertising->setScanResponse(true);
   advertising->setMinPreferred(0x06);
@@ -331,10 +350,10 @@ bool BluetoothService::initializeStack() {
 
   activeConnId_ = 0xFFFF;
   pendingReleaseMs_ = 0;
-  shutterPressActive_ = false;
-  activeReport_ = ActiveReport::None;
+  touchGesture_ = TouchGesture::None;
+  touchStep_ = 0;
   initialized_ = true;
-  btLog("ble stack initialized as hid remote");
+  btLog("ble stack initialized as touch remote");
   return true;
 }
 
@@ -346,11 +365,9 @@ void BluetoothService::cleanupStack() {
   initialized_ = false;
   activeConnId_ = 0xFFFF;
   pendingReleaseMs_ = 0;
-  shutterPressActive_ = false;
-  activeReport_ = ActiveReport::None;
+  touchGesture_ = TouchGesture::None;
+  touchStep_ = 0;
   inputReport_ = nullptr;
-  consumerInputReport_ = nullptr;
-  bootInput_ = nullptr;
 
   // server_/client 及其服务与特征由 BLEDevice 统一回收；释放期间 callbacks_ 仍然有效。
   if (bleStackReady_) {
