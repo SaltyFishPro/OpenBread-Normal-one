@@ -30,6 +30,7 @@
 #include "pages/RemotePage.h"
 #include "pages/SettingsPage.h"
 #include "../services/SdCardService.h"
+#include "../services/ComputerStatusProtocol.h"
 
 class UiManager {
 public:
@@ -97,6 +98,8 @@ private:
   void performFactoryReset();
   void initDeviceInfoCache();
   void renderDetail(int16_t yOffset = 0);
+  bool isComputerStatusDetail() const;
+  void renderComputerStatusFrame();
   void startSectionFocusAnimation(uint8_t toIndex, uint32_t nowMs);
   void syncHomeClockFromTimeService();
   void refreshHomeBattery(uint32_t nowMs);
@@ -136,6 +139,7 @@ private:
   RtcTestService rtcTestService_;
   ImuTestService imuTestService_;
   ReaderService readerService_;
+  ComputerStatusProtocol computerStatusProtocol_;
   RtcDriver rtcDriver_;
   UiState state_ = UiState::Home;
 
@@ -166,6 +170,7 @@ private:
   uint32_t lastActivityMs_ = 0;
   uint32_t lastBatteryRefreshMs_ = 0;
   bool batteryRefreshStarted_ = false;
+  bool computerStatusFrameVisible_ = false;
 
   ButtonEdge buttons_[5] = {
       {0, false, false, 0},

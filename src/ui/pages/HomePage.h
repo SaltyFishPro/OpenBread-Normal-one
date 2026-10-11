@@ -12,6 +12,7 @@ public:
   static constexpr uint8_t kApiStatsMenuIndex = 8;
   static constexpr uint8_t kAnswersBookMenuIndex = 9;
   static constexpr uint8_t kTodayDrawMenuIndex = 10;
+  static constexpr uint8_t kComputerStatusMenuIndex = 11;
 
   struct ClockData {
     uint8_t second = 0;
@@ -105,6 +106,6 @@ private:
   ClockData clockData_;
   BatteryData batteryData_;
 
-  static constexpr uint8_t kMenuCount = 11;
+  static constexpr uint8_t kMenuCount = 12;
   static constexpr uint32_t kIdleAnimationTimeoutMs = 4000;
 };

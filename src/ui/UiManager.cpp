@@ -165,7 +165,8 @@ bool isDirectDetailHomeIndex(uint8_t homeFocus) {
   return homeFocus == FocusClockPage::kHomeIndex || homeFocus == HomePage::kAlarmMenuIndex ||
          homeFocus == HomePage::kCalendarMenuIndex || homeFocus == HomePage::kApiStatsMenuIndex ||
          homeFocus == HomePage::kAnswersBookMenuIndex ||
-         homeFocus == HomePage::kTodayDrawMenuIndex;
+         homeFocus == HomePage::kTodayDrawMenuIndex ||
+         homeFocus == HomePage::kComputerStatusMenuIndex;
 }
 
 SectionContent sectionContentFor(uint8_t homeFocus, const SettingsPage& settingsPage) {
@@ -387,6 +388,14 @@ void UiManager::initDeviceInfoCache() {
 
 void UiManager::tick() {
   const uint32_t nowMs = millis();
+  const bool protocolWasConnected = computerStatusProtocol_.isHandshakeComplete();
+  computerStatusProtocol_.tick();
+  if (computerStatusProtocol_.hasCompletedFrame() && isComputerStatusDetail()) {
+    needsRedraw_ = true;
+  }
+  if (protocolWasConnected != computerStatusProtocol_.isHandshakeComplete()) {
+    needsRedraw_ = true;
+  }
   const bool staticReaderDetail =
       state_ == UiState::Detail &&
       readerPage_.isStaticWordDetail(homePage_.focusIndex(), sectionFocusIndex_);
@@ -553,6 +562,10 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         // 专注时钟是直接从主界面进入的详情页，进入时回到卡片选择界面。
         focusClockPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_);
         answersBookPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_);
+        if (homePage_.focusIndex() == HomePage::kComputerStatusMenuIndex) {
+          computerStatusFrameVisible_ = false;
+          computerStatusProtocol_.beginSession();
+        }
         state_ = UiState::Detail;
         needsRedraw_ = true;
       }
@@ -724,6 +737,10 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
                                                    nowMs)) {
           needsRedraw_ = true;
         } else {
+          if (homePage_.focusIndex() == HomePage::kComputerStatusMenuIndex) {
+            computerStatusFrameVisible_ = false;
+            computerStatusProtocol_.endSession();
+          }
           settingsPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                           wifiProvisionService_, otaService_, timeService_);
           setRemotePagePortrait(false);
@@ -764,6 +781,10 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
           // 长按 Left 同样不能绕过"放弃专注"确认。
           needsRedraw_ = true;
         } else {
+          if (homePage_.focusIndex() == HomePage::kComputerStatusMenuIndex) {
+            computerStatusFrameVisible_ = false;
+            computerStatusProtocol_.endSession();
+          }
           settingsPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                           wifiProvisionService_, otaService_, timeService_);
           setRemotePagePortrait(false);
@@ -1025,6 +1046,11 @@ void UiManager::updateCpuClock(uint32_t nowMs) {
 }
 
 void UiManager::render(uint32_t nowMs) {
+  // Keep a verified host frame on screen until the next verified frame.
+  if (isComputerStatusDetail() && computerStatusFrameVisible_ &&
+      !computerStatusProtocol_.hasCompletedFrame()) {
+    return;
+  }
   const bool navOnlyMusicFrame =
       state_ == UiState::Detail && !needsRedraw_ &&
       musicPage_.needsNavAnimationFrame(homePage_.focusIndex(), sectionFocusIndex_, nowMs);
@@ -1114,7 +1140,15 @@ void UiManager::render(uint32_t nowMs) {
 
   display_.clear();
 
-  if (state_ == UiState::Home) {
+  if (isComputerStatusDetail() && computerStatusProtocol_.hasCompletedFrame()) {
+    renderComputerStatusFrame();
+    computerStatusProtocol_.markFrameDisplayed();
+    computerStatusFrameVisible_ = true;
+  }
+
+  if (isComputerStatusDetail() && computerStatusFrameVisible_) {
+    // The host frame was rendered above.
+  } else if (state_ == UiState::Home) {
     homePage_.render(display_, 0, nowMs);
   } else if (state_ == UiState::ToSectionTransition) {
     const uint32_t elapsedRaw = nowMs - transitionStartMs_;
@@ -1449,6 +1483,35 @@ void UiManager::startSectionFocusAnimation(uint8_t toIndex, uint32_t nowMs) {
       (sectionAnimFromIndex_ != sectionAnimToIndex_) && (fromPage == toPage);
 }
 
+bool UiManager::isComputerStatusDetail() const {
+  return state_ == UiState::Detail &&
+         homePage_.focusIndex() == HomePage::kComputerStatusMenuIndex;
+}
+
+void UiManager::renderComputerStatusFrame() {
+  const uint8_t* frame = computerStatusProtocol_.completedFrame();
+  if (frame == nullptr || computerStatusProtocol_.completedFrameBytes() == 0U) return;
+
+  auto& canvas = display_.canvas();
+  for (uint16_t y = 0; y < ComputerStatusProtocol::kCanvasHeight; ++y) {
+    uint16_t x = 0;
+    while (x < ComputerStatusProtocol::kCanvasWidth) {
+      const uint32_t bit = y * ComputerStatusProtocol::kCanvasWidth + x;
+      if ((frame[bit / 8U] & (0x80U >> (bit % 8U))) == 0U) {
+        ++x;
+        continue;
+      }
+      const uint16_t start = x++;
+      while (x < ComputerStatusProtocol::kCanvasWidth) {
+        const uint32_t nextBit = y * ComputerStatusProtocol::kCanvasWidth + x;
+        if ((frame[nextBit / 8U] & (0x80U >> (nextBit % 8U))) == 0U) break;
+        ++x;
+      }
+      canvas.drawFastHLine(start, y, x - start, ST7305_COLOR_BLACK);
+    }
+  }
+}
+
 void UiManager::renderSection(int16_t xOffset, int16_t yOffset, uint32_t nowMs,
                               int16_t iconExtraOffsetX, const int16_t* rowExtraOffsets,
                               uint8_t rowExtraCount, int16_t focusBoxExtraOffsetX) {
@@ -1731,7 +1794,13 @@ void UiManager::renderDetail(int16_t yOffset) {
 
     text.setForegroundColor(ST7305_COLOR_BLACK);
     text.drawUTF8(8, static_cast<int16_t>(yOffset + 62), homePage_.focusName());
-    text.drawUTF8(8, static_cast<int16_t>(yOffset + 92), "详情内容开发中");
+    const char* placeholderText = "详情内容开发中";
+    if (homePage_.focusIndex() == HomePage::kComputerStatusMenuIndex) {
+      placeholderText = computerStatusProtocol_.isHandshakeComplete()
+                            ? "Studio 已完成握手"
+                            : "等待 Studio USB 连接";
+    }
+    text.drawUTF8(8, static_cast<int16_t>(yOffset + 92), placeholderText);
     text.drawUTF8(width - 92, static_cast<int16_t>(yOffset + height - 10), "LEFT: 返回");
 
     canvas.drawRectangle(4, static_cast<int16_t>(yOffset + 32), width - 5,

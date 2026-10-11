@@ -302,8 +302,12 @@ bool BluetoothService::initializeStack() {
   }
 
   if (!bleStackReady_) {
-    BLEDevice::init(deviceName_);
+    if (!BLEDevice::init(deviceName_)) {
+      btErr("ble device init returned failure");
+      return false;
+    }
     bleStackReady_ = true;
+    btLog("ble device initialized, controller memory retained");
   }
 
   if (security_ == nullptr) {
@@ -342,6 +346,11 @@ bool BluetoothService::initializeStack() {
   }
 
   BLEAdvertising* advertising = BLEDevice::getAdvertising();
+  if (advertising == nullptr) {
+    btErr("ble advertising allocation failed");
+    cleanupStack();
+    return false;
+  }
   advertising->setAppearance(kHidDigitizerAppearance);
   advertising->addServiceUUID(hid_->hidService()->getUUID());
   advertising->setScanResponse(true);
@@ -371,8 +380,9 @@ void BluetoothService::cleanupStack() {
 
   // server_/client 及其服务与特征由 BLEDevice 统一回收；释放期间 callbacks_ 仍然有效。
   if (bleStackReady_) {
-    BLEDevice::deinit(true);
+    BLEDevice::deinit(false);
     bleStackReady_ = false;
+    btLog("ble stack deinitialized, controller memory retained");
   }
   server_ = nullptr;
 
