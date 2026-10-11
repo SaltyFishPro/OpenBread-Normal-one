@@ -4,6 +4,8 @@
 
 #include "../../bsp/DisplayMonoTft.h"
 
+namespace IconBitmap { struct Anim; }
+
 class HomePage {
 public:
   // 主菜单里直接进入详情页、跳过单条目二级目录的入口。
@@ -62,6 +64,8 @@ public:
   bool isAnimationActive(uint32_t nowMs) const;
   uint8_t focusIndex() const;
   const char* focusName() const;
+  // Share the menu asset with the waiting page without storing a second copy.
+  static const IconBitmap::Anim& computerStatusIcon();
   void setClockData(const ClockData& data);
   bool setBatteryData(const BatteryData& data);
 

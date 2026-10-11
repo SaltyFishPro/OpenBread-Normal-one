@@ -61,7 +61,7 @@ src/
     storage/
 ```
 
-当前代码另有 `src/services/BluetoothService.*`、`SdCardService.*`、`TimeService.*` 等，以及 `src/ui/pages/AnswersBookPage.*`、`FocusClockPage.*`、`GamesPage.*`、`DeviceSelfTestPage.*` 等。`SettingsService`、`AlarmService`、`GestureService`、`HapticService`、`AlarmPage` 和 `data/` 仍属规划，不能按已存在模块引用。新增页面业务放 `ui/pages`，输入路由与转场放 `UiManager`，硬件访问放 `bsp`，跨页面业务放 `services`。
+当前代码另有 `src/services/BluetoothService.*`、`SdCardService.*`、`TimeService.*`、`ComputerStatusProtocol.*` 等，以及 `src/ui/pages/AnswersBookPage.*`、`ComputerStatusPage.*`、`FocusClockPage.*`、`GamesPage.*`、`DeviceSelfTestPage.*` 等。`SettingsService`、`AlarmService`、`GestureService`、`HapticService`、`AlarmPage` 和 `data/` 仍属规划，不能按已存在模块引用。新增页面业务放 `ui/pages`，输入路由与转场放 `UiManager`，硬件访问放 `bsp`，跨页面业务放 `services`。
 
 ## 4. 核心设计原则
 - 实时优先：所有主路径满足可预测时延，输入与告警链路优先级最高。
@@ -111,7 +111,7 @@ src/
 - 主菜单到子菜单必须使用统一过渡动画，形成稳定的产品识别感。
 
 ### 6.2 信息架构
-- 主菜单（Home）：当前有设置、音乐、阅读、专注时钟、无线功能、游戏、闹钟、课程表、Api统计板、答案之书、今日抽签 11 个入口；已实现内容与占位状态见第 15 节。
+- 主菜单（Home）：当前有设置、音乐、阅读、专注时钟、无线功能、游戏、闹钟、课程表、Api统计板、答案之书、今日抽签、电脑状态看板 12 个入口；已实现内容与占位状态见第 15 节。
 - 子菜单（Section）：模块内功能分组与操作列表。
 - 详情页（Detail）：单对象或单任务的具体操作界面。
 - 导航约束：任何详情页最多两次返回到主菜单，路径必须确定且一致。
@@ -309,6 +309,8 @@ src/
 
 ### 7.8 ComputerStatusProtocol（已落地）
 - 仅在「电脑状态看板」详情页开启 USB CDC 协议会话，Left 返回时结束会话。
+- `ComputerStatusPage` 负责首帧前的专属连接引导：左侧 88×88 USB 插图与右侧操作说明，握手成功后切换为等待电脑发送画面；首个完整帧通过校验后由 `UiManager` 替换整屏，Left 返回主菜单。
+- 图标使用 `HomePage::computerStatusIcon()` 共享主菜单资源，进入后播放约 1 秒并停留在最后一帧；页面私有动画状态放在 `ui/pages`，`UiManager` 只负责调度与输入/转场。等待页使用完整绘制与整屏提交，静态内容相同时跳过无关事件重绘，离开页面或首帧显示后不继续播放动画。
 - 接收 Studio 渲染的 384×168、1-bit 逻辑帧（8064 bytes），不在固件端重新排版电脑指标。
 - Studio 已接通 CPU、内存、网速、出口 IP 城市天气与新闻标题的中文画布自动更新；移除电源信息和天气更新时间，新闻每 12 秒分段轮播。可暂停/恢复、选择 2/5 秒采集周期，只保留最新待发送画面且跳过相同自动帧；天气/新闻后台低频获取并保留离线缓存。
 - 负责 HELLO/HELLO_ACK、帧分块、ACK/NAK、CRC16、重复确认和坏包恢复；使用固定容量缓冲。
@@ -409,6 +411,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/answers_book_preview/b
 该脚本需要 Python 与 `uv`，并通过 `uv` 使用 Zig 0.13 和 Pillow。它从项目字库提取实际中文字形，编译当前 `AnswersBookPage.cpp`、`DetailHeader.cpp`、ST7305 驱动和 U8g2 绘制代码；主机侧仅替代 Arduino/SPI 访问。工具注入固定页面状态与答案索引，捕获和屏幕提交同源的 8064 字节帧缓冲，按当前驱动旋转映射导出 384×168 PGM，再无插值放大为 PNG。
 
 输出位于被 Git 忽略的 `tmp/answers-book-render/`；合览图为 `answers-book-real-framebuffers.png`，另有 6 张单页 PNG。覆盖提示、思考中、翻开、答案、记录首项选中和第三项选中。逐张核对字形、留白、卡片边界、进度条、焦点、页脚和底边；再按第 12、14 节要求进行编译、按键逻辑及实机验证。该图是**当前绘制代码产生的像素**，并非实机照片，不能证明 SPI 时序、屏幕残影或真实按键手感。
+
+电脑状态看板等待页使用同样的真实缓冲验证流程：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/computer_status_preview/build.ps1
+```
+
+工具编译生产 `ComputerStatusPage.cpp`、共享标题与图标绘制、ST7305 驱动和 U8g2，复用主菜单 USB 资源和真实中文字库。输出 `tmp/computer-status-render/` 中的转场、动画开始/中段/结束及已连接状态 PNG；合览为 `computer-status-waiting-framebuffers.png`。同时检查动画结束静止、连接变化重绘和重新进入重置。检查页脚分隔线与文字间距、两列留白、图标完整性和转场裁剪；实机再验证 Left 返回、握手成功等待首帧、首帧替换和退出后停止动画。操作详见 [等待页预览工具](../tools/computer_status_preview/README.md)。
+
+2026-10-11 等待页验证记录：六种画面均生成 384×168 黑白缓冲，首次与再次进入的半屏转场逐字节一致，静态等待及连接状态重绘检查通过。`pio run -e esp32s3` 成功：RAM 94,688 bytes（28.9%）、Flash 3,920,739 bytes（53.4%）；构建日志为 `tmp/computer-status-waiting-build-20261011.log`。该记录只确认主机绘制、逻辑自检与编译，新版等待页的实机交互和刷新效果仍待验收。
 
 ## 17. 相关文档
 

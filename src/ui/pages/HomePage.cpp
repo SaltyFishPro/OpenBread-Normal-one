@@ -547,6 +547,10 @@ const char* HomePage::menuLabel(uint8_t idx) const {
 
 const char* HomePage::focusName() const { return menuLabel(focusIndex_); }
 
+const IconBitmap::Anim& HomePage::computerStatusIcon() {
+  return kMenuIcons[kComputerStatusMenuIndex];
+}
+
 void HomePage::setClockData(const ClockData& data) {
   const bool displayChanged =
       data.valid != clockData_.valid || data.hour != clockData_.hour ||

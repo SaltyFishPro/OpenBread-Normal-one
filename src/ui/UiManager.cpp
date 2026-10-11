@@ -536,6 +536,9 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         sectionAnimToIndex_ = 0;
         sectionAnimStartMs_ = nowMs;
         sectionAnimActive_ = false;
+        if (homePage_.focusIndex() == HomePage::kComputerStatusMenuIndex) {
+          computerStatusPage_.prepareEnter();
+        }
         state_ = isDirectDetailHomeIndex(homePage_.focusIndex())
                      ? UiState::ToDirectDetailTransition
                      : UiState::ToSectionTransition;
@@ -564,6 +567,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         answersBookPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_);
         if (homePage_.focusIndex() == HomePage::kComputerStatusMenuIndex) {
           computerStatusFrameVisible_ = false;
+          computerStatusPage_.begin(nowMs);
           computerStatusProtocol_.beginSession();
         }
         state_ = UiState::Detail;
@@ -923,6 +927,11 @@ bool UiManager::shouldRedraw(uint32_t nowMs) const {
     return true;
   }
 
+  if (isComputerStatusDetail() && !computerStatusFrameVisible_ &&
+      computerStatusPage_.needsAnimationFrame(nowMs, HomePage::computerStatusIcon())) {
+    return true;
+  }
+
   if (state_ == UiState::Detail &&
       settingsPage_.isDeviceSelfTestSelection(homePage_.focusIndex(), sectionFocusIndex_) &&
       deviceSelfTestPage_.needsAnimationFrame()) {
@@ -965,6 +974,11 @@ uint32_t UiManager::targetFrameIntervalMs(uint32_t nowMs) const {
   if (state_ == UiState::Detail &&
       answersBookPage_.isAnimating(homePage_.focusIndex(), sectionFocusIndex_)) {
     return kHighFrameIntervalMs;
+  }
+
+  if (isComputerStatusDetail() && !computerStatusFrameVisible_ &&
+      computerStatusPage_.needsAnimationFrame(nowMs, HomePage::computerStatusIcon())) {
+    return ComputerStatusPage::kAnimationFrameIntervalMs;
   }
 
   if (state_ == UiState::Detail &&
@@ -1049,6 +1063,12 @@ void UiManager::render(uint32_t nowMs) {
   // Keep a verified host frame on screen until the next verified frame.
   if (isComputerStatusDetail() && computerStatusFrameVisible_ &&
       !computerStatusProtocol_.hasCompletedFrame()) {
+    return;
+  }
+  // Unrelated clock/service events must not repaint a static waiting page.
+  if (isComputerStatusDetail() && !computerStatusProtocol_.hasCompletedFrame() &&
+      !computerStatusPage_.needsRedraw(nowMs, HomePage::computerStatusIcon(),
+                                      computerStatusProtocol_.isHandshakeComplete())) {
     return;
   }
   const bool navOnlyMusicFrame =
@@ -1753,7 +1773,11 @@ void UiManager::renderDetail(int16_t yOffset) {
   }
 
   bool handled = false;
-  if (settingsPage_.isDeviceSelfTestSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
+  if (homePage_.focusIndex() == HomePage::kComputerStatusMenuIndex) {
+    computerStatusPage_.render(display_, yOffset, HomePage::computerStatusIcon(),
+                                computerStatusProtocol_.isHandshakeComplete(), millis());
+    handled = true;
+  } else if (settingsPage_.isDeviceSelfTestSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
     deviceSelfTestPage_.render(display_, yOffset, millis(), iicScanService_, rtcTestService_,
                                sdCardService_, imuTestService_, powerDiagnosticService_);
     handled = true;
@@ -1794,13 +1818,7 @@ void UiManager::renderDetail(int16_t yOffset) {
 
     text.setForegroundColor(ST7305_COLOR_BLACK);
     text.drawUTF8(8, static_cast<int16_t>(yOffset + 62), homePage_.focusName());
-    const char* placeholderText = "详情内容开发中";
-    if (homePage_.focusIndex() == HomePage::kComputerStatusMenuIndex) {
-      placeholderText = computerStatusProtocol_.isHandshakeComplete()
-                            ? "Studio 已完成握手"
-                            : "等待 Studio USB 连接";
-    }
-    text.drawUTF8(8, static_cast<int16_t>(yOffset + 92), placeholderText);
+    text.drawUTF8(8, static_cast<int16_t>(yOffset + 92), "详情内容开发中");
     text.drawUTF8(width - 92, static_cast<int16_t>(yOffset + height - 10), "LEFT: 返回");
 
     canvas.drawRectangle(4, static_cast<int16_t>(yOffset + 32), width - 5,
