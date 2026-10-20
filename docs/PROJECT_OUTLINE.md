@@ -1,6 +1,6 @@
 # OpenBread Normal One 项目大纲（ST7305 单色反射屏）
 
-> 更新于 2026-10-20。本文件同时承担**目标架构与开发规范**、**当前实现对照**两项职责。第 2～14 节描述后续开发应遵循的设计方向；标有“当前实现”的内容才表示已落地。新增功能先检查所属层级、交互与资源约束，再更新实现状态。目标设备为 ESP32-S3 N16R8，屏幕逻辑分辨率为 384×168。
+> 更新于 2026-10-21。本文件同时承担**目标架构与开发规范**、**当前实现对照**两项职责。第 2～14 节描述后续开发应遵循的设计方向；标有“当前实现”的内容才表示已落地。新增功能先检查所属层级、交互与资源约束，再更新实现状态。目标设备为 ESP32-S3 N16R8，屏幕逻辑分辨率为 384×168。
 
 ## 1. 项目目标
 - 目标设备：2.9寸单色反射式 TFT（1-bit，黑白两色，无亮度控制）便携设备。
@@ -62,6 +62,8 @@ src/
 ```
 
 当前代码另有 `src/services/BluetoothService.*`、`SdCardService.*`、`TimeService.*`、`ComputerStatusProtocol.*` 等，以及 `src/ui/pages/AnswersBookPage.*`、`ComputerStatusPage.*`、`FocusClockPage.*`、`GamesPage.*`、`DeviceSelfTestPage.*` 等。`SettingsService`、`AlarmService`、`GestureService`、`HapticService`、`AlarmPage` 和 `data/` 仍属规划，不能按已存在模块引用。新增页面业务放 `ui/pages`，输入路由与转场放 `UiManager`，硬件访问放 `bsp`，跨页面业务放 `services`。
+
+SD 字库分层为 `src/bsp/SdFontFile.*`（只读文件）、`src/services/SdBitmapFont.*`（格式、校验与缓存）、`src/ui/SdBitmapText.*`（UTF-8 排版绘制）、`src/ui/pages/SdFontTestPage.*`（测试业务）。页面通过现有 `SdCardService` 挂载，不在字库服务中绘图或切换硬件路由。
 
 ## 4. 核心设计原则
 - 实时优先：所有主路径满足可预测时延，输入与告警链路优先级最高。
@@ -379,13 +381,13 @@ src/
 - 配置可持久化，重启后状态一致。
 - 异常场景有明确可恢复路径。
 
-## 15. 当前实现对照（2026-10-20）
+## 15. 当前实现对照（2026-10-21）
 
 当前运行入口是 `src/main.cpp -> App -> UiManager`。`AppState`、`EventBus`、`Scheduler` 还不是主循环的运行框架；不要将第 5 节目标状态误判为已完成。`UiManager` 以导航状态处理主菜单、子菜单、详情页、弹窗和正反向转场；`HomePage` 管理主菜单焦点与滚动，页面私有状态留在 `ui/pages`。
 
 | 主菜单顺序 | 路由 | 当前业务状态 |
 | --- | --- | --- |
-| 设置 | 子菜单 → 详情 | 重启、OTA、WiFi 配网、时间校准、设备自检、USB 串口、恢复默认设置、设备/作者信息已有页面和处理路径 |
+| 设置 | 子菜单 → 详情 | 重启、系统更新、WiFi 配网、时间校准、设备自检（含 SD字库测试）、USB 串口、恢复默认设置、设备/作者信息已有页面和处理路径 |
 | 音乐 | 子菜单 → 详情 | SD 音乐列表、播放控制、收藏已有代码；实际音频输出仍需实机回归 |
 | 阅读 | 子菜单 → 详情 | SD 单词书、词条与释义翻页已有代码；提词器占位 |
 | 专注时钟 | 直达详情 | 页面已实现 |
@@ -400,6 +402,8 @@ src/
 | SD卡转USB | 直达详情 | 进入时释放设备端 SD 访问后拉高 GPIO16，普通/长按 Left 退出时拉低；菜单动图与静态读卡页已实现，USB 枚举、SD 读写和退出恢复待实机验收 |
 
 答案之书的记录保存在页面运行态内存，重新进入页面时清空，没有 SD/NVS 持久化。记录页同时显示最多 3 条，`Up/Down` 改变反白焦点，`OK` 再问，`Left` 返回；行与卡片底边之间应保留可见留白。
+
+SD字库测试读取 `/Font/font-14.bin`、`font-20.bin`、`font-24.bin`，每次打开分步校验完整 CRC，之后使用 32 位 Unicode 二分查询、固定索引块和字形缓存；不整体加载字库。`Up/Down` 切换字号，`OK` 重试，普通/长按 `Left` 关闭文件并卸载 SD。主机读取与绘制核对、完整编译已通过，真实 SD 速度与交互待实机验证。其他页面保留内置字体，尚未减少固件字库体积。进入 SD卡转USB 和休眠卸载前同样先关闭字库，详细约束见 [SD 点阵字库](SD_BITMAP_FONTS.md)。
 
 「SD卡转USB」由 `bsp/SdUsbSwitch` 访问 GPIO16，`UiManager` 编排进入/退出，`ui/pages/SdUsbPage` 只负责绘制。启动初始化 LOW；完成进入转场后清除阅读缓存，并复用音乐退出流程停止音频/扫描、关闭文件、卸载 SD_MMC，然后置 HIGH。Left 返回时先置 LOW 再退场，后续按需挂载。现有 SD 总线是 SD_MMC 1-bit（CLK=11、CMD=12、D0=10），`BoardConfig` 的 MISO/MOSI 名称为旧别名。该功能依赖板载芯片的 HIGH/LOW 路由，不通过 ESP32 实现软件 USB MSC；默认不推断电脑是否已挂载卡。页面静态显示并提示安全弹出，`[SDUSB]` 日志可通过 `OB_SD_USB_LOG_ENABLED=0` 关闭。
 
@@ -447,9 +451,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/sd_usb_preview/build.p
 
 2026-10-21：用户确认独立 `tools/gpio16_high_test` 上电拉高 GPIO16 的最小测试实机通过。主菜单进入/退出的完整流程仍需分别验收，不能用最小测试替代。
 
+SD 字库读取与测试页使用实际 BIN 验证：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/sd_font_tests/build.ps1
+```
+
+编译生产读取器、文本绘制、测试页和显示驱动，使用文件系统替身读取实际 14/20/24 字库。输出 `tmp/sd-font-test/sd-font-framebuffers.png`，并与 Python 独立解码进行 18 组逐像素比较，覆盖旋转和裁剪；同时检查 CRC、缓存、扩展区字符、异常重试和取消。工具不运行完整 UI 管理器，返回清理/USB 交接另做代码审查，实际挂载、按键响应和刷新仍待设备验收，详见 [验证工具](../tools/sd_font_tests/README.md)。
+
+2026-10-21 上述检查和 `pio run -e esp32s3` 通过：RAM 97,392 bytes（29.7%），Flash 3,957,275 bytes（53.9%）；较字库接入前增加 1,736 bytes RAM、5,748 bytes Flash。构建日志 `tmp/sd-font-build-20261021.log`；未执行烧录。
+
 ## 17. 相关文档
 
 - [设备自检设计](DEVICE_SELF_TEST_DESIGN.md)
+- [SD 点阵字库接入](SD_BITMAP_FONTS.md)
 - [OTA 说明](OTA.md)
 - [系统更新真实帧预览](../tools/system_update_preview/README.md)
 - [音乐说明](music.md)

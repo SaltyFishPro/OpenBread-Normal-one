@@ -390,6 +390,8 @@ void UiManager::initDeviceInfoCache() {
 
 void UiManager::tick() {
   const uint32_t nowMs = millis();
+  sdBitmapFont_.tick();
+  if (sdBitmapFont_.consumeChanged()) needsRedraw_ = true;
   const bool protocolWasConnected = computerStatusProtocol_.isHandshakeComplete();
   computerStatusProtocol_.tick();
   if (computerStatusProtocol_.hasCompletedFrame() && isComputerStatusDetail()) {
@@ -580,6 +582,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
           computerStatusProtocol_.beginSession();
         }
         if (homePage_.focusIndex() == HomePage::kSdUsbMenuIndex) {
+          sdBitmapFont_.end();  // Close font handles/caches before SD changes owner.
           readerService_.reset();
           // Stops audio/scans, closes their files and unmounts SD_MMC before handoff.
           musicService_.exitMusic(sdCardService_);
@@ -736,7 +739,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
           deviceSelfTestPage_.handleInput(edges.left, edges.leftLong, edges.up, edges.down,
                                           edges.ok, selfTestButtons, nowMs, iicScanService_,
                                           rtcTestService_, sdCardService_, imuTestService_,
-                                          powerDiagnosticService_, peripheralPower_)) {
+                                          powerDiagnosticService_, peripheralPower_, sdBitmapFont_)) {
         needsRedraw_ = true;
       } else if (edges.leftLong) {
         if (musicPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
@@ -1058,7 +1061,8 @@ void UiManager::updateCpuClock(uint32_t nowMs) {
                            timeService_.snapshot().syncState ==
                                TimeService::SyncState::Syncing;
   const bool selfTestActive =
-      iicScanService_.isBusy() || rtcTestService_.isBusy() || imuTestService_.isBusy();
+      iicScanService_.isBusy() || rtcTestService_.isBusy() || imuTestService_.isBusy() ||
+      sdBitmapFont_.state() == SdBitmapFont::State::Checking;
   // 满屏渲染后保持一段满速窗口；期间只画脏区域的局部帧可以降频执行。
   const bool uiActive = (nowMs - cpuBoostStartMs_) < kCpuBoostHoldMs;
 
@@ -1810,7 +1814,7 @@ void UiManager::renderDetail(int16_t yOffset) {
     handled = true;
   } else if (settingsPage_.isDeviceSelfTestSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
     deviceSelfTestPage_.render(display_, yOffset, millis(), iicScanService_, rtcTestService_,
-                               sdCardService_, imuTestService_, powerDiagnosticService_);
+                               sdCardService_, imuTestService_, powerDiagnosticService_, sdBitmapFont_);
     handled = true;
   } else if (gamesPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_)) {
     handled = true;
@@ -1974,6 +1978,7 @@ void UiManager::enterSleep(uint32_t nowMs) {
 
   display_.prepareForSleepKeepDisplay();
   peripheralPower_.setSensorEnabled(false);
+  sdBitmapFont_.end();
   sdCardService_.end();
 
   esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);

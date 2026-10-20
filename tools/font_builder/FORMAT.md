@@ -65,7 +65,7 @@ next_baseline_y += ascent + descent + line_gap
 
 因此不能假定每个字都是 `字号×字号` 或固定宽度。必须依据字形边界进行裁剪，避免负偏移或下降部越界。
 
-## 后续 SD 读取参考流程
+## SD 读取流程
 
 1. 打开 BIN，检查文件头与文件长度；安装或首次使用时流式校验 CRC32 / 清单 SHA256。
 2. 在排序索引中二分查找 codepoint；记录位置为 `64 + index * 24`。
@@ -74,4 +74,4 @@ next_baseline_y += ascent + descent + line_gap
 
 `font_bin.py` 的 `FileBitmapFont` 演示了电脑端按文件二分查询，不在内存中建立完整索引；完整 CRC 使用 4096-byte 分块读取，只在打开时执行一次。它处理已由导出工具完整验证的文件，对实际查询到的记录额外检查范围；不替代整体索引排序和连续性检查。
 
-这是后续读取器的格式约定。本次没有给固件添加读取器、缓存、SD 初始化或渲染切换。设备端还需使用支持四字节 UTF-8 的解码器和 uint32 码点，才能查询 U+FFFF 以上的字符。
+固件 `SdBitmapFont` 已实现此格式的按需读取、分步 CRC32、固定索引块及字形缓存，`SdBitmapText` 使用四字节 UTF-8 解码和 uint32 码点。测试页读取 `/Font/font-14.bin`、`font-20.bin`、`font-24.bin`；每次打开校验文件头、长度和完整 payload CRC，查询时检查所读记录与位图范围，仍依赖导出工具保证整个索引的排序和连续性。挂载、退出和硬件验证边界见 [SD 点阵字库](../../docs/SD_BITMAP_FONTS.md)。

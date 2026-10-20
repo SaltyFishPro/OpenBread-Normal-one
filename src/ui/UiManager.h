@@ -34,6 +34,7 @@
 #include "pages/SettingsPage.h"
 #include "pages/SystemUpdatePage.h"
 #include "../services/SdCardService.h"
+#include "../services/SdBitmapFont.h"
 #include "../services/ComputerStatusProtocol.h"
 
 class UiManager {
@@ -142,6 +143,7 @@ private:
   TimeService timeService_;
   WifiProvisionService wifiProvisionService_;
   SdCardService sdCardService_;
+  SdBitmapFont sdBitmapFont_;
   MusicService musicService_;
   IicScanService iicScanService_;
   RtcTestService rtcTestService_;

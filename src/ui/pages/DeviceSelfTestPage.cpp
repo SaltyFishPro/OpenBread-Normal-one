@@ -8,6 +8,7 @@
 #include "../../services/IicScanService.h"
 #include "../../services/RtcTestService.h"
 #include "../../services/SdCardService.h"
+#include "../../services/SdBitmapFont.h"
 #include "../../services/ImuTestService.h"
 #include "../../services/PowerDiagnosticService.h"
 #include "../../bsp/PeripheralPower.h"
@@ -51,6 +52,7 @@ constexpr uint8_t kRtcTestItemIndex = 4;
 constexpr uint8_t kSdTestItemIndex = 5;
 constexpr uint8_t kImuTestItemIndex = 8;
 constexpr uint8_t kPowerTestItemIndex = 10;
+constexpr uint8_t kFontTestItemIndex = 11;
 constexpr uint8_t kScreenPatternCount = 8;
 constexpr uint8_t kAllScreenPatternsViewed = 0xFFU;
 constexpr uint8_t kAllButtonsCompleted = 0x1FU;
@@ -79,6 +81,7 @@ const SelfTestItemText kSelfTestItems[DeviceSelfTestPage::kItemCount] = {
     {"IMU测试", {"读取运动数据", "检查姿态变化", "识别异常固定值"}},
     {"无线测试", {"检查蓝牙与WiFi", "显示连接状态", "完成后关闭无线"}},
     {"电源测试", {"读取电池电量", "检查MAX17048", "显示LDO当前状态"}},
+    {"SD字库测试", {"读取Font文件夹", "预览三个字号", "检查中文与符号"}},
 };
 
 uint8_t pageCount() {
@@ -111,7 +114,16 @@ bool DeviceSelfTestPage::handleInput(bool leftEdge, bool leftLongEdge, bool upEd
                                      RtcTestService& rtcTestService, SdCardService& sdCardService,
                                      ImuTestService& imuTestService,
                                      PowerDiagnosticService& powerDiagnosticService,
-                                     PeripheralPower& peripheralPower) {
+                                     PeripheralPower& peripheralPower, SdBitmapFont& font) {
+  if (view_ == View::FontTest) {
+    if (leftEdge || leftLongEdge) {
+      font.end();
+      sdCardService.end();
+      view_ = View::List;
+      return true;
+    }
+    return fontTestPage_.handleInput(upEdge, downEdge, okEdge, font, sdCardService);
+  }
   if (view_ == View::ButtonTest) {
     const bool changed = updateButtonTest(buttons);
     if (leftLongEdge) {
@@ -286,6 +298,11 @@ bool DeviceSelfTestPage::handleInput(bool leftEdge, bool leftLongEdge, bool upEd
     (void)powerDiagnosticService.run(peripheralPower);
     return true;
   }
+  if (okEdge && focusIndex_ == kFontTestItemIndex) {
+    view_ = View::FontTest;
+    fontTestPage_.begin(font, sdCardService);
+    return true;
+  }
   return false;
 }
 
@@ -293,7 +310,11 @@ void DeviceSelfTestPage::render(DisplayMonoTft& display, int16_t yOffset, uint32
                                 const IicScanService& iicScanService,
                                 const RtcTestService& rtcTestService,const SdCardService& sdCardService,
                                 const ImuTestService& imuTestService,
-                                const PowerDiagnosticService& powerDiagnosticService) {
+                                const PowerDiagnosticService& powerDiagnosticService, SdBitmapFont& font) {
+  if (view_ == View::FontTest) {
+    fontTestPage_.render(display, yOffset, font);
+    return;
+  }
   if (view_ == View::ScreenIntro) {
     renderScreenIntro(display, yOffset);
     return;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include "SdFontTestPage.h"
 
 class DisplayMonoTft;
 class IicScanService;
@@ -9,10 +10,11 @@ class SdCardService;
 class ImuTestService;
 class PowerDiagnosticService;
 class PeripheralPower;
+class SdBitmapFont;
 
 class DeviceSelfTestPage {
 public:
-  static constexpr uint8_t kItemCount = 11;
+  static constexpr uint8_t kItemCount = 12;
 
   struct ButtonState {
     bool left;
@@ -27,11 +29,11 @@ public:
                    const ButtonState& buttons, uint32_t nowMs, IicScanService& iicScanService,
                    RtcTestService& rtcTestService, SdCardService& sdCardService,
                    ImuTestService& imuTestService, PowerDiagnosticService& powerDiagnosticService,
-                   PeripheralPower& peripheralPower);
+                   PeripheralPower& peripheralPower, SdBitmapFont& font);
   void render(DisplayMonoTft& display, int16_t yOffset, uint32_t nowMs,
               const IicScanService& iicScanService, const RtcTestService& rtcTestService,
               const SdCardService& sdCardService, const ImuTestService& imuTestService,
-              const PowerDiagnosticService& powerDiagnosticService);
+              const PowerDiagnosticService& powerDiagnosticService, SdBitmapFont& font);
   bool needsAnimationFrame() const;
 
 private:
@@ -42,7 +44,7 @@ private:
     ScreenConfirm,
     ButtonTest,
     IicTest,
-    RtcTest, SdTest, ImuTest, PowerTest
+    RtcTest, SdTest, ImuTest, PowerTest, FontTest
   };
 
   enum class ScreenResult : uint8_t {
@@ -83,4 +85,5 @@ private:
   uint8_t rtcPageIndex_ = 0;
   uint8_t imuPageIndex_ = 0;
   uint8_t powerPageIndex_ = 0;
+  SdFontTestPage fontTestPage_;
 };
