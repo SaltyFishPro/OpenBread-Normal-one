@@ -134,28 +134,31 @@ if [[ -z "$build" ]]; then
   exit 1
 fi
 
-release_note="$(printf '%s\n' "$release_body" | sed '/^[[:space:]]*$/d' | head -n1)"
-if [[ -z "$release_note" ]]; then
-  release_note="Release published from GitHub."
-fi
-
 base_url="${PUBLIC_BASE_URL%/}"
 firmware_url="${base_url}/${asset_name}"
 manifest_tmp="$(mktemp)"
 manifest_path="${OUTPUT_DIR}/manifest.json"
 
-cat > "$manifest_tmp" <<EOF
-{
-  "product": "${PRODUCT}",
-  "channel": "${CHANNEL}",
-  "version": "${version}",
-  "build": ${build},
-  "firmware_url": "${firmware_url}",
-  "sha256": "${sha256}",
-  "size": ${size},
-  "release_note": "${release_note//\"/\\\"}"
-}
-EOF
+jq -n --arg product "$PRODUCT" --arg channel "$CHANNEL" --arg version "$version" \
+  --arg firmware_url "$firmware_url" --arg sha256 "$sha256" \
+  --argjson build "$build" --argjson size "$size" --arg body "$release_body" '
+  def limited($bytes):
+    reduce (explode[]) as $cp ({text:"", full:false};
+      ([$cp] | implode) as $char |
+      if .full or ((.text + $char) | utf8bytelength) > $bytes then .full = true
+      else .text += $char end) | .text;
+  ($body | split("\n") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))) as $lines |
+  (($lines[0] // "Release published from GitHub.") | sub("^[-*]\\s+"; "") | gsub("[\"\\\\\\x00-\\x1f]"; "") | limited(95)) as $summary |
+  ($lines | map(select(startswith("#") | not)) |
+    map({bullet:test("^[-*]\\s+"), text:(sub("^[-*]\\s+"; "") | gsub("`"; ""))}) |
+    map(select(.text | test("^(build\\s*[:=]|sha256\\b|RAM\\b|Flash\\b|pio\\s|https?://|固件附件)"; "i") | not))) as $notes |
+  ($notes | map(select(.bullet)) | map(.text)) as $bullets |
+  ((if ($bullets | length) > 0 then $bullets else ($notes | map(.text)) end) | join("\n") | limited(767)) as $full |
+  {product:$product, channel:$channel, version:$version, build:$build,
+   firmware_url:$firmware_url, sha256:$sha256, size:$size,
+   release_note:(if $summary == "" then "Release published from GitHub." else $summary end),
+   release_notes:(if $full == "" then $summary else $full end)}
+' > "$manifest_tmp"
 
 mv "$manifest_tmp" "$manifest_path"
 chmod 0755 "$manifest_path"

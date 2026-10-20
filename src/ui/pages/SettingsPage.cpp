@@ -44,7 +44,7 @@ const SettingsPage::MenuItem kSettingsItems[] = {
     {"重启设备",
      {reinterpret_cast<const uint8_t*>(&restart_frames[0][0]), RESTART_FRAME_BYTES,
       RESTART_FRAME_WIDTH, RESTART_FRAME_HEIGHT, RESTART_FRAME_DELAY, RESTART_FRAME_COUNT}},
-    {"OTA更新", kSettingsOtaIcon},
+    {"系统更新", kSettingsOtaIcon},
     {"WiFi配网",
      {reinterpret_cast<const uint8_t*>(&wificonnet_frames[0][0]), WIFICONNET_FRAME_BYTES,
       WIFICONNET_FRAME_WIDTH, WIFICONNET_FRAME_HEIGHT, WIFICONNET_FRAME_DELAY,
@@ -202,159 +202,6 @@ void renderWifiProvisionDetail(DisplayMonoTft& display, const WifiProvisionServi
                        static_cast<int16_t>(yOffset + height - 5), ST7305_COLOR_BLACK);
 }
 
-const char* otaStateTitleZh(OtaService::State state) {
-  switch (state) {
-    case OtaService::State::Idle:
-      return "OTA更新";
-    case OtaService::State::Checking:
-      return "正在检查";
-    case OtaService::State::UpToDate:
-      return "已是最新";
-    case OtaService::State::UpdateAvailable:
-      return "有可用更新";
-    case OtaService::State::Downloading:
-      return "正在下载";
-    case OtaService::State::Verifying:
-      return "正在校验";
-    case OtaService::State::ReadyToApply:
-      return "等待重启生效";
-    case OtaService::State::Applying:
-      return "正在重启应用";
-    default:
-      return "检查失败";
-  }
-}
-
-const char* otaErrorTextZh(OtaService::Error err) {
-  switch (err) {
-    case OtaService::Error::None:
-      return "无";
-    case OtaService::Error::Busy:
-      return "忙碌中";
-    case OtaService::Error::NoCredentials:
-      return "缺少WiFi凭据";
-    case OtaService::Error::ConnectTimeout:
-      return "WiFi连接超时";
-    case OtaService::Error::HttpRequestFailed:
-      return "HTTP请求失败";
-    case OtaService::Error::HttpStatusInvalid:
-      return "Manifest状态码异常";
-    case OtaService::Error::ManifestInvalid:
-      return "Manifest无效";
-    case OtaService::Error::ProductMismatch:
-      return "产品型号不匹配";
-    case OtaService::Error::ChannelMismatch:
-      return "更新通道不匹配";
-    case OtaService::Error::VersionNotNew:
-      return "版本不是更新";
-    case OtaService::Error::UrlInvalid:
-      return "固件地址无效";
-    case OtaService::Error::SizeInvalid:
-      return "固件大小无效";
-    case OtaService::Error::ShaInvalid:
-      return "SHA256无效";
-    case OtaService::Error::DownloadFailed:
-      return "下载失败";
-    case OtaService::Error::UpdateBeginFailed:
-      return "升级区初始化失败";
-    case OtaService::Error::UpdateWriteFailed:
-      return "升级写入失败";
-    case OtaService::Error::UpdateFinalizeFailed:
-      return "升级封包失败";
-    case OtaService::Error::ShaMismatch:
-      return "SHA256不匹配";
-    case OtaService::Error::ApplyNotReady:
-      return "当前状态不可应用";
-    case OtaService::Error::PostApplyVerifyFailed:
-      return "重启后版本核验失败";
-    default:
-      return "未知";
-  }
-}
-
-void renderOtaDetail(DisplayMonoTft& display, const OtaService& ota, int16_t yOffset) {
-  auto& canvas = display.canvas();
-  auto& text = display.text();
-  const int16_t width = static_cast<int16_t>(display.width());
-  const int16_t height = static_cast<int16_t>(display.height());
-
-  DetailHeader::render(display, otaStateTitleZh(ota.state()), yOffset);
-
-  text.setFont(chinese_font_all);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setFontMode(1);
-
-  char line1[96];
-  char line2[96];
-  const OtaService::ManifestInfo& manifest = ota.manifest();
-  snprintf(line1, sizeof(line1), "本地版本: %s (%lu)",
-           FirmwareInfo::kVersion, static_cast<unsigned long>(FirmwareInfo::kBuild));
-
-  if (ota.state() == OtaService::State::UpdateAvailable ||
-      ota.state() == OtaService::State::UpToDate) {
-    snprintf(line2, sizeof(line2), "远端版本: %s (%lu)", manifest.version,
-             static_cast<unsigned long>(manifest.build));
-  } else {
-    snprintf(line2, sizeof(line2), "远端版本: --");
-  }
-
-  text.drawUTF8(8, static_cast<int16_t>(yOffset + 58), line1);
-  text.drawUTF8(8, static_cast<int16_t>(yOffset + 86), line2);
-
-  if (ota.state() == OtaService::State::Idle) {
-    text.drawUTF8(8, static_cast<int16_t>(yOffset + 114), "按OK检查更新");
-  } else if (ota.state() == OtaService::State::Checking) {
-    text.drawUTF8(8, static_cast<int16_t>(yOffset + 114), "正在通过WiFi检查manifest");
-  } else if (ota.state() == OtaService::State::UpToDate) {
-    text.drawUTF8(8, static_cast<int16_t>(yOffset + 114), "当前已是最新版本");
-  } else if (ota.state() == OtaService::State::UpdateAvailable) {
-    char sizeLine[96];
-    snprintf(sizeLine, sizeof(sizeLine), "包大小: %lu bytes",
-             static_cast<unsigned long>(manifest.size));
-    text.drawUTF8(8, static_cast<int16_t>(yOffset + 114), sizeLine);
-  } else if (ota.state() == OtaService::State::Downloading) {
-    char progressLine[96];
-    snprintf(progressLine, sizeof(progressLine),
-             "下载进度: %u%% (%lu/%lu)",
-             static_cast<unsigned>(ota.progressPercent()),
-             static_cast<unsigned long>(ota.downloadedBytes()),
-             static_cast<unsigned long>(ota.totalBytes()));
-    text.drawUTF8(8, static_cast<int16_t>(yOffset + 114), progressLine);
-  } else if (ota.state() == OtaService::State::Verifying) {
-    text.drawUTF8(8, static_cast<int16_t>(yOffset + 114), "正在进行SHA256校验");
-  } else if (ota.state() == OtaService::State::ReadyToApply) {
-    text.drawUTF8(8, static_cast<int16_t>(yOffset + 114), "固件已写入，重启后生效");
-  } else if (ota.state() == OtaService::State::Applying) {
-    text.drawUTF8(8, static_cast<int16_t>(yOffset + 114), "正在重启设备...");
-  } else {
-    char errLine[96];
-    snprintf(errLine, sizeof(errLine), "错误: %s", otaErrorTextZh(ota.error()));
-    text.drawUTF8(8, static_cast<int16_t>(yOffset + 114), errLine);
-  }
-
-  const OtaService::State otaState = ota.state();
-  if (otaState == OtaService::State::UpdateAvailable) {
-    text.drawUTF8(8, static_cast<int16_t>(yOffset + height - 10), "LEFT: 返回  OK: 下载");
-  } else if (otaState == OtaService::State::ReadyToApply) {
-    text.drawUTF8(8, static_cast<int16_t>(yOffset + height - 10), "LEFT: 返回  OK: 立即应用");
-  } else if (otaState == OtaService::State::Downloading ||
-             otaState == OtaService::State::Verifying) {
-    text.drawUTF8(8, static_cast<int16_t>(yOffset + height - 10), "LEFT: 返回/取消  OK: 等待");
-  } else {
-    text.drawUTF8(8, static_cast<int16_t>(yOffset + height - 10), "LEFT: 返回  OK: 检查");
-  }
-
-  if (ota.hasPostApplyResult()) {
-    char verifyLine[96];
-    snprintf(verifyLine, sizeof(verifyLine), "上次应用结果: %s",
-             ota.postApplySucceeded() ? "成功" : "失败");
-    text.drawUTF8(8, static_cast<int16_t>(yOffset + 142), verifyLine);
-  }
-  canvas.drawRectangle(4, static_cast<int16_t>(yOffset + 32), width - 5,
-                       static_cast<int16_t>(yOffset + height - 5), ST7305_COLOR_BLACK);
-}
-
 void renderUsbSerialDetail(DisplayMonoTft& display, int16_t yOffset) {
   auto& canvas = display.canvas();
   auto& text = display.text();
@@ -500,12 +347,7 @@ bool SettingsPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, uint8_t
                                 const char* deviceIdText, const char* flashTotalText,
                                 const char* sdStatusText,
                                 const WifiProvisionService& wifi,
-                                const OtaService& ota, const TimeService& time) const {
-  if (isOtaSelection(homeFocus, sectionFocus)) {
-    renderOtaDetail(display, ota, yOffset);
-    return true;
-  }
-
+                                const TimeService& time) const {
   if (isWifiProvisionSelection(homeFocus, sectionFocus)) {
     renderWifiProvisionDetail(display, wifi, time, yOffset);
     return true;
@@ -532,7 +374,7 @@ const char* SettingsPage::confirmTitle(ConfirmKind kind) const {
     case ConfirmKind::FactoryReset:
       return "恢复默认设置？";
     case ConfirmKind::OtaApply:
-      return "应用固件并重启？";
+      return "应用更新并重启？";
     case ConfirmKind::WifiStart:
       return "开始配网？";
     default:

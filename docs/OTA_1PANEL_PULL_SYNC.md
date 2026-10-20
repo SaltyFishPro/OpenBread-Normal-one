@@ -7,6 +7,10 @@ This is the mode you requested:
 - Server computes `sha256` and `size` automatically.
 - Server rewrites `manifest.json` automatically.
 
+The generated manifest keeps the required `release_note` summary and also includes
+an optional `release_notes` UTF-8 string (up to 767 bytes) for the device's scrolling
+System Update page. Older firmware ignores the optional field.
+
 ## Script
 
 Use this script from this repo:
@@ -97,7 +101,7 @@ This flow is server-pull based and does not require GitHub Actions deployment.
 
 ## 发布闭环（当前固件流程）
 
-当前设备协议以 `src/app/FirmwareInfo.h` 和 `src/services/OtaService.cpp` 为准：使用 `firmware_url`、`release_note`，设备只接受匹配的 `product=openbread-normal-one`、`channel=stable` 和 HTTPS 固件地址。`docs/OTA.md` 中早期示例的 `bin_url`、`release_notes` 不适用于当前设备。
+当前设备协议以 `src/app/FirmwareInfo.h` 和 `src/services/OtaService.cpp` 为准：使用 `firmware_url`、`release_note`，并可选使用 `release_notes` 长日志；设备只接受匹配的 `product=openbread-normal-one`、`channel=stable` 和 HTTPS 固件地址。`docs/OTA.md` 中早期示例的 `bin_url` 不适用于当前设备。
 
 1. 读取 GitHub 最新正式 Release 与线上 `manifest.json`，选择更大的 build。同步修改 `FirmwareInfo.h` 的 `kVersion` 与 `kBuild`；仅改 Release 标题不能更新固件内的版本。
 2. 更新 `CHANGELOG.md`，执行 `pio run -e esp32s3` 与相关回归检查。OTA 附件必须来自 `.pio/build/esp32s3/firmware.bin`，不能使用带 bootloader / 分区表的合并烧录镜像；当前 OTA 应用分区上限为 7,340,032 bytes。

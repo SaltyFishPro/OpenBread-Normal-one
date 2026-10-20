@@ -20,6 +20,7 @@
 #include "../assets/main_menu/todays_draw.h"
 #include "../assets/main_menu/api_stats.h"
 #include "../assets/main_menu/computer_status.h"
+#include "../assets/main_menu/sd_usb.h"
 #include "../assets/ui/uncalibrated_bread.h"
 #include "../assets/ui/UI_background.h"
 #include "../assets/ui/battery_levels.h"
@@ -129,6 +130,8 @@ const IconBitmap::Anim kMenuIcons[] = {
     {reinterpret_cast<const uint8_t*>(&computer_status_frames[0][0]), COMPUTER_STATUS_FRAME_BYTES,
      COMPUTER_STATUS_FRAME_WIDTH, COMPUTER_STATUS_FRAME_HEIGHT, COMPUTER_STATUS_FRAME_DELAY,
      COMPUTER_STATUS_FRAME_COUNT},
+    {reinterpret_cast<const uint8_t*>(&sd_usb_frames[0][0]), SD_USB_FRAME_BYTES,
+     SD_USB_FRAME_WIDTH, SD_USB_FRAME_HEIGHT, SD_USB_FRAME_DELAY, SD_USB_FRAME_COUNT},
 };
 
 const IconBitmap::Anim kHomeBackground = {
@@ -151,12 +154,12 @@ constexpr int16_t kUncalibratedBreadScale = 2;
 
 const char* const kMenuNamesZh[] = {"设置", "音乐", "阅读", "专注时钟", "无线功能", "游戏",
                                    "闹钟", "课程表", "Api统计板", "答案之书", "今日抽签",
-                                   "电脑状态看板"};
+                                   "电脑状态看板", "SD卡转USB"};
 static_assert(sizeof(kMenuIcons) / sizeof(kMenuIcons[0]) ==
               sizeof(kMenuNamesZh) / sizeof(kMenuNamesZh[0]), "Menu icons and labels must match");
-static_assert(HomePage::kComputerStatusMenuIndex + 1U ==
+static_assert(HomePage::kSdUsbMenuIndex + 1U ==
                   sizeof(kMenuIcons) / sizeof(kMenuIcons[0]),
-              "Computer status must match the last main menu slot");
+              "SD USB must match the last main menu slot");
 
 void drawHomeTimePreview(ST7305_2p9_BW_DisplayDriver& canvas, uint32_t nowMs, int16_t xOffset,
                          const HomePage::ClockData& clockData) {
@@ -549,6 +552,10 @@ const char* HomePage::focusName() const { return menuLabel(focusIndex_); }
 
 const IconBitmap::Anim& HomePage::computerStatusIcon() {
   return kMenuIcons[kComputerStatusMenuIndex];
+}
+
+const IconBitmap::Anim& HomePage::sdUsbIcon() {
+  return kMenuIcons[kSdUsbMenuIndex];
 }
 
 void HomePage::setClockData(const ClockData& data) {

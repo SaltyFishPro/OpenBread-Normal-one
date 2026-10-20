@@ -52,6 +52,7 @@ public:
     char sha256[65] = {0};
     uint32_t size = 0;
     char releaseNote[96] = {0};
+    char releaseNotes[768] = {0};
   };
 
   bool begin();
@@ -63,6 +64,7 @@ public:
   void cancel();
 
   State state() const;
+  bool isConnecting() const { return phase_ == CheckPhase::Connect; }
   // 结果状态保留给页面显示；只有实际任务阶段及重启应用期间需要保持唤醒。
   bool isBusy() const { return phase_ != CheckPhase::None || state_ == State::Applying; }
   Error error() const;

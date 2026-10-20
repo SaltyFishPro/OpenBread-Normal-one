@@ -13,6 +13,7 @@
 - `sha256`：固件文件 SHA-256（64 hex）
 - `size`：字节数
 - `release_note`：更新说明
+- `release_notes`：可选的 UTF-8 多行更新日志，设备系统更新页会分页滚动显示
 
 ### 0.2 设备端判定规则
 - 先校验 `product`、`channel`、字段完整性，不通过直接拒绝升级。

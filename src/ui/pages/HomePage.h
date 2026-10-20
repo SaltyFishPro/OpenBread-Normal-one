@@ -15,6 +15,7 @@ public:
   static constexpr uint8_t kAnswersBookMenuIndex = 9;
   static constexpr uint8_t kTodayDrawMenuIndex = 10;
   static constexpr uint8_t kComputerStatusMenuIndex = 11;
+  static constexpr uint8_t kSdUsbMenuIndex = 12;
 
   struct ClockData {
     uint8_t second = 0;
@@ -66,6 +67,7 @@ public:
   const char* focusName() const;
   // Share the menu asset with the waiting page without storing a second copy.
   static const IconBitmap::Anim& computerStatusIcon();
+  static const IconBitmap::Anim& sdUsbIcon();
   void setClockData(const ClockData& data);
   bool setBatteryData(const BatteryData& data);
 
@@ -110,6 +112,6 @@ private:
   ClockData clockData_;
   BatteryData batteryData_;
 
-  static constexpr uint8_t kMenuCount = 12;
+  static constexpr uint8_t kMenuCount = 13;
   static constexpr uint32_t kIdleAnimationTimeoutMs = 4000;
 };

@@ -1,4 +1,5 @@
 #include "OtaService.h"
+#include "OtaReleaseNotes.h"
 
 #include <Preferences.h>
 #include <Update.h>
@@ -480,6 +481,11 @@ bool OtaService::fetchAndValidateManifest() {
     otaErr("manifest parse/field validation failed");
     setState(State::Error, Error::ManifestInvalid);
     return false;
+  }
+
+  // 旧清单继续有效；可选的长日志损坏时仅回退摘要，不阻断固件更新。
+  if (OtaReleaseNotes::parse(payload.c_str(), parsed.releaseNotes, sizeof(parsed.releaseNotes))) {
+    otaLog("release notes loaded bytes=%u", static_cast<unsigned>(strlen(parsed.releaseNotes)));
   }
 
   if (strcmp(parsed.product, FirmwareInfo::kProduct) != 0) {

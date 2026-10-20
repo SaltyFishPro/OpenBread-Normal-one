@@ -6,6 +6,7 @@
 #include "../bsp/MotorDriver.h"
 #include "../bsp/PeripheralPower.h"
 #include "../bsp/RtcDriver.h"
+#include "../bsp/SdUsbSwitch.h"
 #include "../services/BluetoothService.h"
 #include "../services/IicScanService.h"
 #include "../services/ImuTestService.h"
@@ -23,6 +24,7 @@
 #include "pages/DeviceSelfTestPage.h"
 #include "pages/AnswersBookPage.h"
 #include "pages/ComputerStatusPage.h"
+#include "pages/SdUsbPage.h"
 #include "pages/FocusClockPage.h"
 #include "pages/GamesPage.h"
 #include "pages/HomePage.h"
@@ -30,6 +32,7 @@
 #include "pages/ReaderPage.h"
 #include "pages/RemotePage.h"
 #include "pages/SettingsPage.h"
+#include "pages/SystemUpdatePage.h"
 #include "../services/SdCardService.h"
 #include "../services/ComputerStatusProtocol.h"
 
@@ -117,6 +120,7 @@ private:
   DisplayMonoTft display_;
   MotorDriver motorDriver_;
   PeripheralPower peripheralPower_;
+  SdUsbSwitch sdUsbSwitch_;
   Render1bpp renderer_;
   HomePage homePage_;
   MusicPage musicPage_;
@@ -125,10 +129,12 @@ private:
   DeviceSelfTestPage deviceSelfTestPage_;
   AnswersBookPage answersBookPage_;
   ComputerStatusPage computerStatusPage_;
+  SdUsbPage sdUsbPage_;
   FocusClockPage focusClockPage_;
   GamesPage gamesPage_;
   RemotePage remotePage_;
   SettingsPage settingsPage_;
+  SystemUpdatePage systemUpdatePage_;
   BluetoothService bluetoothService_;
   RemoteService remoteService_;
   OtaService otaService_;

@@ -57,7 +57,7 @@ public:
                     int16_t yOffset, DisplayMonoTft& display, const char* deviceIdText,
                     const char* flashTotalText,
                     const char* sdStatusText,
-                    const WifiProvisionService& wifi, const OtaService& ota,
+                    const WifiProvisionService& wifi,
                     const TimeService& time) const;
 
   const char* confirmTitle(ConfirmKind kind) const;

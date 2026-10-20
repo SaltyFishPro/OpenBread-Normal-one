@@ -1,6 +1,6 @@
 # OpenBread Normal One 项目大纲（ST7305 单色反射屏）
 
-> 更新于 2026-10-11。本文件同时承担**目标架构与开发规范**、**当前实现对照**两项职责。第 2～14 节描述后续开发应遵循的设计方向；标有“当前实现”的内容才表示已落地。新增功能先检查所属层级、交互与资源约束，再更新实现状态。目标设备为 ESP32-S3 N16R8，屏幕逻辑分辨率为 384×168。
+> 更新于 2026-10-20。本文件同时承担**目标架构与开发规范**、**当前实现对照**两项职责。第 2～14 节描述后续开发应遵循的设计方向；标有“当前实现”的内容才表示已落地。新增功能先检查所属层级、交互与资源约束，再更新实现状态。目标设备为 ESP32-S3 N16R8，屏幕逻辑分辨率为 384×168。
 
 ## 1. 项目目标
 - 目标设备：2.9寸单色反射式 TFT（1-bit，黑白两色，无亮度控制）便携设备。
@@ -111,7 +111,7 @@ src/
 - 主菜单到子菜单必须使用统一过渡动画，形成稳定的产品识别感。
 
 ### 6.2 信息架构
-- 主菜单（Home）：当前有设置、音乐、阅读、专注时钟、无线功能、游戏、闹钟、课程表、Api统计板、答案之书、今日抽签、电脑状态看板 12 个入口；已实现内容与占位状态见第 15 节。
+- 主菜单（Home）：当前有设置、音乐、阅读、专注时钟、无线功能、游戏、闹钟、课程表、Api统计板、答案之书、今日抽签、电脑状态看板、SD卡转USB 13 个入口；已实现内容与占位状态见第 15 节。
 - 子菜单（Section）：模块内功能分组与操作列表。
 - 详情页（Detail）：单对象或单任务的具体操作界面。
 - 导航约束：任何详情页最多两次返回到主菜单，路径必须确定且一致。
@@ -263,6 +263,8 @@ src/
 - 完整性校验：下载后执行 SHA256 全量比对，不匹配则中止。
 - 应用流程：`ReadyToApply` 下用户确认后重启生效。
 - 启动后核验：重启后对比目标版本并记录 post-apply verify 结果。
+- 系统更新页面：`SystemUpdatePage` 负责 384×168 横屏布局、真实状态展示、内置/远端长日志分页滚动和统一确认弹窗；日志滚动只在页面可见且不处于弹窗或联网忙碌阶段时运行。
+- 清单兼容：`release_note` 是旧摘要字段，`release_notes` 是可选 UTF-8 长日志；长字段格式错误时回退摘要，不阻断 OTA。
 
 ### 7.0a WifiProvisionService（已落地）
 - 配网 Portal 生命周期管理（开启/连接/超时/取消）。
@@ -377,7 +379,7 @@ src/
 - 配置可持久化，重启后状态一致。
 - 异常场景有明确可恢复路径。
 
-## 15. 当前实现对照（2026-10-11）
+## 15. 当前实现对照（2026-10-20）
 
 当前运行入口是 `src/main.cpp -> App -> UiManager`。`AppState`、`EventBus`、`Scheduler` 还不是主循环的运行框架；不要将第 5 节目标状态误判为已完成。`UiManager` 以导航状态处理主菜单、子菜单、详情页、弹窗和正反向转场；`HomePage` 管理主菜单焦点与滚动，页面私有状态留在 `ui/pages`。
 
@@ -395,8 +397,11 @@ src/
 | 答案之书 | 直达详情 | 提问提示、5 秒思考、答案翻开及最近 3 条记录 |
 | 今日抽签 | 直达详情 | 占位 |
 | 电脑状态看板 | 直达详情 | 完整帧传输与整屏绘制；差分区域实验已撤回。COM3 回退后通过 20 帧天气/新闻画面及暂停/恢复、5 秒刷新和重连，用户确认位置与文字正常、没有残留；物理拔线恢复、长时间运行与完整像素图案待验收 |
+| SD卡转USB | 直达详情 | 进入时释放设备端 SD 访问后拉高 GPIO16，普通/长按 Left 退出时拉低；菜单动图与静态读卡页已实现，USB 枚举、SD 读写和退出恢复待实机验收 |
 
 答案之书的记录保存在页面运行态内存，重新进入页面时清空，没有 SD/NVS 持久化。记录页同时显示最多 3 条，`Up/Down` 改变反白焦点，`OK` 再问，`Left` 返回；行与卡片底边之间应保留可见留白。
+
+「SD卡转USB」由 `bsp/SdUsbSwitch` 访问 GPIO16，`UiManager` 编排进入/退出，`ui/pages/SdUsbPage` 只负责绘制。启动初始化 LOW；完成进入转场后清除阅读缓存，并复用音乐退出流程停止音频/扫描、关闭文件、卸载 SD_MMC，然后置 HIGH。Left 返回时先置 LOW 再退场，后续按需挂载。现有 SD 总线是 SD_MMC 1-bit（CLK=11、CMD=12、D0=10），`BoardConfig` 的 MISO/MOSI 名称为旧别名。该功能依赖板载芯片的 HIGH/LOW 路由，不通过 ESP32 实现软件 USB MSC；默认不推断电脑是否已挂载卡。页面静态显示并提示安全弹出，`[SDUSB]` 日志可通过 `OB_SD_USB_LOG_ENABLED=0` 关闭。
 
 当前局部刷新由 `Render1bpp` 合并脏区域，`UiManager` 决定重绘时机并调用 `DisplayMonoTft` 提交；音乐导航/列表、主页时间卡片与图标等路径可按区域推送。主页面满足休眠条件时约 20 秒无操作进入 light sleep，保留画面并由按键唤醒；配网、OTA、播放等忙碌状态会限制休眠。功耗和刷新效果仍须实机测量。
 
@@ -422,9 +427,30 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/computer_status_previe
 
 2026-10-11 等待页验证记录：六种画面均生成 384×168 黑白缓冲，首次与再次进入的半屏转场逐字节一致，静态等待及连接状态重绘检查通过。`pio run -e esp32s3` 成功：RAM 94,688 bytes（28.9%）、Flash 3,920,739 bytes（53.4%）；构建日志为 `tmp/computer-status-waiting-build-20261011.log`。该记录只确认主机绘制、逻辑自检与编译，新版等待页的实机交互和刷新效果仍待验收。
 
+系统更新页也使用真实帧缓冲验证：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/system_update_preview/build.ps1
+```
+
+工具直接编译 `SystemUpdatePage.cpp`、可选清单日志解析器、统一标题/弹窗与 ST7305 驱动，输出 `tmp/system-update-render/` 的本版日志、远端日志、下载进度、待重启、成功和错误画面，以及合览图 `system-update-framebuffers.png`。自检覆盖 4 秒自动滚动、手动后 8 秒暂停、页边界、弹窗默认取消、退出重入、计时回绕和 UTF-8 长日志解析；实机仍需验证联网状态、真实 OTA 下载/重启、滚动观感和屏幕刷新。
+
+「SD卡转USB」的主页/详情页真实缓冲与 GPIO 主机自检：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/sd_usb_preview/build.ps1
+```
+
+输出为 `tmp/sd-usb-render/sd-usb-framebuffers.png`。检查菜单首尾导航、图标与文案留白、状态与转场裁剪；GPIO 测试覆盖默认 LOW、进入 HIGH、退出 LOW、重复设置与重新初始化。该工具不执行完整 UI 管理器，硬件侧仍需验证 SD_MMC 卸载、USB 枚举、文件读写、安全弹出和 Left 返回后的 SD 重新挂载，详见 [SD卡转USB 验证说明](../tools/sd_usb_preview/README.md)。
+
+2026-10-20 主机检查、真实缓冲目视检查与 `pio run -e esp32s3` 通过：RAM 95,656 bytes（29.2%），Flash 3,951,527 bytes（53.8%），较改动前增加 8 bytes RAM、19,316 bytes Flash。构建日志：`tmp/sd-usb-build-20261020.log`；未执行烧录或实机切换测试。
+
+2026-10-21：用户确认独立 `tools/gpio16_high_test` 上电拉高 GPIO16 的最小测试实机通过。主菜单进入/退出的完整流程仍需分别验收，不能用最小测试替代。
+
 ## 17. 相关文档
 
 - [设备自检设计](DEVICE_SELF_TEST_DESIGN.md)
 - [OTA 说明](OTA.md)
+- [系统更新真实帧预览](../tools/system_update_preview/README.md)
 - [音乐说明](music.md)
 - [变更记录](../CHANGELOG.md)

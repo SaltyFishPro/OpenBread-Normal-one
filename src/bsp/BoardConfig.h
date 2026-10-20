@@ -17,6 +17,7 @@ constexpr int kPinSdData0 = 10;
 constexpr int kPinSdCmd = 12;
 constexpr int kPinSdClk = 11;
 constexpr int kPinSdCs = -1;
+constexpr int kPinSdUsbSelect = 16;  // HIGH: USB-to-SD bridge; LOW: normal USB route.
 
 constexpr int kPinIicSda = 47;
 constexpr int kPinIicScl = 48;

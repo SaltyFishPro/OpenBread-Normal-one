@@ -112,8 +112,32 @@ def first_release_note_line(release: dict[str, Any]) -> str:
     for line in body.splitlines():
         text = line.strip()
         if text:
-            return text
+            text = re.sub(r"^[-*]\s+", "", text)
+            # 旧固件的摘要缓冲为 96 bytes，且不接受 JSON 字符串转义。
+            text = re.sub(r'["\\\x00-\x1f]', '', text)
+            return truncate_utf8(text, 95) or "Release published from GitHub."
     return "Release published from GitHub."
+
+
+def truncate_utf8(text: str, max_bytes: int) -> str:
+    return text.encode("utf-8")[:max_bytes].decode("utf-8", errors="ignore")
+
+
+def full_release_notes(release: dict[str, Any]) -> str:
+    bullets: list[str] = []
+    prose: list[str] = []
+    for line in str(release.get("body") or "").splitlines():
+        text = line.strip()
+        if re.match(r"^#+\s*(?:验证|校验|构建|validation|verification|testing|build)\b", text, re.I):
+            break
+        if not text or text.startswith("#"):
+            continue
+        is_bullet = bool(re.match(r"^[-*]\s+", text))
+        text = re.sub(r"^[-*]\s+", "", text).replace("`", "")
+        if re.match(r"^(?:build\s*[:=]|sha256\b|RAM\b|Flash\b|pio\s|https?://|固件附件)", text, re.I):
+            continue
+        (bullets if is_bullet else prose).append(text)
+    return truncate_utf8("\n".join(bullets or prose), 767) or first_release_note_line(release)
 
 
 def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
@@ -171,6 +195,7 @@ def main() -> int:
         "sha256": sha256_file(firmware_path),
         "size": firmware_path.stat().st_size,
         "release_note": first_release_note_line(release),
+        "release_notes": full_release_notes(release),
     }
 
     manifest_path = output_dir / "manifest.json"

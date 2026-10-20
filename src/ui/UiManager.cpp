@@ -166,7 +166,8 @@ bool isDirectDetailHomeIndex(uint8_t homeFocus) {
          homeFocus == HomePage::kCalendarMenuIndex || homeFocus == HomePage::kApiStatsMenuIndex ||
          homeFocus == HomePage::kAnswersBookMenuIndex ||
          homeFocus == HomePage::kTodayDrawMenuIndex ||
-         homeFocus == HomePage::kComputerStatusMenuIndex;
+         homeFocus == HomePage::kComputerStatusMenuIndex ||
+         homeFocus == HomePage::kSdUsbMenuIndex;
 }
 
 SectionContent sectionContentFor(uint8_t homeFocus, const SettingsPage& settingsPage) {
@@ -283,6 +284,7 @@ void applySectionItemTextStyle(U8G2_FOR_ST73XX& text, bool selected) {
 
 bool UiManager::begin() {
   CpuClock::begin();
+  sdUsbSwitch_.begin();  // Default LOW before any SD initialization, including boot failures.
 
   buttons_[0].pin = static_cast<uint8_t>(BoardConfig::kPinBtnLeft);
   buttons_[1].pin = static_cast<uint8_t>(BoardConfig::kPinBtnRight);
@@ -449,6 +451,13 @@ void UiManager::tick() {
   const InputEdges edges = pollInputEdges();
   updateState(edges, nowMs);
 
+  if (systemUpdatePage_.update(SystemUpdatePage::viewOf(otaService_),
+                               state_ == UiState::Detail && settingsPage_.isOtaSelection(
+                                   homePage_.focusIndex(), sectionFocusIndex_),
+                               PopupView::isVisible(confirmState_.anim), nowMs, display_.text())) {
+    needsRedraw_ = true;
+  }
+
   // 弹窗退场动画播完后再执行动作，避免"还没看清就执行了"。
   const uint32_t popupNowMs = millis();
   const PopupView::Result popupResult = PopupView::update(confirmState_, popupNowMs);
@@ -570,6 +579,12 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
           computerStatusPage_.begin(nowMs);
           computerStatusProtocol_.beginSession();
         }
+        if (homePage_.focusIndex() == HomePage::kSdUsbMenuIndex) {
+          readerService_.reset();
+          // Stops audio/scans, closes their files and unmounts SD_MMC before handoff.
+          musicService_.exitMusic(sdCardService_);
+          sdUsbSwitch_.setEnabled(true);
+        }
         state_ = UiState::Detail;
         needsRedraw_ = true;
       }
@@ -668,6 +683,9 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         } else {
           detailPageIndex_ = 0;
           musicPage_.resetState(homePage_.focusIndex(), sectionFocusIndex_);
+          if (settingsPage_.isOtaSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
+            systemUpdatePage_.prepareEnter();
+          }
           state_ = UiState::ToDetailTransition;
           transitionStartMs_ = nowMs;
         }
@@ -745,6 +763,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
             computerStatusFrameVisible_ = false;
             computerStatusProtocol_.endSession();
           }
+          sdUsbSwitch_.setEnabled(false);
           settingsPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                           wifiProvisionService_, otaService_, timeService_);
           setRemotePagePortrait(false);
@@ -789,6 +808,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
             computerStatusFrameVisible_ = false;
             computerStatusProtocol_.endSession();
           }
+          sdUsbSwitch_.setEnabled(false);
           settingsPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                           wifiProvisionService_, otaService_, timeService_);
           setRemotePagePortrait(false);
@@ -798,6 +818,9 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
           transitionStartMs_ = nowMs;
           needsRedraw_ = true;
         }
+      } else if (settingsPage_.isOtaSelection(homePage_.focusIndex(), sectionFocusIndex_) &&
+                 (edges.up || edges.down)) {
+        if (systemUpdatePage_.handleLogInput(edges.up, edges.down, nowMs)) needsRedraw_ = true;
       } else if (musicPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
                                               false, edges.right, edges.up, edges.down, edges.ok, nowMs,
                                               musicService_)) {
@@ -869,6 +892,7 @@ bool UiManager::shouldRedraw(uint32_t nowMs) const {
   if (needsRedraw_) {
     return true;
   }
+  if (systemUpdatePage_.needsAnimationFrame()) return true;
 
   if (state_ == UiState::Home) {
     if (homePage_.isSliding()) {
@@ -945,6 +969,7 @@ uint32_t UiManager::targetFrameIntervalMs(uint32_t nowMs) const {
   if (PopupView::isAnimating(confirmState_.anim)) {
     return kHighFrameIntervalMs;
   }
+  if (systemUpdatePage_.needsAnimationFrame()) return kTransitionFrameIntervalMs;
   if (state_ == UiState::ToSectionTransition ||
       state_ == UiState::ToDirectDetailTransition || state_ == UiState::ToHomeTransition ||
       state_ == UiState::ToHomeFromDirectDetailTransition ||
@@ -1777,6 +1802,12 @@ void UiManager::renderDetail(int16_t yOffset) {
     computerStatusPage_.render(display_, yOffset, HomePage::computerStatusIcon(),
                                 computerStatusProtocol_.isHandshakeComplete(), millis());
     handled = true;
+  } else if (homePage_.focusIndex() == HomePage::kSdUsbMenuIndex) {
+    sdUsbPage_.render(display_, yOffset, HomePage::sdUsbIcon(), sdUsbSwitch_.enabled());
+    handled = true;
+  } else if (settingsPage_.isOtaSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
+    systemUpdatePage_.render(display_, yOffset, SystemUpdatePage::viewOf(otaService_), millis());
+    handled = true;
   } else if (settingsPage_.isDeviceSelfTestSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
     deviceSelfTestPage_.render(display_, yOffset, millis(), iicScanService_, rtcTestService_,
                                sdCardService_, imuTestService_, powerDiagnosticService_);
@@ -1804,7 +1835,7 @@ void UiManager::renderDetail(int16_t yOffset) {
   } else if (settingsPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_,
                                         detailPageIndex_, yOffset, display_, deviceIdText_,
                                         flashTotalText_, sdStatusText_, wifiProvisionService_,
-                                        otaService_, timeService_)) {
+                                        timeService_)) {
     handled = true;
   }
 
