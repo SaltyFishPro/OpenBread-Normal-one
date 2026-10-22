@@ -1,6 +1,6 @@
 # OpenBread Normal One 项目大纲（ST7305 单色反射屏）
 
-> 更新于 2026-10-21。本文件同时承担**目标架构与开发规范**、**当前实现对照**两项职责。第 2～14 节描述后续开发应遵循的设计方向；标有“当前实现”的内容才表示已落地。新增功能先检查所属层级、交互与资源约束，再更新实现状态。目标设备为 ESP32-S3 N16R8，屏幕逻辑分辨率为 384×168。
+> 更新于 2026-10-22。本文件同时承担**目标架构与开发规范**、**当前实现对照**两项职责。第 2～14 节描述后续开发应遵循的设计方向；标有“当前实现”的内容才表示已落地。新增功能先检查所属层级、交互与资源约束，再更新实现状态。目标设备为 ESP32-S3 N16R8，屏幕逻辑分辨率为 384×168。
 
 ## 1. 项目目标
 - 目标设备：2.9寸单色反射式 TFT（1-bit，黑白两色，无亮度控制）便携设备。
@@ -63,7 +63,9 @@ src/
 
 当前代码另有 `src/services/BluetoothService.*`、`SdCardService.*`、`TimeService.*`、`ComputerStatusProtocol.*` 等，以及 `src/ui/pages/AnswersBookPage.*`、`ComputerStatusPage.*`、`FocusClockPage.*`、`GamesPage.*`、`DeviceSelfTestPage.*` 等。`SettingsService`、`AlarmService`、`GestureService`、`HapticService`、`AlarmPage` 和 `data/` 仍属规划，不能按已存在模块引用。新增页面业务放 `ui/pages`，输入路由与转场放 `UiManager`，硬件访问放 `bsp`，跨页面业务放 `services`。
 
-SD 字库分层为 `src/bsp/SdFontFile.*`（只读文件）、`src/services/SdBitmapFont.*`（格式、校验与缓存）、`src/ui/SdBitmapText.*`（UTF-8 排版绘制）、`src/ui/pages/SdFontTestPage.*`（测试业务）。页面通过现有 `SdCardService` 挂载，不在字库服务中绘图或切换硬件路由。
+SD 字库分层为 `src/bsp/SdFontFile.*`（只读文件）、`SdFontCacheBuffer.*`（有预算的外部内存申请/释放）、`src/services/SdBitmapFont.*`（格式、校验与缓存）、`src/ui/SdBitmapText.*`（UTF-8 排版绘制）、`src/ui/pages/SdFontTestPage.*`（测试业务）。页面通过现有 `SdCardService` 挂载，不在字库服务中绘图或切换硬件路由。
+
+电脑端字库预处理放在 `tools/font_builder/`：`font_builder.py` 负责栅格化与成套导出，`font_bin.py` 负责 NBFT 回读，`font_common_index.py` 负责 NBCI 常用字码点/位置索引的生成、字库绑定和回读验证，`font_builder_gui.py` 负责参数与交互。用户选择常用字 TXT 不改变完整字库范围；导出 `Font/` 可直接复制到 SD 卡。设备端 NBCI 解析与分步加载属于 `SdBitmapFont` 服务，在已有 128KiB 总预算内保留最多 7500 条记录；UI 不处理文件布局。仅「SD字库测试」已接入，不能视为全机字体加速已完成。
 
 ## 4. 核心设计原则
 - 实时优先：所有主路径满足可预测时延，输入与告警链路优先级最高。
@@ -381,7 +383,7 @@ SD 字库分层为 `src/bsp/SdFontFile.*`（只读文件）、`src/services/SdBi
 - 配置可持久化，重启后状态一致。
 - 异常场景有明确可恢复路径。
 
-## 15. 当前实现对照（2026-10-21）
+## 15. 当前实现对照（2026-10-22）
 
 当前运行入口是 `src/main.cpp -> App -> UiManager`。`AppState`、`EventBus`、`Scheduler` 还不是主循环的运行框架；不要将第 5 节目标状态误判为已完成。`UiManager` 以导航状态处理主菜单、子菜单、详情页、弹窗和正反向转场；`HomePage` 管理主菜单焦点与滚动，页面私有状态留在 `ui/pages`。
 
@@ -403,7 +405,7 @@ SD 字库分层为 `src/bsp/SdFontFile.*`（只读文件）、`src/services/SdBi
 
 答案之书的记录保存在页面运行态内存，重新进入页面时清空，没有 SD/NVS 持久化。记录页同时显示最多 3 条，`Up/Down` 改变反白焦点，`OK` 再问，`Left` 返回；行与卡片底边之间应保留可见留白。
 
-SD字库测试读取 `/Font/font-14.bin`、`font-20.bin`、`font-24.bin`，每次打开分步校验完整 CRC，之后使用 32 位 Unicode 二分查询、固定索引块和字形缓存；不整体加载字库。`Up/Down` 切换字号，`OK` 重试，普通/长按 `Left` 关闭文件并卸载 SD。主机读取与绘制核对、完整编译已通过，真实 SD 速度与交互待实机验证。其他页面保留内置字体，尚未减少固件字库体积。进入 SD卡转USB 和休眠卸载前同样先关闭字库，详细约束见 [SD 点阵字库](SD_BITMAP_FONTS.md)。
+SD字库测试读取 `/Font/font-14.bin`、`font-20.bin`、`font-24.bin` 及可选的同目录 `font-字号.common.bin`。首次分步校验完整 NBFT CRC，同次测试内复用完整文件头匹配的结果；NBFT 校验、NBCI 文件头与正文分阶段推进，每 tick 最多 32KiB、按 4ms 让出，轮间让出 1ms。查询先走字形缓存、当前字号的常用字索引，再回退 32 位 Unicode 二分查找，不整体加载字库。固定申请 125,792 bytes PSRAM（128KiB 预算），含最多 7500 常用字记录、64 索引块、256 字形槽；不足时回退内部 8 槽字形/1 索引块并跳过 NBCI。NBCI 校验绑定、CRC、顺序与偏移，实际命中时核对目标码点；缺失、损坏、超限或目标不符时回退普通查字。`Up/Down` 切换字号复用分配但清空缓存并重新加载 NBCI，`OK` 刷新 SD 状态及重新完整检查，普通/长按 `Left` 关闭文件、释放 PSRAM、清除校验记录并卸载 SD。主机读取与绘制核对已通过，真实 SD 速度与交互待实机验证。其他页面保留内置字体，音乐尚未接入，固件字库体积尚未减少。进入 SD卡转USB 和休眠卸载前同样先关闭字库，详细约束见 [SD 点阵字库](SD_BITMAP_FONTS.md)。
 
 「SD卡转USB」由 `bsp/SdUsbSwitch` 访问 GPIO16，`UiManager` 编排进入/退出，`ui/pages/SdUsbPage` 只负责绘制。启动初始化 LOW；完成进入转场后清除阅读缓存，并复用音乐退出流程停止音频/扫描、关闭文件、卸载 SD_MMC，然后置 HIGH。Left 返回时先置 LOW 再退场，后续按需挂载。现有 SD 总线是 SD_MMC 1-bit（CLK=11、CMD=12、D0=10），`BoardConfig` 的 MISO/MOSI 名称为旧别名。该功能依赖板载芯片的 HIGH/LOW 路由，不通过 ESP32 实现软件 USB MSC；默认不推断电脑是否已挂载卡。页面静态显示并提示安全弹出，`[SDUSB]` 日志可通过 `OB_SD_USB_LOG_ENABLED=0` 关闭。
 
@@ -460,6 +462,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/sd_font_tests/build.ps
 编译生产读取器、文本绘制、测试页和显示驱动，使用文件系统替身读取实际 14/20/24 字库。输出 `tmp/sd-font-test/sd-font-framebuffers.png`，并与 Python 独立解码进行 18 组逐像素比较，覆盖旋转和裁剪；同时检查 CRC、缓存、扩展区字符、异常重试和取消。工具不运行完整 UI 管理器，返回清理/USB 交接另做代码审查，实际挂载、按键响应和刷新仍待设备验收，详见 [验证工具](../tools/sd_font_tests/README.md)。
 
 2026-10-21 上述检查和 `pio run -e esp32s3` 通过：RAM 97,392 bytes（29.7%），Flash 3,957,275 bytes（53.9%）；较字库接入前增加 1,736 bytes RAM、5,748 bytes Flash。构建日志 `tmp/sd-font-build-20261021.log`；未执行烧录。
+
+2026-10-21 性能优化后：主机确认切回已校验字号只读 64 bytes 文件头，样张整页重绘不读 SD，重试、退出、文件头变化和读取错误均重新校验；4ms 时间预算、慢卡让出和计时回绕测试通过。18 组逐像素比较与完整编译通过：RAM 106,616 bytes（32.5%）、Flash 3,958,747 bytes（53.9%），较提交 `3a54b1d` 增加 9,224 bytes RAM、1,472 bytes Flash。构建日志 `tmp/sd-font-performance-build-20261021.log`；实机耗时及刷新体验待验证，未烧录。
+
+2026-10-22 有限 PSRAM 缓存：两种缓存路径分别通过 18 组像素比较，内存预算、申请失败、连续块不足、退出/异常释放及缓存冲突淘汰测试通过。256 个码点两轮查询的文件读取共 282 次（PSRAM）/6,672 次（内部 8 槽回退），PSRAM 第二轮 0 次；不含 CRC，不代表实机倍速。完整 `pio run -e esp32s3` 通过：RAM 97,688 bytes（29.8%）、Flash 3,958,827 bytes（53.9%），另按需申请外部缓存 119,168 bytes。相较上一轮减少静态 RAM 8,928 bytes、Flash 增加 80 bytes。日志 `tmp/sd-font-psram-build-20261022.log`、`tmp/sd-font-psram-host-20261022.log`。未烧录，PSRAM 实际分配、首次校验与绘制耗时仍待实机验证。
+
+2026-10-22 电脑端常用字预处理：GUI/CLI 可另选 UTF-8 TXT，生成每字号绑定字库的 NBCI，并输出可复制的 `Font/`。`verify.py --gui` 通过三个字号字形定位、扩展区、BOM/去重、损坏索引/字库绑定、缺字报告、重复导出清理，以及 100/125/150/200% 缩放下的设置与按钮检查。另以微软雅黑完整 29,903 字符和测试用 7500 汉字清单实测 14/20/24 导出，三份索引各 60,096 bytes；测试清单不作为用户常用字集交付。`pio run -e esp32s3` 通过，RAM 97,688 bytes（29.8%）、Flash 3,958,827 bytes（53.9%）。记录 `tmp/font-common-verify-20261022.log`、`tmp/font-common-cli-20261022.log`、`tmp/font-common-firmware-20261022.log`。本轮只扩展电脑工具，未烧录；设备端 NBCI 加载、128KiB 预算重分配与实际加速验证仍待后续接入。
+
+2026-10-22 设备端 NBCI 接入：仍仅用于「SD字库测试」，按当前字号加载最多 7500 条常用字记录，缓存预算重新分配为 125,792 bytes。用户当前三个字号各 7080 常用字的度量/点阵全部匹配独立参考；有/无 PSRAM 分别通过 36 组像素比较。索引缺失/损坏/绑定不符/超限/内存不足回退、错目标、加载中取消/重试/切字号、4ms/32KiB 步进与完整 CRC 结束边界通过。256 个分散常用字单轮首次查询，文件读取 817 次降至 511 次，不含校验/加载，不作为实机倍速。完整 `pio run -e esp32s3` 通过：RAM 97,744 bytes（29.8%）、Flash 3,960,471 bytes（54.0%），动态 PSRAM 另计。记录 `tmp/sd-font-common-host-20261022.log`、`tmp/sd-font-common-build-20261022.log`，固件已生成但未烧录，真实速度、PSRAM 分配与返回交互仍待实机验证。
 
 ## 17. 相关文档
 

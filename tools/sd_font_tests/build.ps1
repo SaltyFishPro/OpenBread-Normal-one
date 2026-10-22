@@ -11,7 +11,7 @@ try {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     $sources = @(
         'tools/sd_font_tests/test.cpp', 'tmp/sd-font-test/fonts.o',
-        'src/bsp/SdFontFile.cpp', 'src/services/SdBitmapFont.cpp',
+        'src/bsp/SdFontFile.cpp', 'src/bsp/SdFontCacheBuffer.cpp', 'src/services/SdBitmapFont.cpp',
         'src/ui/SdBitmapText.cpp', 'src/ui/pages/SdFontTestPage.cpp',
         'src/ui/DetailHeader.cpp',
         'lib/ST7305_MonoTFT_Library/src/ST73XX_UI.cpp',
@@ -24,6 +24,10 @@ try {
         -I lib/ST7305_MonoTFT_Library/src @sources -o tmp/sd-font-test/test.exe
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     & tmp/sd-font-test/test.exe
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    uv run --with pillow python tools/sd_font_tests/compare.py
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    & tmp/sd-font-test/test.exe --no-psram
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     uv run --with pillow python tools/sd_font_tests/compare.py
     exit $LASTEXITCODE

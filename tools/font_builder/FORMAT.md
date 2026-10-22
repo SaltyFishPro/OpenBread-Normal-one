@@ -74,4 +74,36 @@ next_baseline_y += ascent + descent + line_gap
 
 `font_bin.py` 的 `FileBitmapFont` 演示了电脑端按文件二分查询，不在内存中建立完整索引；完整 CRC 使用 4096-byte 分块读取，只在打开时执行一次。它处理已由导出工具完整验证的文件，对实际查询到的记录额外检查范围；不替代整体索引排序和连续性检查。
 
-固件 `SdBitmapFont` 已实现此格式的按需读取、分步 CRC32、固定索引块及字形缓存，`SdBitmapText` 使用四字节 UTF-8 解码和 uint32 码点。测试页读取 `/Font/font-14.bin`、`font-20.bin`、`font-24.bin`；每次打开校验文件头、长度和完整 payload CRC，查询时检查所读记录与位图范围，仍依赖导出工具保证整个索引的排序和连续性。挂载、退出和硬件验证边界见 [SD 点阵字库](../../docs/SD_BITMAP_FONTS.md)。
+固件 `SdBitmapFont` 已实现此格式的按需读取、分步 CRC32、固定索引块及字形缓存，`SdBitmapText` 使用四字节 UTF-8 解码和 uint32 码点。测试页读取 `/Font/font-14.bin`、`font-20.bin`、`font-24.bin`；每次打开检查文件头与长度，首次使用完整校验 payload CRC，同次会话内可复用完整文件头匹配的校验结果。查询时检查所读记录与位图范围，仍依赖导出工具保证整个索引的排序和连续性。调用方在卸载、换卡或写入前须 `end()` 清除会话记录；挂载、退出和硬件验证边界见 [SD 点阵字库](../../docs/SD_BITMAP_FONTS.md)。
+
+## NBCI v1 常用字索引
+
+可选伴随文件名为 `font-字号.common.bin`，不改变 NBFT v1 字库。所有整数小端；位置指向 NBFT 的 **24-byte 字形记录**，不直接指向点阵。电脑端实现与验证见 [font_common_index.py](font_common_index.py)。当前固件在「SD字库测试」中读取此文件，最多接收 7500 条；其他页面尚未迁移。
+
+### 96-byte 文件头
+
+| 偏移 | 类型 | 字段 | 含义 |
+| --- | --- | --- | --- |
+| 0 | char[4] | magic | ASCII `NBCI` |
+| 4 | uint16 | version | 1 |
+| 6 | uint16 | header_size | 96 |
+| 8 | uint16 | record_size | 8 |
+| 10 | uint16 | pixel_size | 必须与绑定字库一致 |
+| 12 | uint32 | entry_count | 成功收录的常用字符数，至少 1 |
+| 16 | uint32 | file_size | `96 + entry_count * 8` |
+| 20 | uint32 | payload_crc32 | 从 offset 96 到末尾的 CRC-32/ISO-HDLC |
+| 24 | uint8[8] | reserved | 全 0 |
+| 32 | uint8[64] | font_header | 绑定 NBFT 的完整文件头，须逐字节匹配 |
+
+NBFT 文件头内含字号、文件长度、全部字形数、度量和 payload CRC32，可拒绝混用不同导出版本的索引。NBCI payload CRC 保护条目；源 NBFT 的完整校验仍须独立完成，不能用索引校验代替。导出清单同时记录字库和索引的 SHA256。
+
+### 8-byte 常用字记录
+
+| 记录内偏移 | 类型 | 字段 | 含义 |
+| --- | --- | --- | --- |
+| 0 | uint32 | codepoint | Unicode scalar，升序、去重，支持 U+FFFF 以上 |
+| 4 | uint32 | record_offset | NBFT 文件绝对位置：`64 + glyph_index * 24` |
+
+逐条检查偏移落在 NBFT 索引区并按 24-byte 对齐；偏移随码点严格递增，且目标记录的码点与 NBCI 码点相同。电脑端导出时核对每个目标记录；设备加载时检查顺序与范围，在实际查询时核对目标码点，避免启动时再次随机读遍全部常用字。目标不符即停用可选索引并回退完整字库。未在本次字库中收录的 TXT 字符写入 `common-missing.txt`，不生成伪造位置。`common-codepoints.txt` 是便于人工核对的 UTF-8 报告，不供运行时搜索。
+
+7500 条记录正文占 60,000 bytes，加头共 60,096 bytes。设备仅将当前字号的记录加载到外部 RAM，在内存中查码点，命中后通过现有索引块缓存定位 NBFT 记录及点阵，未命中再查完整字库。总预算 128KiB，当前固定分配 125,792 bytes（含常用字正文区、256 字形槽和 64 索引块），不另申请整份字库。NBCI 分步加载，每 tick 最多 32KiB，4ms 后让出；数据完整且 CRC 通过后才启用。索引缺失、错误、超过 7500 条或外部 RAM 不足时保留普通查找。切换字号重新读取和校验 NBCI，复用同一缓存分配；退出/重试关闭文件并释放缓存。

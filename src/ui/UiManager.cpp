@@ -1044,7 +1044,8 @@ uint32_t UiManager::nextIdleDelayMs(uint32_t nowMs) const {
   if (wifiProvisionService_.isRadioActive() ||
       otaService_.isBusy() ||
       bluetoothService_.isRadioActive() ||
-      iicScanService_.isBusy() || rtcTestService_.isBusy() || imuTestService_.isBusy()) {
+      iicScanService_.isBusy() || rtcTestService_.isBusy() || imuTestService_.isBusy() ||
+      sdBitmapFont_.state() == SdBitmapFont::State::Checking) {
     return kActivePollMs;
   }
 

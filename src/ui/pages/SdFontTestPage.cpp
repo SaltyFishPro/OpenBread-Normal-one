@@ -23,15 +23,17 @@ const char* errorText(SdBitmapFont::Error error) {
 }
 }
 
-void SdFontTestPage::open(SdBitmapFont& font, SdCardService& sd) {
-  font.end();
-  sdUnavailable_ = sd.refresh() != SdCardService::Status::Ready;
+void SdFontTestPage::open(SdBitmapFont& font, SdCardService& sd, bool refreshCard) {
+  if (refreshCard || sdUnavailable_) {
+    font.end();  // A retry/new card must not reuse previous verification results.
+    sdUnavailable_ = sd.refresh() != SdCardService::Status::Ready;
+  }
   if (!sdUnavailable_) (void)font.open(kSizes[sizeIndex_]);
 }
 
 void SdFontTestPage::begin(SdBitmapFont& font, SdCardService& sd) {
   sizeIndex_ = 0;
-  open(font, sd);
+  open(font, sd, true);
 }
 
 bool SdFontTestPage::handleInput(bool up, bool down, bool ok,
@@ -39,7 +41,7 @@ bool SdFontTestPage::handleInput(bool up, bool down, bool ok,
   if (!up && !down && !ok) return false;
   if (up) sizeIndex_ = static_cast<uint8_t>((sizeIndex_ + 2U) % 3U);
   else if (down) sizeIndex_ = static_cast<uint8_t>((sizeIndex_ + 1U) % 3U);
-  open(font, sd);
+  open(font, sd, !up && !down && ok);
   return true;
 }
 

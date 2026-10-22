@@ -50,12 +50,15 @@ for size in (14, 20, 24):
         for i, text in enumerate(("你好，面包！Normal", "0123456789 Aa", "Unicode 𠮷 é")):
             expected_text(image, font, 16, 84 + i * 26, text, 0, (16, 56, width - 17, 140))
         compare(f"render-{size}-r{rotation}", image)
+        compare(f"common-render-{size}-r{rotation}", image)
     image = Image.new("L", (384, 168), 0)
     expected_text(image, font, -8, 13, "Aé你好", 255, (3, 2, 100, 29))
     compare(f"crop-{size}", image)
+    compare(f"common-crop-{size}", image)
     image = Image.new("L", (384, 168), 255)
     expected_text(image, font, 4, 60, chr(0x10FFFF), 0, (0, 0, 383, 167))
     compare(f"missing-{size}", image)
+    compare(f"common-missing-{size}", image)
 
 for file in root.glob("*.pgm"):
     image = Image.open(file).convert("RGB")
@@ -70,5 +73,5 @@ for i, size in enumerate((14, 20, 24)):
     image = Image.open(root / f"page-{size}.png")
     sheet.paste(image.resize((1152, 504), Image.Resampling.NEAREST), (24, y + 36))
 sheet.save(root / "sd-font-framebuffers.png")
-print("PASS: 18 exact pixel comparisons against Python NBFT reference, including all rotations and clipping")
+print("PASS: 36 exact pixel comparisons against Python NBFT reference, with/without common sidecars, all rotations and clipping")
 print(root / "sd-font-framebuffers.png")

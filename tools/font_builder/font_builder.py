@@ -8,6 +8,8 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import re
+import shutil
 import struct
 import tempfile
 from typing import Callable
@@ -18,6 +20,8 @@ from PIL import Image, ImageDraw, ImageFont
 from fontTools.ttLib import TTFont
 
 from font_bin import BitmapFont, FileBitmapFont, Glyph, HEADER, MAGIC, RECORD, ROW_MSB, VERSION
+from font_common_index import (COMMON_HEADER_SIZE, COMMON_RECORD, COMMON_VERSION,
+                               CommonGlyphIndex, encode_common_index)
 
 
 DEFAULT_TEXT = "电脑状态看板 12:30\n系统更新  阅读  音乐\n今天也会有好事发生。\nCPU 28%  RAM 46%  26℃"
@@ -183,10 +187,38 @@ def make_preview(font: BitmapFont | FileBitmapFont, text: str) -> tuple[Image.Im
     return canvas, missing
 
 
+def publish_export(staging: Path, output: Path, clean_old_fonts: bool = False):
+    """Replace generated files only; preserve unrelated user files and publish manifest last."""
+    output.mkdir(parents=True, exist_ok=True)
+    files = {path.name for path in staging.iterdir() if path.is_file()}
+    obsolete = {"common-charset.txt", "common-codepoints.txt", "common-missing.txt"} - files
+    # A newly replaced font must never retain a sidecar from an older export.
+    for name in files:
+        if re.fullmatch(r"font-\d+\.bin", name):
+            sidecar = name[:-4] + ".common.bin"
+            if sidecar not in files:
+                obsolete.add(sidecar)
+    if clean_old_fonts and (output / "manifest.json").is_file():
+        try:
+            previous = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+            for entry in previous["fonts"]:
+                for name in (entry["file"], entry.get("common_index", {}).get("file", "")):
+                    if re.fullmatch(r"font-\d+(?:\.common)?\.bin", name) and name not in files:
+                        obsolete.add(name)
+        except (ValueError, KeyError, TypeError, AttributeError):
+            raise ValueError(f"无法读取旧导出清单，请选择新的输出目录：{output}") from None
+    for name in sorted(files - {"manifest.json"}):
+        (staging / name).replace(output / name)
+    for name in obsolete:
+        (output / name).unlink(missing_ok=True)
+    (staging / "manifest.json").replace(output / "manifest.json")
+
+
 def build_fonts(font_path: str | Path, charset: str, sizes: list[int], output: str | Path,
                 font_index: int = 0, threshold: int = 128, include_ascii: bool = False,
                 skip_missing: bool = False, preview_text: str = "",
-                progress: Callable[[str], None] | None = None, all_glyphs: bool = False) -> dict:
+                progress: Callable[[str], None] | None = None, all_glyphs: bool = False,
+                common_charset_file: str | Path | None = None) -> dict:
     sizes = parse_sizes(",".join(str(size) for size in sizes))
     if not 1 <= threshold <= 255:
         raise ValueError("二值化阈值范围为 1 至 255")
@@ -203,6 +235,17 @@ def build_fonts(font_path: str | Path, charset: str, sizes: list[int], output: s
     points = [cp for cp in requested if cp in source.supported]
     if not points:
         raise ValueError("字体不包含所请求的任何字符")
+    common_requested: list[int] = []
+    common_points: list[int] = []
+    common_missing: list[int] = []
+    if common_charset_file is not None:
+        common_requested = collect_codepoints(
+            Path(common_charset_file).expanduser().read_text(encoding="utf-8-sig"))
+        exported = set(points)
+        common_points = [cp for cp in common_requested if cp in exported]
+        common_missing = [cp for cp in common_requested if cp not in exported]
+        if not common_points:
+            raise ValueError("常用字 TXT 中的字符均不在本次导出的字库中，请检查字符范围与字体")
     output_dir = Path(output).expanduser().resolve()
     # Prevent accidentally overwriting the imported source font with an output name.
     if source.path.parent == output_dir:
@@ -224,6 +267,13 @@ def build_fonts(font_path: str | Path, charset: str, sizes: list[int], output: s
                      "first": f"U+{points[0]:04X}", "last": f"U+{points[-1]:04X}"},
         "requested_count": len(requested), "glyph_count": len(points),
         "missing_codepoints": [f"U+{cp:04X}" for cp in missing], "fonts": [],
+        "sd_card_directory": "Font",
+        "common_charset": {
+            "enabled": common_charset_file is not None,
+            "source_file": Path(common_charset_file).name if common_charset_file is not None else None,
+            "requested_count": len(common_requested), "glyph_count": len(common_points),
+            "missing_codepoints": [f"U+{cp:04X}" for cp in common_missing],
+        },
     }
     # Build everything in staging; invalid inputs do not replace existing exports.
     with tempfile.TemporaryDirectory(prefix=".font-builder-", dir=output_dir) as staging_name:
@@ -249,6 +299,23 @@ def build_fonts(font_path: str | Path, charset: str, sizes: list[int], output: s
                 "preview": preview_name,
                 "preview_missing_codepoints": [f"U+{cp:04X}" for cp in preview_missing],
             })
+            if common_points:
+                notify(f"生成并核对 {size}px 常用字索引：{len(common_points):,} 字…")
+                common_data = encode_common_index(decoded, common_points)
+                common_name = f"font-{size}.common.bin"
+                common_path = staging / common_name
+                common_path.write_bytes(common_data)
+                verified = CommonGlyphIndex.load(common_path, decoded)
+                if verified.codepoints != common_points:
+                    raise ValueError("常用字索引回读结果不一致")
+                manifest["fonts"][-1]["common_index"] = {
+                    "file": common_name, "format": "NBCI", "version": COMMON_VERSION,
+                    "glyph_count": len(common_points), "bytes": len(common_data),
+                    "header_bytes": COMMON_HEADER_SIZE, "record_bytes": COMMON_RECORD.size,
+                    "index_bytes": len(common_points) * COMMON_RECORD.size,
+                    "sha256": hashlib.sha256(common_data).hexdigest(),
+                }
+                del verified, common_data
             del data, decoded
         sheet = Image.new("RGB", (792, len(previews) * 390 + 12), "#e9edf1")
         draw = ImageDraw.Draw(sheet)
@@ -263,17 +330,42 @@ def build_fonts(font_path: str | Path, charset: str, sizes: list[int], output: s
         (staging / "charset.txt").write_text("".join(chr(cp) for cp in points) + "\n", encoding="utf-8")
         (staging / "missing.txt").write_text(
             "".join(f"U+{cp:04X}\t{chr(cp)}\n" for cp in missing), encoding="utf-8")
+        if common_points:
+            (staging / "common-charset.txt").write_text(
+                "".join(chr(cp) for cp in common_points) + "\n", encoding="utf-8")
+            (staging / "common-codepoints.txt").write_text(
+                "".join(f"U+{cp:04X}\t{chr(cp)}\n" for cp in common_points), encoding="utf-8")
+            (staging / "common-missing.txt").write_text(
+                "".join(f"U+{cp:04X}\t{chr(cp)}\n" for cp in common_missing), encoding="utf-8")
         (staging / "manifest.json").write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        # Publish manifest last. Files with other names are never removed.
-        for path in sorted(staging.iterdir(), key=lambda path: path.name == "manifest.json"):
-            path.replace(output_dir / path.name)
+        # This self-contained folder is the only directory users need to copy to SD.
+        package = staging / "Font"
+        package.mkdir()
+        for entry in manifest["fonts"]:
+            shutil.copyfile(staging / entry["file"], package / entry["file"])
+            if "common_index" in entry:
+                name = entry["common_index"]["file"]
+                shutil.copyfile(staging / name, package / name)
+        for name in ("charset.txt", "missing.txt", "common-charset.txt",
+                     "common-codepoints.txt", "common-missing.txt"):
+            if (staging / name).is_file():
+                shutil.copyfile(staging / name, package / name)
+        device_manifest = dict(manifest)
+        device_manifest.pop("sd_card_directory")
+        device_manifest["fonts"] = [
+            {key: value for key, value in entry.items() if not key.startswith("preview")}
+            for entry in manifest["fonts"]]
+        (package / "manifest.json").write_text(
+            json.dumps(device_manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        publish_export(package, output_dir / "Font", clean_old_fonts=True)
+        publish_export(staging, output_dir)
     notify(f"已生成 {len(sizes)} 份字库，总计 {sum(item['bytes'] for item in manifest['fonts']):,} bytes")
     return manifest
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="点阵字库生成器：TTF/OTF/TTC → NBFT BIN（固件尚未接入）")
+    parser = argparse.ArgumentParser(description="点阵字库生成器：TTF/OTF/TTC → NBFT 字库与常用字索引")
     commands = parser.add_subparsers(dest="command", required=True)
     build = commands.add_parser("build", help="生成字库、清单和从 BIN 解码的预览")
     build.add_argument("--font", required=True, type=Path)
@@ -281,7 +373,9 @@ def main() -> int:
     build.add_argument("--charset", default="", help="直接输入字符；换行不生成字形")
     build.add_argument("--charset-file", type=Path, help="UTF-8 TXT；可与 --charset 合并")
     build.add_argument("--all-glyphs", action="store_true", help="导出字体全部可独立绘制的 Unicode 字符")
-    build.add_argument("--sizes", default="16,20,24")
+    build.add_argument("--common-charset-file", type=Path,
+                       help="可选：UTF-8 常用字 TXT，生成匹配各字号的快速索引，不裁剪字库")
+    build.add_argument("--sizes", default="14,20,24")
     build.add_argument("--threshold", type=int, default=128)
     build.add_argument("--include-ascii", action="store_true")
     build.add_argument("--skip-missing", action="store_true")
@@ -302,14 +396,21 @@ def main() -> int:
                 charset += args.charset_file.read_text(encoding="utf-8-sig")
             result = build_fonts(args.font, charset, parse_sizes(args.sizes), args.output,
                                  args.font_index, args.threshold, args.include_ascii,
-                                 args.skip_missing, args.preview_text, print, all_glyphs=args.all_glyphs)
+                                 args.skip_missing, args.preview_text, print, all_glyphs=args.all_glyphs,
+                                 common_charset_file=args.common_charset_file)
             print(f"覆盖 {result['glyph_count']:,} 字符；"
                   f"其中 U+FFFF 以上 {result['coverage']['supplementary_count']:,} 字符")
             if result["missing_codepoints"]:
                 print(f"跳过 {len(result['missing_codepoints'])} 个缺字；详见 missing.txt")
             for entry in result["fonts"]:
                 print(f"  {entry['file']}: {entry['bytes']:,} bytes，行高 {entry['line_height']}px")
+                if "common_index" in entry:
+                    common = entry["common_index"]
+                    print(f"    {common['file']}: {common['glyph_count']:,} 常用字，{common['bytes']:,} bytes")
+            if result["common_charset"]["missing_codepoints"]:
+                print(f"常用字有 {len(result['common_charset']['missing_codepoints'])} 个未收录；详见 common-missing.txt")
             print(f"输出：{args.output.resolve()}")
+            print(f"复制到 SD 卡根目录：{args.output.resolve() / 'Font'}")
         else:
             if args.seek:
                 with FileBitmapFont(args.bin) as font:
@@ -334,7 +435,7 @@ def main() -> int:
                 if missing:
                     print("预览缺字（空框）：" + describe_points(missing))
         return 0
-    except (OSError, ValueError, struct.error) as exc:
+    except (OSError, ValueError, UnicodeError, struct.error) as exc:
         parser.exit(1, f"错误：{exc}\n")
 
 

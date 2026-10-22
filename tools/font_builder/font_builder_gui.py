@@ -12,7 +12,7 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from PIL import Image, ImageTk
 
-from font_builder import DEFAULT_TEXT, EXAMPLE_CHARSET, build_fonts, parse_sizes
+from font_builder import DEFAULT_TEXT, EXAMPLE_CHARSET, build_fonts, collect_codepoints, parse_sizes
 
 
 class FontBuilderApp:
@@ -32,12 +32,14 @@ class FontBuilderApp:
 
         self.font_path = tk.StringVar()
         self.font_index = tk.StringVar(value="0")
-        self.sizes = tk.StringVar(value="16,20,24")
+        self.sizes = tk.StringVar(value="14,20,24")
         self.threshold = tk.StringVar(value="128")
         self.output = tk.StringVar(value=str(Path(__file__).parent / "output"))
         self.ascii = tk.BooleanVar(value=True)
         self.all_glyphs = tk.BooleanVar(value=True)
         self.skip_missing = tk.BooleanVar(value=False)
+        self.common_path = tk.StringVar()
+        self.common_summary = tk.StringVar(value="可选；未选择时仅导出完整字库。")
         self.status = tk.StringVar(value="默认生成字体全部字符；选择字体后即可预览或导出。")
         self.result = tk.StringVar(value="预览将从生成的 BIN 解码；每页画布为 384×168。")
 
@@ -126,14 +128,30 @@ class FontBuilderApp:
                   style="Hint.TLabel").grid(row=6, column=0, sticky="w", pady=(6, 0))
         self.update_mode()
 
-        self.output_frame = ttk.LabelFrame(left, text="3  输出目录", padding=12)
-        self.output_frame.grid(row=2, column=0, sticky="ew")
+        self.common_frame = ttk.LabelFrame(left, text="3  常用字加速（可选）", padding=12)
+        self.common_frame.grid(row=2, column=0, sticky="ew", pady=(0, 12))
+        self.common_frame.columnconfigure(0, weight=1)
+        common_row = ttk.Frame(self.common_frame)
+        common_row.grid(row=0, column=0, sticky="ew")
+        self.common_entry = ttk.Entry(common_row, textvariable=self.common_path)
+        self.common_entry.pack(side="left", fill="x", expand=True)
+        self.common_button = ttk.Button(common_row, text="常用字 TXT…", command=self.choose_common_charset)
+        self.common_button.pack(side="left", padx=(8, 0))
+        ttk.Button(common_row, text="清除", command=lambda: self.common_path.set("")).pack(side="left", padx=(6, 0))
+        ttk.Label(self.common_frame, textvariable=self.common_summary, width=1,
+                  style="Hint.TLabel").grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        ttk.Label(self.common_frame, text="独立于字符范围，不裁剪字库；未收录的字会列入缺字清单。",
+                  style="Hint.TLabel").grid(row=2, column=0, sticky="w", pady=(4, 0))
+        self.common_path.trace_add("write", self.update_common_summary)
+
+        self.output_frame = ttk.LabelFrame(left, text="4  输出目录", padding=12)
+        self.output_frame.grid(row=3, column=0, sticky="ew")
         export = self.output_frame
         entry_row = ttk.Frame(export)
         entry_row.pack(fill="x")
         ttk.Entry(entry_row, textvariable=self.output).pack(side="left", fill="x", expand=True)
         ttk.Button(entry_row, text="浏览…", command=self.choose_output).pack(side="left", padx=(8, 0))
-        ttk.Label(export, text="先导出到本地，再把清单与 BIN 复制到 SD 卡 /fonts/。",
+        ttk.Label(export, text="导出后，将输出目录中的整个 Font 文件夹复制到 SD 卡根目录。",
                   style="Hint.TLabel").pack(anchor="w", pady=(6, 0))
 
         ttk.Label(right, text="预览文字（独立于字符集；缺字显示空框）").grid(row=0, column=0, sticky="w")
@@ -148,7 +166,7 @@ class FontBuilderApp:
                   style="Hint.TLabel").pack(anchor="w")
         ttk.Label(right, textvariable=self.result, wraplength=520, style="Hint.TLabel").grid(
             row=3, column=0, sticky="w", pady=(10, 0))
-        ttk.Label(right, text="NBFT v1 实验格式；设备固件尚未接入。",
+        ttk.Label(right, text="SD字库测试支持常用字索引；其他页面尚未迁移。",
                   style="Hint.TLabel").grid(row=4, column=0, sticky="w", pady=(6, 0))
 
         footer = ttk.Frame(page)
@@ -157,7 +175,7 @@ class FontBuilderApp:
         actions.pack(fill="x")
         self.preview_button = ttk.Button(actions, text="生成预览", command=lambda: self.start(False))
         self.preview_button.pack(side="left")
-        self.export_button = ttk.Button(actions, text="导出 BIN 与预览", command=lambda: self.start(True))
+        self.export_button = ttk.Button(actions, text="导出字库与 SD 文件夹", command=lambda: self.start(True))
         self.export_button.pack(side="left", padx=10)
         ttk.Button(actions, text="打开输出目录", command=self.open_output).pack(side="left")
         self.progress = ttk.Progressbar(actions, mode="indeterminate", length=120)
@@ -196,6 +214,24 @@ class FontBuilderApp:
         if path:
             self.output.set(path)
 
+    def choose_common_charset(self):
+        path = filedialog.askopenfilename(title="选择常用字清单（UTF-8 TXT）",
+                                          filetypes=[("UTF-8 文本", "*.txt")])
+        if path:
+            self.common_path.set(path)
+
+    def update_common_summary(self, *_args):
+        path = self.common_path.get().strip()
+        if not path:
+            self.common_summary.set("可选；未选择时仅导出完整字库。")
+            return
+        try:
+            points = collect_codepoints(Path(path).expanduser().read_text(encoding="utf-8-sig"))
+            self.common_summary.set(
+                f"去重后 {len(points):,} 字；索引正文约 {len(points) * 8 / 1024:.1f} KiB / 字号。")
+        except (OSError, ValueError, UnicodeError):
+            self.common_summary.set("请指定包含有效字符的 UTF-8 TXT 文件。")
+
     def load_charset(self):
         path = filedialog.askopenfilename(title="导入字符集", filetypes=[("UTF-8 文本", "*.txt")])
         if path:
@@ -233,10 +269,12 @@ class FontBuilderApp:
                            charset="" if self.all_glyphs.get() else self.charset.get("1.0", "end-1c"), sizes=sizes,
                            threshold=int(self.threshold.get()), include_ascii=self.ascii.get(),
                            skip_missing=self.skip_missing.get(), preview_text=self.sample.get("1.0", "end-1c"),
-                           all_glyphs=self.all_glyphs.get())
+                           all_glyphs=self.all_glyphs.get(),
+                           common_charset_file=self.common_path.get().strip() or None)
             output = Path(self.output.get()).expanduser()
             names = [f"font-{size}.bin" for size in sizes] + ["manifest.json", "preview.png", "charset.txt", "missing.txt"]
             names += [f"preview-{size}.png" for size in sizes]
+            names += ["Font/manifest.json"]
             if export and any((output / name).exists() for name in names):
                 if not messagebox.askyesno("覆盖导出", "输出目录已有同名文件，是否替换这些字库和预览？"):
                     return
@@ -281,7 +319,8 @@ class FontBuilderApp:
                 else:
                     result, images, output = value
                     self.show_previews(result, images)
-                    self.status.set(f"导出完成：{output}" if output else "BIN 已生成并解码预览，尚未保存到输出目录。")
+                    self.status.set(f"导出完成；复制到 SD 卡：{Path(output) / 'Font'}" if output
+                                    else "BIN 已生成并解码预览，尚未保存到输出目录。")
         except queue.Empty:
             pass
         self.root.after(100, self.poll)
@@ -330,6 +369,11 @@ class FontBuilderApp:
         self.result.set(f"{result['source']['family']} · {mode} · {result['glyph_count']:,} 字符"
                         f"（扩展区 {result['coverage']['supplementary_count']:,}）· 共 {total:,} bytes；"
                         f"跳过缺字 {len(result['missing_codepoints'])} 个；预览缺字 {len(preview_missing)} 个。")
+        common = result["common_charset"]
+        if common["enabled"]:
+            self.result.set(self.result.get() +
+                            f" 常用字收录 {common['glyph_count']:,} / {common['requested_count']:,}；"
+                            f"未收录 {len(common['missing_codepoints'])} 个（见 common-missing.txt）。")
 
     def close(self):
         if self.busy:

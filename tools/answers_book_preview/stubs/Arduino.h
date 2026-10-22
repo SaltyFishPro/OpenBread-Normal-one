@@ -15,8 +15,10 @@ using uint = unsigned int;
 #define LOW 0
 #define pgm_read_byte(p) (*(const uint8_t*)(p))
 #define pgm_read_word(p) (*(const uint16_t*)(p))
+#ifndef OB_PREVIEW_CUSTOM_CLOCK
 inline uint32_t millis() { return 0; }
 inline void delay(unsigned) {}
+#endif
 inline void pinMode(int,int) {}
 inline void digitalWrite(int,int) {}
 using std::min;
