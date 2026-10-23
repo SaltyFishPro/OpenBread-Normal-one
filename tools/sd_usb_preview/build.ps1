@@ -13,6 +13,7 @@ try {
         'tools/sd_usb_preview/preview.cpp',
         'tmp/sd-usb-render/fonts.o',
         'src/ui/pages/HomePage.cpp',
+        'src/ui/assets/main_menu/icons8-clock.cpp',
         'src/ui/pages/SdUsbPage.cpp',
         'src/ui/DetailHeader.cpp',
         'src/ui/IconBitmap.cpp',

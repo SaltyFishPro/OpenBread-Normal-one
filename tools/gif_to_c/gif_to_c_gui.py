@@ -112,7 +112,7 @@ class App(tk.Tk):
         ttk.Button(root, text="浏览", command=self.pick_gif_input).grid(row=row, column=2, padx=6)
         row += 1
 
-        ttk.Label(root, text="输出文件").grid(row=row, column=0, sticky="w")
+        ttk.Label(root, text="输出头文件").grid(row=row, column=0, sticky="w")
         ttk.Entry(root, textvariable=self.gif_output_var, width=78).grid(row=row, column=1, sticky="we")
         ttk.Button(root, text="浏览", command=self.pick_gif_output).grid(row=row, column=2, padx=6)
         row += 1
@@ -145,6 +145,7 @@ class App(tk.Tk):
         opts.grid(row=row, column=0, columnspan=3, sticky="w", pady=(8, 2))
         ttk.Checkbutton(opts, text="反色", variable=self.gif_invert_var).pack(side="left", padx=(0, 14))
         ttk.Checkbutton(opts, text="去重连续重复帧", variable=self.gif_dedupe_var).pack(side="left")
+        ttk.Label(opts, text="自动生成配套 .cpp，两个文件请一起保留").pack(side="left", padx=14)
         row += 1
 
         actions = ttk.Frame(root)
@@ -343,9 +344,9 @@ class App(tk.Tk):
 
     def pick_gif_output(self) -> None:
         p = filedialog.asksaveasfilename(
-            title="选择输出文件",
+            title="选择输出头文件（同时生成同名 .cpp）",
             defaultextension=".h",
-            filetypes=[("Header files", "*.h"), ("C files", "*.c"), ("All files", "*.*")],
+            filetypes=[("Header files", "*.h"), ("All files", "*.*")],
         )
         if p:
             self.gif_output_var.set(p)
@@ -424,10 +425,10 @@ class App(tk.Tk):
 
             opts = self._gif_options()
             frame_count, symbol = core.convert_gif_to_c(input_path, output_path, opts)
-            self.gif_status_var.set(f"完成: {output_path} | 帧数={frame_count} | 符号={symbol}_frames")
+            self.gif_status_var.set(f"完成: {output_path.name} + {output_path.with_suffix('.cpp').name} | 帧数={frame_count}")
             messagebox.showinfo(
                 "GIF 转换成功",
-                f"已生成: {output_path}\n\n帧数: {frame_count}\n符号: {symbol}_frames",
+                f"已生成: {output_path}\n{output_path.with_suffix('.cpp')}\n\n帧数: {frame_count}\n符号: {symbol}_frames",
             )
         except Exception as exc:
             self.gif_status_var.set("转换失败")
@@ -446,10 +447,10 @@ class App(tk.Tk):
 
             opts = self._gif_options()
             frame_count, symbol = core.convert_image_to_c(input_path, output_path, opts)
-            self.gif_status_var.set(f"Done: {output_path} | frames={frame_count} | symbol={symbol}_frames")
+            self.gif_status_var.set(f"完成: {output_path.name} + {output_path.with_suffix('.cpp').name} | 帧数={frame_count}")
             messagebox.showinfo(
                 "Image conversion done",
-                f"Generated: {output_path}\n\nFrames: {frame_count}\nSymbol: {symbol}_frames",
+                f"已生成: {output_path}\n{output_path.with_suffix('.cpp')}\n\n帧数: {frame_count}\n符号: {symbol}_frames",
             )
         except Exception as exc:
             self.gif_status_var.set("Failed")
