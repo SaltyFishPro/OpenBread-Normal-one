@@ -27,6 +27,23 @@ def main() -> None:
                                   frame_delay=73)
     core.write_output(OUT / "raw.h", options, frames)
     core.write_output(OUT / "rle.h", replace(options, name="sample_rle", rle=True), frames)
+    equal_frames = [[0] * 8, [0xFF] * 8]
+    core.write_output(OUT / "fixed_raw.h", replace(options, name="fixed_raw"), equal_frames)
+    core.write_output(OUT / "fixed_rle.h", replace(options, name="fixed_rle", rle=True), equal_frames)
+    core.write_output(OUT / "legacy_rle.h",
+                      replace(options, name="legacy_rle", rle=True, header_only=True), frames)
+    large_frames = [[0] * 1900, [i % 256 for i in range(1900)]]
+    large_options = replace(options, width=150, height=100)
+    core.write_output(OUT / "large_raw.h", replace(large_options, name="large_raw"), large_frames)
+    core.write_output(OUT / "large_rle.h", replace(large_options, name="large_rle", rle=True), large_frames)
+
+    # uint16 offsets are relative to the payload, even if table + data exceed 64 KiB.
+    long_frame = [1, 0] * 16383
+    boundary = core.pack_rle_frames([long_frame, long_frame, [1, 0]], len(long_frame))
+    assert boundary[:8] == [0, 0, 254, 127, 252, 255, 254, 255]
+    assert len(boundary) == 65542
+    assert not core.pack_rle_frames([long_frame, long_frame, [1, 0] * 2], len(long_frame)), "Offsets overflowed"
+    assert not core.pack_rle_frames([[8, 0], [8, 255]], 2), "Unprofitable packing selected"
     original = (OUT / "rle.cpp").read_bytes()
     core.write_output(OUT / "rle.h", replace(options, name="sample_rle", rle=True), frames)
     assert (OUT / "rle.cpp").read_bytes() == original, "Re-export changed shared data"
@@ -64,25 +81,35 @@ const void* rleFromOtherFile() { return sample_rle_frames; }
 #include "legacy.h"
 #include "gif.h"
 #include "image.h"
+#include "fixed_rle.h"
+#include "legacy_rle.h"
 const void* rawFromOtherFile();
 const void* rleFromOtherFile();
 int main() {
   static_assert(SAMPLE_RAW_FRAME_COUNT == 3 && SAMPLE_RLE_FRAME_COUNT == 3);
   static_assert(SAMPLE_RAW_FRAME_DELAY == 73 && SAMPLE_RLE_FRAME_DELAY == 73);
   static_assert(sizeof(sample_raw_frames) == 24 && sizeof(legacy_frames) == 24);
+  static_assert(SAMPLE_RLE_FRAME_BYTES == 0x8000U);
+  static_assert(sizeof(sample_rle_frames) == 42 && sizeof(legacy_rle_frames) == 42);
+  static_assert(FIXED_RLE_FRAME_BYTES == (0x8000U | 2U));
   assert(rawFromOtherFile() == sample_raw_frames);
   assert(rleFromOtherFile() == sample_rle_frames);
   const unsigned char expected[] = {''' + expected + '''};
   assert(std::memcmp(sample_raw_frames, expected, sizeof(expected)) == 0);
   assert(std::memcmp(legacy_frames, expected, sizeof(expected)) == 0);
   for (size_t frame = 0; frame < SAMPLE_RLE_FRAME_COUNT; ++frame) {
+    const auto* blob = &sample_rle_frames[0][0];
+    const size_t start = blob[frame * 2] | (blob[frame * 2 + 1] << 8);
+    const size_t end = blob[frame * 2 + 2] | (blob[frame * 2 + 3] << 8);
+    const auto* data = blob + (SAMPLE_RLE_FRAME_COUNT + 1) * 2;
+    assert(end > start && end <= sizeof(sample_rle_frames) - 8);
     size_t decoded = 0;
-    for (size_t pos = 0; pos + 1 < SAMPLE_RLE_FRAME_RLE_BYTES; pos += 2) {
-      const auto count = sample_rle_frames[frame][pos];
-      if (!count) break;
+    for (size_t pos = start; pos + 1 < end; pos += 2) {
+      const auto count = data[pos];
+      assert(count);
       for (size_t i = 0; i < count; ++i) {
         assert(decoded < 8);
-        assert(sample_rle_frames[frame][pos + 1] == expected[frame * 8 + decoded++]);
+        assert(data[pos + 1] == expected[frame * 8 + decoded++]);
       }
     }
     assert(decoded == 8);
@@ -93,10 +120,22 @@ int main() {
 ''', encoding="utf-8")
     subprocess.run(["uv", "run", "--with", "ziglang==0.13.0", "python", "-m", "ziglang",
                     "c++", "-std=c++17", "-O1", "-I", str(ROOT / "tools/answers_book_preview/stubs"),
-                    *[str(OUT / name) for name in ("consumer.cpp", "main.cpp", "raw.cpp", "rle.cpp", "gif.cpp", "image.cpp")],
+                    *[str(OUT / name) for name in ("consumer.cpp", "main.cpp", "raw.cpp", "rle.cpp", "gif.cpp", "image.cpp", "fixed_rle.cpp")],
                     "-o", str(OUT / "verify.exe")], check=True, cwd=ROOT)
     subprocess.run([str(OUT / "verify.exe")], check=True, cwd=ROOT)
-    print("PASS: raw/RLE pixels, two consumers share addresses, metadata, GIF/image export, re-export and legacy guards")
+    subprocess.run(["uv", "run", "--with", "ziglang==0.13.0", "python", "-m", "ziglang",
+                    "c++", "-std=c++17", "-O1", "-ffunction-sections", "-fdata-sections", "-Wl,--gc-sections",
+                    "-I", str(ROOT / "tools/answers_book_preview/stubs"), "-I", str(ROOT), "-I", str(OUT),
+                    "-I", str(ROOT / "lib/ST7305_MonoTFT_Library/src"),
+                    str(Path(__file__).with_name("decoder_verify.cpp")),
+                    str(ROOT / "src/ui/IconBitmap.cpp"),
+                    str(ROOT / "lib/ST7305_MonoTFT_Library/src/ST73XX_UI.cpp"),
+                    str(ROOT / "lib/ST7305_MonoTFT_Library/src/ST7305_2p9_BW_DisplayDriver.cpp"),
+                    *[str(OUT / name) for name in ("raw.cpp", "rle.cpp", "fixed_raw.cpp", "fixed_rle.cpp",
+                                                  "large_raw.cpp", "large_rle.cpp")],
+                    "-o", str(OUT / "decoder-verify.exe")], check=True, cwd=ROOT)
+    subprocess.run([str(OUT / "decoder-verify.exe")], check=True, cwd=ROOT)
+    print("PASS: raw/fixed/packed RLE, offset limits/fallback, shared addresses, metadata, GIF/image export and legacy guards")
 
 
 if __name__ == "__main__":

@@ -39,7 +39,7 @@ python tools/gif_to_c/gif_to_c.py your.gif -o src/generated_wifi.h -n wifi -W 32
 - `--resize nearest|bilinear|bicubic|lanczos` (default `nearest`)
 - `--dedupe` drop consecutive identical frames
 - `--bg` background gray for transparent pixels (default `255`)
-- `--rle` encode run/value pairs compatible with the project's `IconBitmap` decoder
+- `--rle` encode run/value pairs; automatically pack variable length frames when this saves Flash
 - `--header-only` use legacy single-file output; avoid for assets referenced by multiple `.cpp` files
 - `--frame-step` keep every Nth GIF frame to reduce flash usage
 - `--frame-delay` set the generated animation frame interval in milliseconds
@@ -64,8 +64,11 @@ delays are not preserved automatically.
 3. Include only the `.h` from pages and reference `*_frames` like existing assets.
    Do not include the `.cpp` or copy the pixel array into each page.
 
-The header preserves dimensions, frame interval, frame count and complete array
-dimensions, so `sizeof` and the existing `IconBitmap::Anim` initializers still work.
+The header preserves dimensions, frame interval and explicit frame count.
+Always use `XXX_FRAME_COUNT` for animation length. For packed RLE, `xxx_frames`
+is a single storage blob (`[1][XXX_FRAME_STORAGE_BYTES]`); `sizeof` measures
+storage, not the number of animation frames. Existing `IconBitmap::Anim`
+initializers using `&xxx_frames[0][0]` remain compatible.
 Re-export replaces the matching generated pair; an existing unrelated `.cpp` is
 not overwritten. Single-file export requires `--header-only` and must not leave an
 old companion `.cpp` in the same location. A hand-written host preview build must
@@ -76,8 +79,26 @@ Current shared resources:
 - `src/ui/assets/main_menu/icons8-clock.h` / `.cpp` — main menu and focus clock menu.
 - `src/ui/assets/games/icons8-tapthewoodenfish.h` / `.cpp` — games menu and wooden fish page.
 
-Single-use resources may retain their existing header definitions; this change
-does not re-encode or sample any existing animation frames.
+Single-use resources may retain their existing header definitions.
+
+### RLE storage format
+
+- Raw bitmaps and fixed stride RLE remain supported.
+- `XXX_FRAME_BYTES == 0x8000U` selects packed RLE (the RLE flag with zero stride).
+  The blob starts with `FRAME_COUNT + 1` little-endian `uint16` offsets, followed
+  by all RLE frames without padding. Offsets are relative to the payload after
+  the table; adjacent offsets give the start and end of each frame.
+- The exporter uses packed RLE only if payload plus table is smaller than fixed
+  stride storage and the payload fits 65,535 bytes. Otherwise it uses fixed
+  stride RLE; each frame must still fit the decoder's 32,767-byte stride limit.
+- Table and data remain in `PROGMEM`; lookup reads two offsets without allocating
+  RAM or changing the existing icon cache. `Anim` fields and page callers are
+  unchanged. This format requires the updated `IconBitmap` decoder.
+- `--header-only` changes file organization only; it also supports packed RLE.
+
+The 11 menu animations were migrated by retaining their original RLE run/value
+pairs, dimensions, frame order and delay. No source GIF was reprocessed and no
+frames were removed. Single-frame resources remain in the existing format.
 
 ## 6) GUI 模式（推荐）
 
@@ -99,7 +120,39 @@ python tools/gif_to_c/verify.py
 ```
 
 Requires Pillow and `uv` (the script uses Zig 0.13.0 as a host C++ compiler).
-Checks raw/RLE pixel equivalence, complete array dimensions and timing metadata,
-links two independent consumers and compares their array addresses, and exercises
-GIF/image export, re-export, legacy output and protection of unrelated sources.
+Checks raw/fixed/packed RLE pixels, offset limits and fallback, storage dimensions
+and timing metadata; links two independent consumers and compares their array
+addresses; exercises GIF/image export, re-export, legacy output and protection
+of unrelated sources. `decoder_verify.cpp` also compiles the production decoder
+and ST7305 driver, comparing real framebuffers for cache and large-image fallback,
+scaling, inversion, clipping, loop boundaries and empty descriptors.
 Generated checks stay in `tmp/animation-export-test/`.
+
+## 8) Large RLE drawing verification
+
+```powershell
+python tools/gif_to_c/large_decoder_verify.py
+```
+
+Requires `uv` and Python; compiles the production `IconBitmap.cpp` and ST7305
+driver with the existing Arduino stubs. Covers the current 16 large RLE resources
+(15 submenu images and the home background), plus early termination, truncated
+input and two synthetic packed frames. Compares 231 real framebuffers against
+independently expanded raw bitmaps, including row-spanning runs, scaling with
+repeated/skipped source rows, inversion, clipping, transitions and loop wrapping.
+
+`read_counter.h` is injected only into this host build; it counts encoded byte
+reads and checks that each draw reads at most one stream prefix (plus four offset
+bytes for packed RLE). Fully vertically clipped fixed RLE reads zero bytes. No counting or
+logging code enters the firmware. Output buffers and selected PGM images go to
+`tmp/large-rle-test/`.
+
+To compare an older decoder, copy its source before editing, then run:
+
+```powershell
+python tools/gif_to_c/large_decoder_verify.py --decoder tmp/IconBitmap-before.cpp --output tmp/large-rle-before --allow-rescan
+```
+
+Use the same test sources and assets for both versions and compare output `.bin`
+files byte for byte. Read counts measure decoding work; device refresh speed
+still requires physical verification.

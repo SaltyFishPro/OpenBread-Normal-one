@@ -6,6 +6,9 @@
 namespace IconBitmap {
 static constexpr uint16_t kRleFrameBytesFlag = 0x8000U;
 static constexpr uint16_t kFrameBytesMask = 0x7FFFU;
+// Zero RLE stride: (frameCount + 1) little-endian uint16 offsets, then RLE data.
+// Offsets are relative to the data after the table. No per-frame padding.
+static constexpr uint16_t kPackedRleFrameBytes = kRleFrameBytesFlag;
 
 struct Anim {
   const uint8_t* frames = nullptr;

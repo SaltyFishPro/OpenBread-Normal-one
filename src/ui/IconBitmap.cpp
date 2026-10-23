@@ -1,44 +1,49 @@
 #include "IconBitmap.h"
 
+#include <cstring>
+
 #include "../bsp/BoardConfig.h"
 
 namespace {
-void decodeRleSpan(const uint8_t* frame, uint16_t encodedBytes, uint16_t spanOffset,
-                   uint16_t spanLen, uint8_t* out) {
-  for (uint16_t i = 0; i < spanLen; ++i) {
-    out[i] = 0;
-  }
+uint16_t readOffset(const uint8_t* address) {
+  return static_cast<uint16_t>(pgm_read_byte(address)) |
+         static_cast<uint16_t>(pgm_read_byte(address + 1U) << 8U);
+}
 
-  const uint16_t spanEnd = static_cast<uint16_t>(spanOffset + spanLen);
-  uint16_t decodedOffset = 0;
+struct RleCursor {
+  uint32_t runEnd = 0;
   uint16_t encodedOffset = 0;
-  while (encodedOffset + 1U < encodedBytes) {
-    const uint8_t runLen = pgm_read_byte(frame + encodedOffset);
-    const uint8_t runValue = pgm_read_byte(frame + encodedOffset + 1U);
-    if (runLen == 0) {
-      break;
+  uint8_t runValue = 0;
+};
+
+// drawFrame requests source rows in ascending order. Keep a partially consumed
+// run across rows, including rows skipped by scaling or clipping.
+void decodeRleSpan(const uint8_t* frame, uint16_t encodedBytes, RleCursor& cursor,
+                   uint32_t spanOffset, uint16_t spanLen, uint8_t* out) {
+  std::memset(out, 0, spanLen);
+  const uint32_t spanEnd = spanOffset + spanLen;
+  uint32_t position = spanOffset;
+  while (position < spanEnd) {
+    while (cursor.runEnd <= position) {
+      if (cursor.encodedOffset + 1U >= encodedBytes) {
+        return;
+      }
+      const uint8_t runLen = pgm_read_byte(frame + cursor.encodedOffset);
+      if (runLen == 0) {
+        cursor.encodedOffset = encodedBytes;
+        return;
+      }
+      cursor.runValue = pgm_read_byte(frame + cursor.encodedOffset + 1U);
+      cursor.encodedOffset = static_cast<uint16_t>(cursor.encodedOffset + 2U);
+      cursor.runEnd += runLen;
     }
 
-    const uint16_t runEnd = static_cast<uint16_t>(decodedOffset + runLen);
-    if (runEnd > spanOffset && decodedOffset < spanEnd) {
-      uint16_t copyStart = decodedOffset;
-      if (copyStart < spanOffset) {
-        copyStart = spanOffset;
-      }
-      uint16_t copyEnd = runEnd;
-      if (copyEnd > spanEnd) {
-        copyEnd = spanEnd;
-      }
-      for (uint16_t pos = copyStart; pos < copyEnd; ++pos) {
-        out[pos - spanOffset] = runValue;
-      }
+    uint32_t copyEnd = cursor.runEnd;
+    if (copyEnd > spanEnd) {
+      copyEnd = spanEnd;
     }
-
-    if (runEnd >= spanEnd) {
-      return;
-    }
-    decodedOffset = runEnd;
-    encodedOffset = static_cast<uint16_t>(encodedOffset + 2U);
+    std::memset(out + (position - spanOffset), cursor.runValue, copyEnd - position);
+    position = copyEnd;
   }
 }
 
@@ -76,7 +81,7 @@ void writeLogicalPixel(ST7305_2p9_BW_DisplayDriver& canvas, int16_t lx, int16_t 
 // 之后各行直接按行偏移索引，直到该图标的动画帧号变化才重新解码。
 // 槽位需覆盖 100x100 1bpp 图标：13 字节/行 × 100 行 = 1300 字节（此前写成 1280，
 // 结果主界面菜单图标全部落到兜底路径、缓存从未命中）。更大的图（150x150 子菜单
-// 图标 2850 字节、全屏背景 8685 字节）仍走逐行解码。
+// 图标 2850 字节、主界面背景 8064 字节）使用顺序解码游标和单行缓冲。
 constexpr uint16_t kFrameCacheSlotBytes = 1300;
 constexpr uint8_t kFrameCacheSlots = 8;
 
@@ -149,11 +154,24 @@ void drawFrame(ST7305_2p9_BW_DisplayDriver& canvas, const Anim& anim, uint16_t f
 
   const uint16_t idx = static_cast<uint16_t>(frameIndex % anim.frameCount);
   const bool rleEncoded = (anim.frameBytes & kRleFrameBytesFlag) != 0;
-  const uint16_t frameBytes = static_cast<uint16_t>(anim.frameBytes & kFrameBytesMask);
-  const uint8_t* frame = anim.frames + (static_cast<size_t>(idx) * frameBytes);
+  uint16_t frameBytes = static_cast<uint16_t>(anim.frameBytes & kFrameBytesMask);
+  const uint8_t* frame = anim.frames;
+  if (anim.frameBytes == kPackedRleFrameBytes) {
+    const uint8_t* offset = anim.frames + static_cast<size_t>(idx) * 2U;
+    const uint16_t start = readOffset(offset);
+    const uint16_t end = readOffset(offset + 2U);
+    if (end <= start || end - start > kFrameBytesMask) {
+      return;
+    }
+    frameBytes = static_cast<uint16_t>(end - start);
+    frame += (static_cast<size_t>(anim.frameCount) + 1U) * 2U + start;
+  } else {
+    frame += static_cast<size_t>(idx) * frameBytes;
+  }
   const uint16_t srcStride = (anim.frameWidth + 7U) / 8U;
   uint8_t decodedRow[64];
   uint16_t cachedRow = 0xFFFFU;
+  RleCursor cursor;
 
   // 逐行解码只作为超出缓存容量的兜底路径，例如全屏背景这类大图。
   const uint32_t decodedFrameBytes = static_cast<uint32_t>(srcStride) * anim.frameHeight;
@@ -175,7 +193,7 @@ void drawFrame(ST7305_2p9_BW_DisplayDriver& canvas, const Anim& anim, uint16_t f
     const bool rowVisible = (py >= clipTop) && (py <= clipBottom);
 
     if (rowVisible) {
-      const uint16_t rowOffset = static_cast<uint16_t>(sy * srcStride);
+      const uint32_t rowOffset = static_cast<uint32_t>(sy) * srcStride;
       const uint8_t* rowSource = nullptr;
       if (decodedFrame != nullptr) {
         rowSource = decodedFrame + rowOffset;
@@ -184,7 +202,7 @@ void drawFrame(ST7305_2p9_BW_DisplayDriver& canvas, const Anim& anim, uint16_t f
           return;
         }
         if (cachedRow != sy) {
-          decodeRleSpan(frame, frameBytes, rowOffset, srcStride, decodedRow);
+          decodeRleSpan(frame, frameBytes, cursor, rowOffset, srcStride, decodedRow);
           cachedRow = sy;
         }
         rowSource = decodedRow;
