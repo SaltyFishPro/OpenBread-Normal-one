@@ -3,7 +3,9 @@
 #include "../../bsp/DisplayMonoTft.h"
 #include "../DrawUtils.h"
 #include "../TextUtils.h"
+#include "../SdBitmapText.h"
 #include "../../services/SdCardService.h"
+#include "../../services/SdBitmapFont.h"
 
 #include <cstdio>
 #include <cstring>
@@ -26,11 +28,10 @@ constexpr int16_t kPhoneticGap = 6;
 constexpr int16_t kDividerY = 36;
 constexpr int16_t kDividerHeight = 2;
 constexpr int16_t kMeaningX = 3;
-constexpr int16_t kMeaningY = 58;
-constexpr int16_t kMeaningRightX = 367;
+constexpr int16_t kMeaningTop = 42;
+constexpr int16_t kMeaningBottom = 142;
+constexpr int16_t kMeaningRightX = 350;
 constexpr int16_t kMeaningWidth = kMeaningRightX - kMeaningX + 1;
-constexpr uint8_t kMeaningLinesPerPage = 5;
-constexpr int16_t kMeaningLineHeight = 17;
 constexpr int16_t kPageArrowCenterX = 368;
 constexpr int16_t kPageUpArrowCenterY = 70;
 constexpr int16_t kPageDownArrowCenterY = 125;
@@ -170,119 +171,6 @@ uint8_t partOfSpeechLen(const char* value) {
   return 0;
 }
 
-uint8_t drawWrappedMeaningPage(DisplayMonoTft& display, const char* value, int16_t x,
-                               int16_t y, int16_t width, uint8_t pageIndex) {
-  auto& text = display.text();
-  text.setFont(chinese_font_all);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setFontMode(1);
-
-  if (value == nullptr || value[0] == '\0') {
-    const char* empty = "暂无释义";
-    text.drawUTF8(static_cast<int16_t>(x + 4), static_cast<int16_t>(y + 22), empty);
-    return 0;
-  }
-
-  const int16_t maxWidth = width;
-  char line[96];
-  uint16_t lineLen = 0;
-  int16_t lineWidth = 0;
-  uint16_t lineIndex = 0;
-  uint8_t maxPage = 0;
-
-  auto flushLine = [&]() {
-    if (line[0] == '\0') {
-      return;
-    }
-
-    const uint8_t linePage = static_cast<uint8_t>(lineIndex / kMeaningLinesPerPage);
-    if (linePage == pageIndex) {
-      const uint8_t lineInPage = static_cast<uint8_t>(lineIndex % kMeaningLinesPerPage);
-      const int16_t baseline =
-          static_cast<int16_t>(y + static_cast<int16_t>(lineInPage) * kMeaningLineHeight);
-      text.drawUTF8(x, baseline, line);
-    }
-    if (linePage > maxPage) {
-      maxPage = linePage;
-    }
-    ++lineIndex;
-  };
-
-  for (uint16_t i = 0;;) {
-    const char c = value[i];
-    const bool hardBreak = c == '\n' || c == '\r';
-    const bool atEnd = c == '\0';
-    if (!atEnd && !hardBreak && lineLen > 0 && partOfSpeechLen(&value[i]) > 0) {
-      flushLine();
-      line[0] = '\0';
-      lineLen = 0;
-      lineWidth = 0;
-    }
-
-    const uint8_t charLen = atEnd ? 0 : TextUtils::utf8CharLen(c);
-    const bool canAppend =
-        !atEnd && !hardBreak && lineLen + charLen < sizeof(line);
-    char glyph[5] = {0};
-    int16_t glyphWidth = 0;
-    if (canAppend) {
-      for (uint8_t j = 0; j < charLen && value[i + j] != '\0'; ++j) {
-        glyph[j] = value[i + j];
-      }
-      glyphWidth = text.getUTF8Width(glyph);
-    }
-    if (canAppend) {
-      for (uint8_t j = 0; j < charLen && value[i + j] != '\0'; ++j) {
-        line[lineLen++] = value[i + j];
-      }
-      line[lineLen] = '\0';
-      lineWidth = static_cast<int16_t>(lineWidth + glyphWidth);
-    }
-
-    if (atEnd || hardBreak || lineWidth > maxWidth ||
-        lineLen >= sizeof(line) - 1) {
-      if (lineWidth > maxWidth && lineLen > charLen) {
-        uint8_t overflowLen = charLen;
-        if (overflowLen == 0 || overflowLen >= lineLen) {
-          overflowLen = 1;
-        }
-        char overflow[5] = {0};
-        for (uint8_t j = 0; j < overflowLen; ++j) {
-          overflow[j] = line[lineLen - overflowLen + j];
-        }
-        lineLen = static_cast<uint16_t>(lineLen - overflowLen);
-        line[lineLen] = '\0';
-        lineWidth = static_cast<int16_t>(lineWidth - glyphWidth);
-        flushLine();
-        for (uint8_t j = 0; j < overflowLen; ++j) {
-          line[j] = overflow[j];
-        }
-        line[overflowLen] = '\0';
-        lineLen = overflowLen;
-        lineWidth = glyphWidth;
-      } else {
-        flushLine();
-        line[0] = '\0';
-        lineLen = 0;
-        lineWidth = 0;
-      }
-    }
-
-    if (atEnd) {
-      break;
-    }
-    if (hardBreak) {
-      ++i;
-    } else if (canAppend) {
-      i = static_cast<uint16_t>(i + charLen);
-    } else {
-      ++i;
-    }
-  }
-
-  return maxPage;
-}
-
 const char* stateMessage(ReaderService::State state) {
   switch (state) {
     case ReaderService::State::SdMissing:
@@ -303,47 +191,24 @@ const char* stateMessage(ReaderService::State state) {
   }
 }
 
-void drawMeaningPageHint(ST7305_2p9_BW_DisplayDriver& canvas, uint8_t pageIndex,
-                         uint8_t maxPage) {
-  if (pageIndex > 0) {
-    canvas.drawFilledTriangle(static_cast<int>(kPageArrowCenterX),
-                              static_cast<int>(kPageUpArrowCenterY - kPageArrowHalfHeight),
-                              static_cast<int>(kPageArrowCenterX - kPageArrowHalfWidth),
-                              static_cast<int>(kPageUpArrowCenterY + kPageArrowHalfHeight),
-                              static_cast<int>(kPageArrowCenterX + kPageArrowHalfWidth),
-                              static_cast<int>(kPageUpArrowCenterY + kPageArrowHalfHeight),
-                              ST7305_COLOR_BLACK);
-  } else {
-    canvas.drawTriangle(static_cast<uint>(kPageArrowCenterX),
-                        static_cast<uint>(kPageUpArrowCenterY - kPageArrowHalfHeight),
-                        static_cast<uint>(kPageArrowCenterX - kPageArrowHalfWidth),
-                        static_cast<uint>(kPageUpArrowCenterY + kPageArrowHalfHeight),
-                        static_cast<uint>(kPageArrowCenterX + kPageArrowHalfWidth),
-                        static_cast<uint>(kPageUpArrowCenterY + kPageArrowHalfHeight),
-                        ST7305_COLOR_BLACK);
+void drawPageArrow(ST7305_2p9_BW_DisplayDriver& canvas, int16_t centerY,
+                    bool down, bool active) {
+  const int16_t tipY = centerY + (down ? kPageArrowHalfHeight : -kPageArrowHalfHeight);
+  const int16_t baseY = centerY + (down ? -kPageArrowHalfHeight : kPageArrowHalfHeight);
+  if (!active) {
+    canvas.drawTriangle(kPageArrowCenterX, tipY, kPageArrowCenterX - kPageArrowHalfWidth,
+                        baseY, kPageArrowCenterX + kPageArrowHalfWidth, baseY, ST7305_COLOR_BLACK);
+    return;
   }
-
-  if (pageIndex < maxPage) {
-    canvas.drawFilledTriangle(static_cast<int>(kPageArrowCenterX),
-                              static_cast<int>(kPageDownArrowCenterY + kPageArrowHalfHeight),
-                              static_cast<int>(kPageArrowCenterX - kPageArrowHalfWidth),
-                              static_cast<int>(kPageDownArrowCenterY - kPageArrowHalfHeight),
-                              static_cast<int>(kPageArrowCenterX + kPageArrowHalfWidth),
-                              static_cast<int>(kPageDownArrowCenterY - kPageArrowHalfHeight),
-                              ST7305_COLOR_BLACK);
-  } else {
-    canvas.drawTriangle(static_cast<uint>(kPageArrowCenterX),
-                        static_cast<uint>(kPageDownArrowCenterY + kPageArrowHalfHeight),
-                        static_cast<uint>(kPageArrowCenterX - kPageArrowHalfWidth),
-                        static_cast<uint>(kPageDownArrowCenterY - kPageArrowHalfHeight),
-                        static_cast<uint>(kPageArrowCenterX + kPageArrowHalfWidth),
-                        static_cast<uint>(kPageDownArrowCenterY - kPageArrowHalfHeight),
-                        ST7305_COLOR_BLACK);
+  // Logical scanlines avoid the polygon driver's native/rotated bounds and heap allocation.
+  for (int16_t row = 0; row <= 2 * kPageArrowHalfHeight; ++row) {
+    const int16_t halfWidth = row * kPageArrowHalfWidth / (2 * kPageArrowHalfHeight);
+    const int16_t y = tipY + (down ? -row : row);
+    canvas.drawFastHLine(kPageArrowCenterX - halfWidth, y, 2 * halfWidth + 1, ST7305_COLOR_BLACK);
   }
 }
 
-void drawWordDetail(DisplayMonoTft& display, const ReaderService& reader, uint8_t meaningPage,
-                    uint8_t& maxMeaningPage) {
+void drawWordDetail(DisplayMonoTft& display, const ReaderService& reader) {
   auto& canvas = display.canvas();
   auto& text = display.text();
   const int16_t width = static_cast<int16_t>(display.width());
@@ -372,12 +237,7 @@ void drawWordDetail(DisplayMonoTft& display, const ReaderService& reader, uint8_
                              static_cast<int16_t>(kDividerY + kDividerHeight - 1),
                              ST7305_COLOR_BLACK);
 
-  if (reader.state() == ReaderService::State::Ready) {
-    maxMeaningPage =
-        drawWrappedMeaningPage(display, entry.meaning, kMeaningX, kMeaningY, kMeaningWidth,
-                               meaningPage);
-  } else {
-    maxMeaningPage = 0;
+  if (reader.state() != ReaderService::State::Ready) {
     const char* message = stateMessage(reader.state());
     int16_t messageX = TextUtils::centeredTextXInBox(text, message, kMeaningX, kMeaningWidth);
     if (messageX < kMeaningX + 4) {
@@ -389,8 +249,6 @@ void drawWordDetail(DisplayMonoTft& display, const ReaderService& reader, uint8_
                           124, static_cast<int16_t>(kMeaningWidth - 12), false);
     }
   }
-
-  drawMeaningPageHint(canvas, meaningPage, maxMeaningPage);
 
   canvas.drawFilledRectangle(0, kFooterY, static_cast<int16_t>(width - 1),
                              static_cast<int16_t>(kFooterY + kFooterHeight - 1),
@@ -421,11 +279,12 @@ bool ReaderPage::isStaticWordDetail(uint8_t homeFocus, uint8_t sectionFocus) con
   return isVocabularySelection(homeFocus, sectionFocus) && detailView_ == DetailView::Word;
 }
 
-void ReaderPage::handleDetailEnter(uint8_t homeFocus, uint8_t sectionFocus) {
+void ReaderPage::handleDetailEnter(uint8_t homeFocus, uint8_t sectionFocus, SdBitmapFont& font) {
   if (!isVocabularySelection(homeFocus, sectionFocus)) {
     return;
   }
 
+  font.end();
   detailView_ = DetailView::Library;
   selectedIndex_ = 0;
   resetMeaningPage();
@@ -433,7 +292,7 @@ void ReaderPage::handleDetailEnter(uint8_t homeFocus, uint8_t sectionFocus) {
 
 bool ReaderPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool leftEdge,
                                    bool rightEdge, bool upEdge, bool downEdge, bool okEdge,
-                                   ReaderService& reader, SdCardService& sd) {
+                                   ReaderService& reader, SdCardService& sd, SdBitmapFont& font) {
   if (!isVocabularySelection(homeFocus, sectionFocus)) {
     return false;
   }
@@ -459,6 +318,13 @@ bool ReaderPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool
     if (downEdge) {
       return moveMeaningPage(1);
     }
+    if (okEdge && reader.state() == ReaderService::State::Ready &&
+        (font.state() == SdBitmapFont::State::Error || font.state() == SdBitmapFont::State::Closed ||
+         meaningState_ == MeaningState::Unsupported)) {
+      font.end();  // A retry may remount the card: close the old font first.
+      if (sd.refresh() == SdCardService::Status::Ready) (void)font.open(14);
+      resetMeaningPage();
+    }
     return okEdge;
   }
 
@@ -471,7 +337,8 @@ bool ReaderPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool
     return true;
   }
   if (okEdge) {
-    (void)reader.openBook(selectedIndex_, sd);
+    font.end();
+    if (reader.openBook(selectedIndex_, sd)) (void)font.open(14);
     detailView_ = DetailView::Word;
     resetMeaningPage();
     return true;
@@ -481,11 +348,12 @@ bool ReaderPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool
 }
 
 bool ReaderPage::handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus,
-                                  ReaderService& reader) {
+                                  ReaderService& reader, SdBitmapFont& font) {
   if (!isVocabularySelection(homeFocus, sectionFocus)) {
     return false;
   }
 
+  font.end();
   reader.reset();
   resetMeaningPage();
   if (detailView_ == DetailView::Word) {
@@ -510,14 +378,17 @@ void ReaderPage::moveSelection(int8_t delta) {
 void ReaderPage::resetMeaningPage() {
   meaningPage_ = 0;
   maxMeaningPage_ = 0;
+  meaningState_ = MeaningState::Pending;
 }
 
 bool ReaderPage::moveMeaningPage(int8_t delta) {
+  if (meaningState_ != MeaningState::Ready) return false;
   if (delta < 0) {
     if (meaningPage_ == 0) {
       return false;
     }
     --meaningPage_;
+    meaningState_ = MeaningState::Pending;
     return true;
   }
 
@@ -526,21 +397,141 @@ bool ReaderPage::moveMeaningPage(int8_t delta) {
       return false;
     }
     ++meaningPage_;
+    meaningState_ = MeaningState::Pending;
     return true;
   }
 
   return false;
 }
 
+void ReaderPage::finishMeaningLine(uint16_t end) {
+  const uint16_t page = meaningLineCount_ / meaningLinesPerPage_;
+  if (page == meaningPage_) {
+    auto& line = meaningLines_[meaningLineCount_ % meaningLinesPerPage_];
+    line.start = meaningLineStart_;
+    line.length = end - meaningLineStart_;
+  }
+  ++meaningLineCount_;
+  meaningLineStart_ = end;
+  meaningLineWidth_ = 0;
+}
+
+bool ReaderPage::updateMeaning(const ReaderService& reader, SdBitmapFont& font) {
+  if (detailView_ != DetailView::Word || reader.state() != ReaderService::State::Ready) return false;
+  if (font.state() != SdBitmapFont::State::Ready) {
+    const bool wasBuilding = meaningState_ == MeaningState::Building;
+    meaningState_ = MeaningState::Pending;
+    return wasBuilding;
+  }
+  if (meaningState_ == MeaningState::Ready || meaningState_ == MeaningState::Unsupported) return false;
+  if (meaningState_ == MeaningState::Pending) {
+    const uint32_t height = font.metrics().lineHeight();
+    if (height == 0 || height > static_cast<uint32_t>(kMeaningBottom - kMeaningTop + 1)) {
+      meaningState_ = MeaningState::Unsupported;
+      maxMeaningPage_ = 0;
+      return true;
+    }
+    meaningLineHeight_ = static_cast<uint16_t>(height);
+    const uint16_t count = (kMeaningBottom - kMeaningTop + 1) / height;
+    meaningLinesPerPage_ = count < kMaxMeaningLines ? count : kMaxMeaningLines;
+    for (auto& line : meaningLines_) line = MeaningLine{};
+    meaningScanOffset_ = meaningLineStart_ = meaningLineCount_ = 0;
+    meaningLineWidth_ = 0;
+    meaningState_ = MeaningState::Building;
+  }
+
+  // Bound uncached glyph lookups so input and other services keep running.
+  const uint32_t started = millis();
+  const char* value = reader.entry().meaning;
+  for (uint8_t work = 0; work < 16U; ++work) {
+    const char* current = value + meaningScanOffset_;
+    if (*current == '\0') {
+      if (meaningScanOffset_ > meaningLineStart_) finishMeaningLine(meaningScanOffset_);
+      maxMeaningPage_ = meaningLineCount_ ? (meaningLineCount_ - 1U) / meaningLinesPerPage_ : 0;
+      meaningState_ = MeaningState::Ready;
+      return true;
+    }
+    if (*current == '\r' || *current == '\n') {
+      finishMeaningLine(meaningScanOffset_);
+      meaningScanOffset_ += current[0] == '\r' && current[1] == '\n' ? 2U : 1U;
+      meaningLineStart_ = meaningScanOffset_;
+    } else {
+      if (meaningScanOffset_ > meaningLineStart_ && partOfSpeechLen(current))
+        finishMeaningLine(meaningScanOffset_);
+      const char* next = current;
+      uint32_t codepoint;
+      (void)SdBitmapText::nextCodepoint(next, codepoint);
+      SdBitmapFont::Glyph glyph;
+      const bool found = font.glyph(codepoint, glyph);
+      if (font.state() != SdBitmapFont::State::Ready) {
+        meaningState_ = MeaningState::Pending;
+        return true;
+      }
+      const int32_t advance = found ? glyph.advance : font.metrics().pixelSize;
+      if (meaningScanOffset_ > meaningLineStart_ && meaningLineWidth_ + advance > kMeaningWidth)
+        finishMeaningLine(meaningScanOffset_);
+      meaningLineWidth_ += advance;
+      meaningScanOffset_ = static_cast<uint16_t>(next - value);
+    }
+    if (millis() - started >= 4U) break;
+  }
+  return false;
+}
+
+void ReaderPage::drawMeaning(DisplayMonoTft& display, const ReaderService& reader,
+                              SdBitmapFont& font) const {
+  auto& canvas = display.canvas();
+  auto& text = display.text();
+  const SdBitmapText::Clip clip = {kMeaningX, kMeaningTop, kMeaningRightX, kMeaningBottom};
+  if (font.state() == SdBitmapFont::State::Ready && meaningState_ == MeaningState::Ready) {
+    if (reader.entry().meaning[0] == '\0') {
+      text.drawUTF8(kMeaningX + 4, 84, "暂无释义");
+      return;
+    }
+    char line[ReaderService::kMaxMeaningLen];
+    for (uint8_t i = 0; i < meaningLinesPerPage_; ++i) {
+      const auto& span = meaningLines_[i];
+      std::memcpy(line, reader.entry().meaning + span.start, span.length);
+      line[span.length] = '\0';
+      const int16_t baseline = kMeaningTop + font.metrics().ascent + i * meaningLineHeight_;
+      if (!SdBitmapText::drawUTF8(canvas, font, kMeaningX, baseline, line, ST7305_COLOR_BLACK, clip))
+        break;
+    }
+    if (font.state() == SdBitmapFont::State::Ready) return;
+    // A read failure during drawing replaces partial ink with an actionable message.
+    canvas.drawFilledRectangle(clip.x1, clip.y1, clip.x2, clip.y2, ST7305_COLOR_WHITE);
+  }
+  const char* status = "字库不可用，按 OK 重试";
+  const char* hint = "请检查 Font/font-14.bin";
+  if (font.state() == SdBitmapFont::State::Checking) {
+    status = "正在检查字库，请稍候";
+    hint = "长按 Left 可返回";
+  } else if (font.state() == SdBitmapFont::State::Ready) {
+    status = meaningState_ == MeaningState::Unsupported ? "字库行高不适合本页" : "正在排版释义，请稍候";
+    hint = meaningState_ == MeaningState::Unsupported ? "重导出 14 字号字库后按 OK" : "长按 Left 可返回";
+  }
+  text.setFont(chinese_font_all);
+  text.setForegroundColor(ST7305_COLOR_BLACK);
+  text.setBackgroundColor(ST7305_COLOR_WHITE);
+  text.setFontMode(1);
+  text.drawUTF8(kMeaningX + 8, 84, status);
+  text.drawUTF8(kMeaningX + 8, 112, hint);
+}
+
 bool ReaderPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                              DisplayMonoTft& display, const ReaderService& reader) const {
+                              DisplayMonoTft& display, const ReaderService& reader, SdBitmapFont& font) const {
   (void)yOffset;
   if (!isVocabularySelection(homeFocus, sectionFocus)) {
     return false;
   }
 
   if (detailView_ == DetailView::Word) {
-    drawWordDetail(display, reader, meaningPage_, maxMeaningPage_);
+    drawWordDetail(display, reader);
+    if (reader.state() == ReaderService::State::Ready) drawMeaning(display, reader, font);
+    const bool paged = font.state() == SdBitmapFont::State::Ready &&
+                       meaningState_ == MeaningState::Ready;
+    drawPageArrow(display.canvas(), kPageUpArrowCenterY, false, paged && meaningPage_ > 0);
+    drawPageArrow(display.canvas(), kPageDownArrowCenterY, true, paged && meaningPage_ < maxMeaningPage_);
     return true;
   }
 

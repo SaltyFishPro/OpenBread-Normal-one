@@ -452,6 +452,9 @@ void UiManager::tick() {
   }
   const InputEdges edges = pollInputEdges();
   updateState(edges, nowMs);
+  if (state_ == UiState::Detail &&
+      readerPage_.isStaticWordDetail(homePage_.focusIndex(), sectionFocusIndex_) &&
+      readerPage_.updateMeaning(readerService_, sdBitmapFont_)) needsRedraw_ = true;
 
   if (systemUpdatePage_.update(SystemUpdatePage::viewOf(otaService_),
                                state_ == UiState::Detail && settingsPage_.isOtaSelection(
@@ -621,7 +624,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         }
         musicPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_, musicService_,
                                      sdCardService_);
-        readerPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_);
+        readerPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_, sdBitmapFont_);
         setRemotePagePortrait(remotePage_.isPortraitSelection(homePage_.focusIndex(),
                                                               sectionFocusIndex_));
         state_ = UiState::Detail;
@@ -754,7 +757,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
                                                timeService_)) {
           needsRedraw_ = true;
         } else if (readerPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
-                                                readerService_)) {
+                                                readerService_, sdBitmapFont_)) {
           needsRedraw_ = true;
         } else if (answersBookPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_)) {
           needsRedraw_ = true;
@@ -795,10 +798,10 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
           needsRedraw_ = true;
         } else if (readerPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
                                                 true, edges.right, edges.up, edges.down,
-                                                edges.ok, readerService_, sdCardService_)) {
+                                                edges.ok, readerService_, sdCardService_, sdBitmapFont_)) {
           needsRedraw_ = true;
         } else if (readerPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
-                                                readerService_)) {
+                                                readerService_, sdBitmapFont_)) {
           needsRedraw_ = true;
         } else if (answersBookPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_)) {
           needsRedraw_ = true;
@@ -850,7 +853,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         needsRedraw_ = true;
       } else if (readerPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
                                                false, edges.right, edges.up, edges.down,
-                                               edges.ok, readerService_, sdCardService_)) {
+                                               edges.ok, readerService_, sdCardService_, sdBitmapFont_)) {
         needsRedraw_ = true;
       } else {
         if (settingsPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
@@ -1045,7 +1048,7 @@ uint32_t UiManager::nextIdleDelayMs(uint32_t nowMs) const {
       otaService_.isBusy() ||
       bluetoothService_.isRadioActive() ||
       iicScanService_.isBusy() || rtcTestService_.isBusy() || imuTestService_.isBusy() ||
-      sdBitmapFont_.state() == SdBitmapFont::State::Checking) {
+      sdBitmapFont_.state() == SdBitmapFont::State::Checking || readerPage_.isPreparingMeaning()) {
     return kActivePollMs;
   }
 
@@ -1063,7 +1066,7 @@ void UiManager::updateCpuClock(uint32_t nowMs) {
                                TimeService::SyncState::Syncing;
   const bool selfTestActive =
       iicScanService_.isBusy() || rtcTestService_.isBusy() || imuTestService_.isBusy() ||
-      sdBitmapFont_.state() == SdBitmapFont::State::Checking;
+      sdBitmapFont_.state() == SdBitmapFont::State::Checking || readerPage_.isPreparingMeaning();
   // 满屏渲染后保持一段满速窗口；期间只画脏区域的局部帧可以降频执行。
   const bool uiActive = (nowMs - cpuBoostStartMs_) < kCpuBoostHoldMs;
 
@@ -1829,7 +1832,7 @@ void UiManager::renderDetail(int16_t yOffset) {
                                      musicService_, millis())) {
     handled = true;
   } else if (readerPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
-                                      readerService_)) {
+                                      readerService_, sdBitmapFont_)) {
     handled = true;
   } else if (remotePage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
                                       bluetoothService_, remoteService_)) {
