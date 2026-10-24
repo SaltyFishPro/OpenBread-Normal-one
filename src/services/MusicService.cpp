@@ -7,22 +7,11 @@
 #include <cstring>
 
 #include "../bsp/BoardConfig.h"
+#include "../log/Log.h"
 
 namespace {
 constexpr char kMagic[4] = {'O', 'B', 'M', 'I'};
 MusicService* gActiveMusicService = nullptr;
-
-#ifndef MUSIC_DEBUG_LOG
-#define MUSIC_DEBUG_LOG 1
-#endif
-
-#if MUSIC_DEBUG_LOG
-#define MUSIC_LOG(prefix, fmt, ...) Serial.printf(prefix " " fmt "\n", ##__VA_ARGS__)
-#else
-#define MUSIC_LOG(prefix, fmt, ...) \
-  do {                              \
-  } while (0)
-#endif
 
 bool endsWithIgnoreCase(const char* value, const char* suffix) {
   const size_t valueLen = strlen(value);
@@ -144,7 +133,7 @@ void MusicService::processListScan(SdCardService& sd) {
         scanSd_ = nullptr;
         listState_ = ListState::SdMissing;
         setError("sd not ready");
-        MUSIC_LOG("[SD]", "music scan failed reason=sd_not_ready");
+        LogW("SD", "music scan failed reason=sd_not_ready");
         return;
       }
       scanPhase_ = ScanPhase::OpenRoot;
@@ -152,7 +141,7 @@ void MusicService::processListScan(SdCardService& sd) {
       return;
 
     case ScanPhase::OpenRoot: {
-      MUSIC_LOG("[SD]", "music scan begin path=%s", kMusicDir);
+      LogI("SD", "music scan begin path=%s", kMusicDir);
       File root = SD_MMC.open(kMusicDir);
       if (!root || !root.isDirectory()) {
         if (root) root.close();
@@ -219,7 +208,7 @@ void MusicService::processListScan(SdCardService& sd) {
       scanSd_ = nullptr;
       closeScanFiles();
       listState_ = trackCount_ == 0 ? ListState::Empty : ListState::Ready;
-      MUSIC_LOG("[SD]", "music scan done count=%lu", static_cast<unsigned long>(trackCount_));
+      LogI("SD", "music scan done count=%lu", static_cast<unsigned long>(trackCount_));
       if (listState_ == ListState::Ready) {
         (void)loadPage(0);
       }
@@ -243,7 +232,7 @@ void MusicService::exitMusic(SdCardService& sd) {
   scanSd_ = nullptr;
   closeScanFiles();
   sd.end();
-  MUSIC_LOG("[SD]", "unmount after music exit");
+  LogI("SD", "unmount after music exit");
   listState_ = ListState::Idle;
   page_ = Page{};
   trackCount_ = 0;
@@ -252,7 +241,7 @@ void MusicService::exitMusic(SdCardService& sd) {
 
 bool MusicService::beginIndexWrite() {
   SD_MMC.remove(kTmpIndexPath);
-  MUSIC_LOG("[SD]", "music index write begin path=%s", kIndexPath);
+  LogI("SD", "music index write begin path=%s", kIndexPath);
   scanIndex_ = SD_MMC.open(kTmpIndexPath, FILE_WRITE);
   if (!scanIndex_) {
     setError("index open failed");
@@ -348,7 +337,7 @@ bool MusicService::finalizeIndexWrite() {
     return false;
   }
 
-  MUSIC_LOG("[SD]", "music index write done count=%lu",
+  LogI("SD", "music index write done count=%lu",
             static_cast<unsigned long>(trackCount_));
   return true;
 }
@@ -583,7 +572,7 @@ bool MusicService::playTrack(uint32_t absoluteIndex) {
   openingStartMs_ = millis();
   lastAudioInfoMs_ = openingStartMs_;
   playbackState_ = PlaybackState::Opening;
-  MUSIC_LOG("[AUDIO]", "play file=%s", currentTrack_.path);
+  LogI("AUDIO", "play file=%s", currentTrack_.path);
   markChanged();
   return true;
 }
@@ -603,10 +592,10 @@ bool MusicService::togglePause(uint32_t nowMs) {
     playbackState_ = PlaybackState::Paused;
     pauseStartMs_ = nowMs;
     clearSpectrumBands();
-    MUSIC_LOG("[AUDIO]", "pause");
+    LogI("AUDIO", "pause");
   } else {
     playbackState_ = PlaybackState::Playing;
-    MUSIC_LOG("[AUDIO]", "resume");
+    LogI("AUDIO", "resume");
   }
   markChanged();
   return true;
@@ -618,7 +607,7 @@ bool MusicService::stop() {
   }
   audio_.stopSong();
   dac_.powerOff();
-  MUSIC_LOG("[AUDIO]", "stop reason=user");
+  LogI("AUDIO", "stop reason=user");
   playbackState_ = PlaybackState::Stopped;
   resetPlaybackRuntime();
   markChanged();
@@ -685,7 +674,7 @@ void MusicService::suspendForPauseTimeout() {
   suspendedSecond_ = audio_.getAudioCurrentTime();
   audio_.stopSong();
   dac_.powerOff();
-  MUSIC_LOG("[AUDIO]", "stop reason=pause_timeout");
+  LogI("AUDIO", "stop reason=pause_timeout");
   playbackState_ = PlaybackState::Suspended;
   vuLevel_ = 0;
   clearSpectrumBands();
@@ -713,7 +702,7 @@ bool MusicService::resumeSuspended() {
   trackEndPending_ = false;
   vuLevel_ = 0;
   clearSpectrumBands();
-  MUSIC_LOG("[AUDIO]", "resume from=%lu", static_cast<unsigned long>(suspendedSecond_));
+  LogI("AUDIO", "resume from=%lu", static_cast<unsigned long>(suspendedSecond_));
   markChanged();
   return true;
 }
@@ -762,7 +751,7 @@ bool MusicService::advanceAfterTrackEnd() {
   if (trackCount_ == 0) {
     return stop();
   }
-  MUSIC_LOG("[AUDIO]", "track end mode=%s",
+  LogI("AUDIO", "track end mode=%s",
             playMode_ == PlayMode::Shuffle ? "shuffle" : "sequential");
   return playTrack(nextTrackIndex());
 }
@@ -775,14 +764,14 @@ void MusicService::failPlayback(const char* error) {
   streamReady_ = false;
   trackEndPending_ = false;
   clearSpectrumBands();
-  MUSIC_LOG("[AUDIO]", "playback failed; decoder stopped, power off");
+  LogE("AUDIO", "playback failed; decoder stopped, power off");
   if (error != nullptr) setError(error);
   else markChanged();
 }
 
 void MusicService::setError(const char* error) {
   snprintf(errorText_, sizeof(errorText_), "%s", error);
-  MUSIC_LOG("[ERR]", "%s debug=%s", errorText_,
+  LogE("MUSIC", "%s debug=%s", errorText_,
             audioDebugText_[0] != '\0' ? audioDebugText_ : "none");
   markChanged();
 }
@@ -809,7 +798,7 @@ void MusicService::handleAudioInfo(Audio::msg_t msg) {
   const char* tag = msg.s != nullptr ? msg.s : "audio";
   const char* text = msg.msg != nullptr ? msg.msg : "";
 
-  MUSIC_LOG("[AUDIOI2S]", "%s: %s", tag, text);
+  LogD("AUDIO", "%s: %s", tag, text);
   lastAudioInfoMs_ = millis();
 
   if (msg.e == Audio::evt_info) {

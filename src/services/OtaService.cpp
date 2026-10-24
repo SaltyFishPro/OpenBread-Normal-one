@@ -6,12 +6,12 @@
 #include <WiFi.h>
 
 #include <cctype>
-#include <cstdarg>
 #include <cstdlib>
 #include <cstring>
 #include <strings.h>
 
 #include "../app/FirmwareInfo.h"
+#include "../log/Log.h"
 
 namespace {
 constexpr const char* kPrefsNs = "wifi";
@@ -22,41 +22,6 @@ constexpr const char* kOtaExpectedBuild = "expect_b";
 constexpr const char* kOtaExpectedVer = "expect_v";
 constexpr uint32_t kHttpTimeoutMs = 5000;
 
-#ifndef OB_OTA_LOG_ENABLED
-#define OB_OTA_LOG_ENABLED 1
-#endif
-
-void otaLog(const char* fmt, ...) {
-#if OB_OTA_LOG_ENABLED
-  if (!Serial) {
-    return;
-  }
-  Serial.print("[OTA] ");
-  va_list args;
-  va_start(args, fmt);
-  Serial.vprintf(fmt, args);
-  va_end(args);
-  Serial.println();
-#else
-  (void)fmt;
-#endif
-}
-
-void otaErr(const char* fmt, ...) {
-#if OB_OTA_LOG_ENABLED
-  if (!Serial) {
-    return;
-  }
-  Serial.print("[ERR][OTA] ");
-  va_list args;
-  va_start(args, fmt);
-  Serial.vprintf(fmt, args);
-  va_end(args);
-  Serial.println();
-#else
-  (void)fmt;
-#endif
-}
 }  // namespace
 
 bool OtaService::begin() {
@@ -87,14 +52,14 @@ void OtaService::tick(uint32_t nowMs) {
     if ((nowMs - lastConnectLogMs_) >= 1000U) {
       lastConnectLogMs_ = nowMs;
       const IPAddress ip = WiFi.localIP();
-      otaLog("connect wait status=%s ip=%u.%u.%u.%u rssi=%d",
+      LogI("OTA", "connect wait status=%s ip=%u.%u.%u.%u rssi=%d",
              wifiStatusText(wifiStatus), ip[0], ip[1], ip[2], ip[3],
              static_cast<int>(WiFi.RSSI()));
     }
 
     if (wifiStatus == WL_CONNECTED || hasStaIp()) {
       const IPAddress ip = WiFi.localIP();
-      otaLog("wifi connected for %s, ip=%u.%u.%u.%u",
+      LogI("OTA", "wifi connected for %s, ip=%u.%u.%u.%u",
              pendingAction_ == Action::DownloadFirmware ? "download" : "manifest check", ip[0],
              ip[1], ip[2], ip[3]);
       phase_ = (pendingAction_ == Action::DownloadFirmware) ? CheckPhase::StartDownload
@@ -111,7 +76,7 @@ void OtaService::tick(uint32_t nowMs) {
       return;
     }
 
-    otaErr("wifi connect timeout status=%s", wifiStatusText(wifiStatus));
+    LogE("OTA", "wifi connect timeout status=%s", wifiStatusText(wifiStatus));
     cleanupDownloadSession();
     cleanupRadio();
     phase_ = CheckPhase::None;
@@ -123,12 +88,12 @@ void OtaService::tick(uint32_t nowMs) {
   if (phase_ == CheckPhase::FetchManifest) {
     if (fetchAndValidateManifest()) {
       if (manifest_.build > FirmwareInfo::kBuild) {
-        otaLog("update available local=%lu remote=%lu version=%s",
+        LogI("OTA", "update available local=%lu remote=%lu version=%s",
                static_cast<unsigned long>(FirmwareInfo::kBuild),
                static_cast<unsigned long>(manifest_.build), manifest_.version);
         setState(State::UpdateAvailable, Error::None);
       } else {
-        otaLog("already up-to-date local=%lu remote=%lu",
+        LogI("OTA", "already up-to-date local=%lu remote=%lu",
                static_cast<unsigned long>(FirmwareInfo::kBuild),
                static_cast<unsigned long>(manifest_.build));
         setState(State::UpToDate, Error::None);
@@ -176,7 +141,7 @@ void OtaService::tick(uint32_t nowMs) {
     return;
   }
 
-  otaErr("invalid check phase");
+  LogE("OTA", "invalid check phase");
   cleanupDownloadSession();
   cleanupRadio();
   phase_ = CheckPhase::None;
@@ -186,12 +151,12 @@ void OtaService::tick(uint32_t nowMs) {
 
 bool OtaService::requestCheck(uint32_t nowMs) {
   if (phase_ != CheckPhase::None) {
-    otaLog("check request ignored: already checking");
+    LogI("OTA", "check request ignored: already checking");
     return false;
   }
 
   if (!loadSavedCredentials()) {
-    otaErr("no stored wifi credentials");
+    LogE("OTA", "no stored wifi credentials");
     setState(State::Error, Error::NoCredentials);
     return false;
   }
@@ -206,8 +171,8 @@ bool OtaService::requestCheck(uint32_t nowMs) {
   WiFi.setSleep(false);
   WiFi.begin(staSsid_, staPass_);
 
-  otaLog("checking manifest url=%s", FirmwareInfo::kManifestUrl);
-  otaLog("connect ssid=%s", staSsid_);
+  LogI("OTA", "checking manifest url=%s", FirmwareInfo::kManifestUrl);
+  LogI("OTA", "connect ssid=%s", staSsid_);
 
   actionStartMs_ = nowMs;
   lastConnectLogMs_ = nowMs;
@@ -219,25 +184,25 @@ bool OtaService::requestCheck(uint32_t nowMs) {
 
 bool OtaService::requestDownload(uint32_t nowMs) {
   if (phase_ != CheckPhase::None) {
-    otaLog("download request ignored: busy");
+    LogI("OTA", "download request ignored: busy");
     return false;
   }
 
   if (state_ != State::UpdateAvailable && state_ != State::ReadyToApply) {
-    otaErr("download request rejected: no available update state=%u",
+    LogE("OTA", "download request rejected: no available update state=%u",
            static_cast<unsigned>(state_));
     setState(State::Error, Error::VersionNotNew);
     return false;
   }
 
   if (manifest_.firmwareUrl[0] == '\0' || manifest_.size == 0 || manifest_.sha256[0] == '\0') {
-    otaErr("download request rejected: manifest not ready");
+    LogE("OTA", "download request rejected: manifest not ready");
     setState(State::Error, Error::ManifestInvalid);
     return false;
   }
 
   if (!loadSavedCredentials()) {
-    otaErr("download request rejected: no wifi credentials");
+    LogE("OTA", "download request rejected: no wifi credentials");
     setState(State::Error, Error::NoCredentials);
     return false;
   }
@@ -252,9 +217,9 @@ bool OtaService::requestDownload(uint32_t nowMs) {
   WiFi.setSleep(false);
   WiFi.begin(staSsid_, staPass_);
 
-  otaLog("download start url=%s size=%lu", manifest_.firmwareUrl,
+  LogI("OTA", "download start url=%s size=%lu", manifest_.firmwareUrl,
          static_cast<unsigned long>(manifest_.size));
-  otaLog("connect ssid=%s", staSsid_);
+  LogI("OTA", "connect ssid=%s", staSsid_);
 
   actionStartMs_ = nowMs;
   lastConnectLogMs_ = nowMs;
@@ -266,14 +231,14 @@ bool OtaService::requestDownload(uint32_t nowMs) {
 
 bool OtaService::requestApply() {
   if (state_ != State::ReadyToApply) {
-    otaErr("apply request rejected: state=%u", static_cast<unsigned>(state_));
+    LogE("OTA", "apply request rejected: state=%u", static_cast<unsigned>(state_));
     setState(State::Error, Error::ApplyNotReady);
     return false;
   }
 
   Preferences prefs;
   if (!prefs.begin(kOtaPrefsNs, false)) {
-    otaErr("failed to open ota prefs");
+    LogE("OTA", "failed to open ota prefs");
     setState(State::Error, Error::Unknown);
     return false;
   }
@@ -282,7 +247,7 @@ bool OtaService::requestApply() {
   prefs.end();
 
   setState(State::Applying, Error::None);
-  otaLog("apply confirmed, restart to boot new firmware target_build=%lu target_ver=%s",
+  LogI("OTA", "apply confirmed, restart to boot new firmware target_build=%lu target_ver=%s",
          static_cast<unsigned long>(manifest_.build), manifest_.version);
   delay(100);
   ESP.restart();
@@ -293,7 +258,7 @@ void OtaService::cancel() {
   if (phase_ == CheckPhase::None) {
     return;
   }
-  otaLog("ota action canceled by user");
+  LogI("OTA", "ota action canceled by user");
   cleanupDownloadSession();
   cleanupRadio();
   phase_ = CheckPhase::None;
@@ -397,14 +362,14 @@ void OtaService::loadAndVerifyPostApplyResult() {
   if (ok) {
     snprintf(postApplyMessage_, sizeof(postApplyMessage_), "OTA applied: %s (%lu)",
              FirmwareInfo::kVersion, static_cast<unsigned long>(FirmwareInfo::kBuild));
-    otaLog("post-apply verify success expected=%lu/%s actual=%lu/%s",
+    LogI("OTA", "post-apply verify success expected=%lu/%s actual=%lu/%s",
            static_cast<unsigned long>(expectedBuild), expectedVer.c_str(),
            static_cast<unsigned long>(FirmwareInfo::kBuild), FirmwareInfo::kVersion);
   } else {
     snprintf(postApplyMessage_, sizeof(postApplyMessage_), "OTA verify failed exp=%lu got=%lu",
              static_cast<unsigned long>(expectedBuild),
              static_cast<unsigned long>(FirmwareInfo::kBuild));
-    otaErr("post-apply verify failed expected=%lu/%s actual=%lu/%s",
+    LogE("OTA", "post-apply verify failed expected=%lu/%s actual=%lu/%s",
            static_cast<unsigned long>(expectedBuild), expectedVer.c_str(),
            static_cast<unsigned long>(FirmwareInfo::kBuild), FirmwareInfo::kVersion);
   }
@@ -427,7 +392,7 @@ bool OtaService::fetchAndValidateManifest() {
   http.collectHeaders(trackedHeaders,
                       sizeof(trackedHeaders) / sizeof(trackedHeaders[0]));
   if (!http.begin(client, FirmwareInfo::kManifestUrl)) {
-    otaErr("http begin failed");
+    LogE("OTA", "http begin failed");
     setState(State::Error, Error::HttpRequestFailed);
     return false;
   }
@@ -435,24 +400,24 @@ bool OtaService::fetchAndValidateManifest() {
   const int httpCode = http.GET();
   lastHttpStatus_ = httpCode;
   if (httpCode < 0) {
-    otaErr("manifest http transport error code=%d msg=%s", httpCode,
+    LogE("OTA", "manifest http transport error code=%d msg=%s", httpCode,
            HTTPClient::errorToString(httpCode).c_str());
   } else {
-    otaLog("manifest http code=%d", httpCode);
+    LogI("OTA", "manifest http code=%d", httpCode);
   }
 
   for (size_t i = 0; i < sizeof(trackedHeaders) / sizeof(trackedHeaders[0]); ++i) {
     const String value = http.header(trackedHeaders[i]);
     if (!value.isEmpty()) {
-      otaLog("manifest header %s: %s", trackedHeaders[i], value.c_str());
+      LogD("OTA", "manifest header %s: %s", trackedHeaders[i], value.c_str());
     }
   }
 
   if (httpCode != HTTP_CODE_OK) {
     if (httpCode == HTTP_CODE_NOT_MODIFIED) {
-      otaErr("manifest returned 304 (Not Modified); OTA client requires 200 body");
+      LogE("OTA", "manifest returned 304 (Not Modified); OTA client requires 200 body");
     } else if (httpCode > 0) {
-      otaErr("manifest unexpected http status=%d", httpCode);
+      LogE("OTA", "manifest unexpected http status=%d", httpCode);
     }
     http.end();
     setState(State::Error, (httpCode < 0) ? Error::HttpRequestFailed
@@ -478,48 +443,48 @@ bool OtaService::fetchAndValidateManifest() {
       !parseUintField(payload.c_str(), "size", parsed.size) ||
       !parseStringField(payload.c_str(), "release_note", parsed.releaseNote,
                         sizeof(parsed.releaseNote))) {
-    otaErr("manifest parse/field validation failed");
+    LogE("OTA", "manifest parse/field validation failed");
     setState(State::Error, Error::ManifestInvalid);
     return false;
   }
 
   // 旧清单继续有效；可选的长日志损坏时仅回退摘要，不阻断固件更新。
   if (OtaReleaseNotes::parse(payload.c_str(), parsed.releaseNotes, sizeof(parsed.releaseNotes))) {
-    otaLog("release notes loaded bytes=%u", static_cast<unsigned>(strlen(parsed.releaseNotes)));
+    LogI("OTA", "release notes loaded bytes=%u", static_cast<unsigned>(strlen(parsed.releaseNotes)));
   }
 
   if (strcmp(parsed.product, FirmwareInfo::kProduct) != 0) {
-    otaErr("product mismatch remote=%s local=%s", parsed.product, FirmwareInfo::kProduct);
+    LogE("OTA", "product mismatch remote=%s local=%s", parsed.product, FirmwareInfo::kProduct);
     setState(State::Error, Error::ProductMismatch);
     return false;
   }
 
   if (strcmp(parsed.channel, FirmwareInfo::kChannel) != 0) {
-    otaErr("channel mismatch remote=%s local=%s", parsed.channel, FirmwareInfo::kChannel);
+    LogE("OTA", "channel mismatch remote=%s local=%s", parsed.channel, FirmwareInfo::kChannel);
     setState(State::Error, Error::ChannelMismatch);
     return false;
   }
 
   if (!isHttpsUrl(parsed.firmwareUrl)) {
-    otaErr("firmware url is not https: %s", parsed.firmwareUrl);
+    LogE("OTA", "firmware url is not https: %s", parsed.firmwareUrl);
     setState(State::Error, Error::UrlInvalid);
     return false;
   }
 
   if (!isHexString64(parsed.sha256)) {
-    otaErr("sha256 invalid format");
+    LogE("OTA", "sha256 invalid format");
     setState(State::Error, Error::ShaInvalid);
     return false;
   }
 
   if (parsed.size == 0 || parsed.size > kMaxImageSize) {
-    otaErr("image size invalid=%lu", static_cast<unsigned long>(parsed.size));
+    LogE("OTA", "image size invalid=%lu", static_cast<unsigned long>(parsed.size));
     setState(State::Error, Error::SizeInvalid);
     return false;
   }
 
   manifest_ = parsed;
-  otaLog("manifest parsed build=%lu size=%lu sha=%c%c%c%c%c%c%c%c...",
+  LogI("OTA", "manifest parsed build=%lu size=%lu sha=%c%c%c%c%c%c%c%c...",
          static_cast<unsigned long>(manifest_.build),
          static_cast<unsigned long>(manifest_.size), manifest_.sha256[0],
          manifest_.sha256[1], manifest_.sha256[2], manifest_.sha256[3],
@@ -533,7 +498,7 @@ bool OtaService::beginDownloadSession() {
   downloadClient_.setInsecure();
   downloadHttp_.setTimeout(kHttpTimeoutMs);
   if (!downloadHttp_.begin(downloadClient_, manifest_.firmwareUrl)) {
-    otaErr("firmware http begin failed");
+    LogE("OTA", "firmware http begin failed");
     setState(State::Error, Error::DownloadFailed);
     return false;
   }
@@ -541,7 +506,7 @@ bool OtaService::beginDownloadSession() {
   const int httpCode = downloadHttp_.GET();
   lastHttpStatus_ = httpCode;
   if (httpCode != HTTP_CODE_OK) {
-    otaErr("firmware http status=%d", httpCode);
+    LogE("OTA", "firmware http status=%d", httpCode);
     cleanupDownloadSession();
     setState(State::Error, (httpCode < 0) ? Error::DownloadFailed : Error::HttpStatusInvalid);
     return false;
@@ -549,7 +514,7 @@ bool OtaService::beginDownloadSession() {
 
   const int contentLength = downloadHttp_.getSize();
   if (contentLength > 0 && static_cast<uint32_t>(contentLength) != manifest_.size) {
-    otaErr("firmware size mismatch header=%d manifest=%lu", contentLength,
+    LogE("OTA", "firmware size mismatch header=%d manifest=%lu", contentLength,
            static_cast<unsigned long>(manifest_.size));
     cleanupDownloadSession();
     setState(State::Error, Error::SizeInvalid);
@@ -557,7 +522,7 @@ bool OtaService::beginDownloadSession() {
   }
 
   if (!Update.begin(manifest_.size, U_FLASH)) {
-    otaErr("update begin failed err=%u", static_cast<unsigned>(Update.getError()));
+    LogE("OTA", "update begin failed err=%u", static_cast<unsigned>(Update.getError()));
     cleanupDownloadSession();
     setState(State::Error, Error::UpdateBeginFailed);
     return false;
@@ -570,7 +535,7 @@ bool OtaService::beginDownloadSession() {
   clearProgress();
   totalBytes_ = manifest_.size;
   setState(State::Downloading, Error::None);
-  otaLog("download session opened size=%lu", static_cast<unsigned long>(manifest_.size));
+  LogI("OTA", "download session opened size=%lu", static_cast<unsigned long>(manifest_.size));
   return true;
 }
 
@@ -581,7 +546,7 @@ bool OtaService::processDownloadChunk() {
 
   WiFiClient* stream = downloadHttp_.getStreamPtr();
   if (stream == nullptr) {
-    otaErr("download stream unavailable");
+    LogE("OTA", "download stream unavailable");
     abortDownloadSession(Error::DownloadFailed);
     return false;
   }
@@ -589,7 +554,7 @@ bool OtaService::processDownloadChunk() {
   const int available = stream->available();
   if (available <= 0) {
     if (!downloadHttp_.connected()) {
-      otaErr("download interrupted at %lu/%lu", static_cast<unsigned long>(downloadedBytes_),
+      LogE("OTA", "download interrupted at %lu/%lu", static_cast<unsigned long>(downloadedBytes_),
              static_cast<unsigned long>(manifest_.size));
       abortDownloadSession(Error::DownloadFailed);
     }
@@ -607,13 +572,13 @@ bool OtaService::processDownloadChunk() {
 
   const int readLen = stream->readBytes(buf, toRead);
   if (readLen <= 0) {
-    otaErr("download read failed");
+    LogE("OTA", "download read failed");
     abortDownloadSession(Error::DownloadFailed);
     return false;
   }
 
   if (Update.write(buf, static_cast<size_t>(readLen)) != static_cast<size_t>(readLen)) {
-    otaErr("update write failed err=%u", static_cast<unsigned>(Update.getError()));
+    LogE("OTA", "update write failed err=%u", static_cast<unsigned>(Update.getError()));
     abortDownloadSession(Error::UpdateWriteFailed);
     return false;
   }
@@ -625,7 +590,7 @@ bool OtaService::processDownloadChunk() {
   const uint8_t step = static_cast<uint8_t>(progressPercent() / 10U);
   if (step > lastProgressStep_) {
     lastProgressStep_ = step;
-    otaLog("download progress=%u%% (%lu/%lu)", static_cast<unsigned>(progressPercent()),
+    LogD("OTA", "download progress=%u%% (%lu/%lu)", static_cast<unsigned>(progressPercent()),
            static_cast<unsigned long>(downloadedBytes_),
            static_cast<unsigned long>(manifest_.size));
   }
@@ -649,25 +614,25 @@ bool OtaService::finalizeDownloadSession() {
   shaActive_ = false;
 
   if (!toHexSha256(hash, sizeof(hash), hashHex, sizeof(hashHex))) {
-    otaErr("sha256 hex conversion failed");
+    LogE("OTA", "sha256 hex conversion failed");
     abortDownloadSession(Error::ShaInvalid);
     return false;
   }
 
   if (strcasecmp(hashHex, manifest_.sha256) != 0) {
-    otaErr("sha256 mismatch expected=%s actual=%s", manifest_.sha256, hashHex);
+    LogE("OTA", "sha256 mismatch expected=%s actual=%s", manifest_.sha256, hashHex);
     abortDownloadSession(Error::ShaMismatch);
     return false;
   }
 
   if (!Update.end(false)) {
-    otaErr("update finalize failed err=%u", static_cast<unsigned>(Update.getError()));
+    LogE("OTA", "update finalize failed err=%u", static_cast<unsigned>(Update.getError()));
     cleanupDownloadSession();
     setState(State::Error, Error::UpdateFinalizeFailed);
     return false;
   }
 
-  otaLog("firmware stored and verified, ready to apply on reboot");
+  LogI("OTA", "firmware stored and verified, ready to apply on reboot");
   cleanupDownloadSession();
   return true;
 }

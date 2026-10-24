@@ -4,12 +4,9 @@
 #include <driver/gpio.h>
 
 #include "BoardConfig.h"
+#include "../log/Log.h"
 
 namespace {
-#ifndef OB_DISPLAY_TE_LOG_ENABLED
-#define OB_DISPLAY_TE_LOG_ENABLED 1
-#endif
-
 constexpr uint32_t kTeWaitTimeoutUs = 35000;
 
 const ST73xxPins kDisplayPins = {
@@ -80,11 +77,7 @@ bool DisplayMonoTft::waitForTe() {
     const int level = digitalRead(BoardConfig::kPinTftTe);
     if (previousLevel == LOW && level == HIGH) {
       if (teState_ == TeState::Unknown) {
-#if OB_DISPLAY_TE_LOG_ENABLED
-        if (Serial) {
-          Serial.println("[DISPLAY] TE pulse detected; transition sync active");
-        }
-#endif
+        LogD("DISPLAY", "TE pulse detected; transition sync active");
         teState_ = TeState::Available;
       }
       return true;
@@ -93,13 +86,8 @@ bool DisplayMonoTft::waitForTe() {
     delayMicroseconds(50);
   }
 
-#if OB_DISPLAY_TE_LOG_ENABLED
-  if (Serial) {
-    Serial.printf(
-        "[DISPLAY] TE timeout on GPIO%d; check TE wiring and pulse, using unsynced refresh\n",
-        BoardConfig::kPinTftTe);
-  }
-#endif
+  LogW("DISPLAY", "TE timeout on GPIO%d; check TE wiring and pulse, using unsynced refresh",
+       BoardConfig::kPinTftTe);
   teState_ = TeState::Unavailable;
   return false;
 }

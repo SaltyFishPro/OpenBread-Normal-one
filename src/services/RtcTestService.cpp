@@ -1,17 +1,6 @@
 #include "RtcTestService.h"
 
-#ifndef OB_RTC_TEST_LOG_ENABLED
-#define OB_RTC_TEST_LOG_ENABLED 1
-#endif
-
-#if OB_RTC_TEST_LOG_ENABLED
-#define RTC_TEST_LOG(format, ...) Serial.printf("[SELFTEST][RTC] " format "\r\n", ##__VA_ARGS__)
-#define RTC_TEST_ERROR(format, ...) \
-  Serial.printf("[ERR][SELFTEST][RTC] " format "\r\n", ##__VA_ARGS__)
-#else
-#define RTC_TEST_LOG(format, ...) ((void)0)
-#define RTC_TEST_ERROR(format, ...) ((void)0)
-#endif
+#include "../log/Log.h"
 
 namespace {
 constexpr uint32_t kSecondReadDelayMs = 1100;
@@ -66,9 +55,9 @@ bool RtcTestService::start(uint32_t nowMs) {
   secondReadAtMs_ = nowMs + kSecondReadDelayMs;
   state_ = State::Waiting;
   changed_ = true;
-  RTC_TEST_LOG("start ctrl1=0x%02X ctrl2=0x%02X offset=0x%02X timer=0x%02X warnings=0x%03X",
-               diagnostics_.control1, diagnostics_.control2, diagnostics_.offset,
-               diagnostics_.timerMode, warnings_);
+  LogI("SELFTEST/RTC", "start ctrl1=0x%02X ctrl2=0x%02X offset=0x%02X timer=0x%02X warnings=0x%03X",
+       diagnostics_.control1, diagnostics_.control2, diagnostics_.offset,
+       diagnostics_.timerMode, warnings_);
   return true;
 }
 
@@ -91,14 +80,14 @@ void RtcTestService::tick(uint32_t nowMs) {
 
   state_ = warnings_ == None ? State::Passed : State::Warning;
   changed_ = true;
-  RTC_TEST_LOG("finish state=%s time=%02u:%02u:%02u warnings=0x%03X",
-               state_ == State::Passed ? "passed" : "warning", latestTime_.hour,
-               latestTime_.minute, latestTime_.second, warnings_);
+  LogI("SELFTEST/RTC", "finish state=%s time=%02u:%02u:%02u warnings=0x%03X",
+       state_ == State::Passed ? "passed" : "warning", latestTime_.hour,
+       latestTime_.minute, latestTime_.second, warnings_);
 }
 
 void RtcTestService::cancel() {
   if (state_ == State::Waiting) {
-    RTC_TEST_LOG("cancel");
+    LogI("SELFTEST/RTC", "cancel");
   }
   state_ = State::Idle;
   error_ = Error::None;
@@ -145,5 +134,5 @@ void RtcTestService::fail(Error error) {
   error_ = error;
   state_ = State::Failed;
   changed_ = true;
-  RTC_TEST_ERROR("failed stage=%u", static_cast<unsigned>(error));
+  LogE("SELFTEST/RTC", "failed stage=%u", static_cast<unsigned>(error));
 }

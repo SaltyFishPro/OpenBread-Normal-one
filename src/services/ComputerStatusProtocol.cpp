@@ -1,11 +1,8 @@
 #include "ComputerStatusProtocol.h"
-#include <cstdarg>
+
+#include "../log/Log.h"
 
 namespace {
-#ifndef OB_COMPUTER_STATUS_LOG_ENABLED
-#define OB_COMPUTER_STATUS_LOG_ENABLED 1
-#endif
-
 constexpr uint32_t kDeviceFlags = 0x00000001U;  // full-frame transport supported
 constexpr uint32_t kFirmwareBuild = 0x00010000U;
 constexpr uint16_t kNakInvalidHello = 1;
@@ -15,20 +12,6 @@ constexpr uint16_t kNakInvalidState = 4;
 constexpr uint16_t kNakInvalidFrameSize = 5;
 constexpr uint16_t kNakInvalidChunk = 6;
 constexpr uint16_t kNakFrameCrc = 7;
-
-void protocolLog(const char* format, ...) {
-#if OB_COMPUTER_STATUS_LOG_ENABLED
-  if (!Serial) return;
-  Serial.print("[USB] ");
-  va_list args;
-  va_start(args, format);
-  Serial.vprintf(format, args);
-  va_end(args);
-  Serial.println();
-#else
-  (void)format;
-#endif
-}
 }
 
 void ComputerStatusProtocol::beginSession() {
@@ -39,7 +22,7 @@ void ComputerStatusProtocol::beginSession() {
   frameValidated_ = false;
   negotiatedChunkPayload_ = kMaxChunkPayload;
   resetBuffer();
-  protocolLog("computer status session begin");
+  LogI("USB", "computer status session begin");
 }
 
 void ComputerStatusProtocol::endSession() {
@@ -49,14 +32,14 @@ void ComputerStatusProtocol::endSession() {
   frameReady_ = false;
   frameValidated_ = false;
   resetBuffer();
-  protocolLog("computer status session end");
+  LogI("USB", "computer status session end");
 }
 
 void ComputerStatusProtocol::tick() {
   if (!active_ || !Serial) return;
 
   if (bufferLength_ > 0U && millis() - lastByteMs_ >= kPartialPacketTimeoutMs) {
-    protocolLog("partial packet timeout bytes=%u", static_cast<unsigned>(bufferLength_));
+    LogD("USB", "partial packet timeout bytes=%u", static_cast<unsigned>(bufferLength_));
     resetBuffer();
   }
 
@@ -158,7 +141,7 @@ void ComputerStatusProtocol::handleFrame(const uint8_t* frame, uint16_t frameByt
     frameReceiving_ = false;
     frameReady_ = false;
     frameValidated_ = false;
-    protocolLog("HELLO accepted seq=%lu payload=%u", static_cast<unsigned long>(sequence),
+    LogI("USB", "HELLO accepted seq=%lu payload=%u", static_cast<unsigned long>(sequence),
                 static_cast<unsigned>(negotiatedChunkPayload_));
     return;
   }
@@ -273,7 +256,7 @@ void ComputerStatusProtocol::handleFrameEnd(uint32_t sequence, const uint8_t* pa
   }
 
   if (crc16(frameBuffer_, static_cast<uint16_t>(frameTotalBytes_)) != expectedCrc) {
-    protocolLog("frame CRC reject seq=%lu", static_cast<unsigned long>(sequence));
+    LogW("USB", "frame CRC reject seq=%lu", static_cast<unsigned long>(sequence));
     sendNak(sequence, kNakFrameCrc);
     return;
   }
@@ -286,7 +269,7 @@ void ComputerStatusProtocol::handleFrameEnd(uint32_t sequence, const uint8_t* pa
   frameReady_ = true;
   frameValidated_ = true;
   sendAck(sequence, kFrameEndCommand, frameTotalBytes_);
-  protocolLog("frame ready seq=%lu bytes=%lu", static_cast<unsigned long>(sequence),
+  LogD("USB", "frame ready seq=%lu bytes=%lu", static_cast<unsigned long>(sequence),
               static_cast<unsigned long>(frameTotalBytes_));
 }
 

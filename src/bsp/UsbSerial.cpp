@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <Preferences.h>
 
+#include "../log/Log.h"
+
 namespace UsbSerial {
 namespace {
 
@@ -68,13 +70,9 @@ bool setEnabled(bool value) {
   if (value) {
     enabled = true;
     openPort(true);
-    if (Serial) {
-      Serial.println("[USB] cdc on");
-    }
+    LogI("USB", "cdc on");
   } else {
-    if (Serial) {
-      Serial.println("[USB] cdc off");
-    }
+    LogI("USB", "cdc off");
     closePort();
     enabled = false;
   }

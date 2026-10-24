@@ -1,20 +1,7 @@
 #include "IicScanService.h"
 
 #include "../bsp/BoardConfig.h"
-
-#ifndef OB_IIC_SCAN_LOG_ENABLED
-#define OB_IIC_SCAN_LOG_ENABLED 1
-#endif
-
-#if OB_IIC_SCAN_LOG_ENABLED
-#define IIC_SCAN_LOG(format, ...) \
-  Serial.printf("[SELFTEST][IIC] " format "\r\n", ##__VA_ARGS__)
-#define IIC_SCAN_ERROR(format, ...) \
-  Serial.printf("[ERR][SELFTEST][IIC] " format "\r\n", ##__VA_ARGS__)
-#else
-#define IIC_SCAN_LOG(format, ...) ((void)0)
-#define IIC_SCAN_ERROR(format, ...) ((void)0)
-#endif
+#include "../log/Log.h"
 
 namespace {
 constexpr uint32_t kPowerOnDelayMs = 100;
@@ -36,9 +23,9 @@ bool IicScanService::start(uint32_t nowMs) {
   nextActionMs_ = nowMs + kPowerOnDelayMs;
   state_ = State::Powering;
   changed_ = true;
-  IIC_SCAN_LOG("start SDA=%d SCL=%d clock=100000 pullups=esp32s3 sensor_ldo=%d",
-               BoardConfig::kPinIicSda, BoardConfig::kPinIicScl,
-               BoardConfig::kPinSensorLdoEn);
+  LogI("SELFTEST/IIC", "start SDA=%d SCL=%d clock=100000 pullups=esp32s3 sensor_ldo=%d",
+       BoardConfig::kPinIicSda, BoardConfig::kPinIicScl,
+       BoardConfig::kPinSensorLdoEn);
   return true;
 }
 
@@ -49,8 +36,8 @@ void IicScanService::tick(uint32_t nowMs) {
       scanner_.end();
       state_ = State::Error;
       changed_ = true;
-      IIC_SCAN_ERROR("bus init failed SDA=%d SCL=%d", BoardConfig::kPinIicSda,
-                     BoardConfig::kPinIicScl);
+      LogE("SELFTEST/IIC", "bus init failed SDA=%d SCL=%d", BoardConfig::kPinIicSda,
+           BoardConfig::kPinIicScl);
       return;
     }
     nextActionMs_ = nowMs + kBusSettleDelayMs;
@@ -76,11 +63,11 @@ void IicScanService::tick(uint32_t nowMs) {
       ++result_.overflowCount;
     }
     changed_ = true;
-    IIC_SCAN_LOG("found address=0x%02X", currentAddress_);
+    LogI("SELFTEST/IIC", "found address=0x%02X", currentAddress_);
   } else if (error != 2U) {
     ++result_.errorCount;
     changed_ = true;
-    IIC_SCAN_ERROR("probe address=0x%02X error=%u", currentAddress_, error);
+    LogE("SELFTEST/IIC", "probe address=0x%02X error=%u", currentAddress_, error);
   }
 
   if (currentAddress_ >= kLastAddress) {
@@ -88,8 +75,8 @@ void IicScanService::tick(uint32_t nowMs) {
     lastScanMs_ = nowMs;
     state_ = State::Scanned;
     changed_ = true;
-    IIC_SCAN_LOG("finish found=%u overflow=%u errors=%u", result_.deviceCount,
-                 result_.overflowCount, result_.errorCount);
+    LogI("SELFTEST/IIC", "finish found=%u overflow=%u errors=%u", result_.deviceCount,
+         result_.overflowCount, result_.errorCount);
     return;
   }
   ++currentAddress_;
@@ -103,7 +90,7 @@ void IicScanService::stop() {
                       state_ == State::Scanning;
   if (active) {
     scanner_.end();
-    IIC_SCAN_LOG("cancel address=0x%02X", currentAddress_);
+    LogI("SELFTEST/IIC", "cancel address=0x%02X", currentAddress_);
   }
   state_ = State::Idle;
   changed_ = true;

@@ -3,19 +3,12 @@
 #include <Arduino.h>
 
 #include "BoardConfig.h"
-
-#ifndef OB_MOTOR_DRIVER_LOG_ENABLED
-#define OB_MOTOR_DRIVER_LOG_ENABLED 1
-#endif
+#include "../log/Log.h"
 
 bool MotorDriver::begin() {
   pinMode(BoardConfig::kPinDrvEn, OUTPUT);
   digitalWrite(BoardConfig::kPinDrvEn, LOW);
-#if OB_MOTOR_DRIVER_LOG_ENABLED
-  if (Serial) {
-    Serial.printf("[MOTOR] init en_pin=%d en=0 state=off\r\n", BoardConfig::kPinDrvEn);
-  }
-#endif
+  LogI("MOTOR", "init en_pin=%d en=0 state=off", BoardConfig::kPinDrvEn);
   return true;
 }
 

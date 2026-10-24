@@ -5,14 +5,7 @@
 #include <cstring>
 #include <new>
 
-#ifndef OB_SD_FONT_LOG_ENABLED
-#define OB_SD_FONT_LOG_ENABLED 1
-#endif
-#if OB_SD_FONT_LOG_ENABLED
-#define FONT_LOG(...) do { if (Serial) Serial.printf("[FONT] " __VA_ARGS__); } while (0)
-#else
-#define FONT_LOG(...) ((void)0)
-#endif
+#include "../log/Log.h"
 
 namespace {
 uint16_t le16(const uint8_t* p) { return p[0] | (uint16_t(p[1]) << 8U); }
@@ -47,12 +40,12 @@ void SdBitmapFont::beginCache() {
   if (psramCache_) return;
   if (cacheMemory_.allocate(sizeof(PsramCache))) {
     psramCache_ = new (cacheMemory_.data()) PsramCache;
-    FONT_LOG("cache=psram bytes=%u budget=%u glyphs=%u index_blocks=%u common_max=%u\n",
-             static_cast<unsigned>(cacheMemory_.size()),
-             static_cast<unsigned>(SdFontCacheBuffer::kBudgetBytes),
-             kPsramGlyphSlots, kPsramIndexBlocks, kMaxCommonGlyphs);
+    LogI("FONT", "cache=psram bytes=%u budget=%u glyphs=%u index_blocks=%u common_max=%u",
+         static_cast<unsigned>(cacheMemory_.size()),
+         static_cast<unsigned>(SdFontCacheBuffer::kBudgetBytes),
+         kPsramGlyphSlots, kPsramIndexBlocks, kMaxCommonGlyphs);
   } else {
-    FONT_LOG("cache=internal glyphs=%u; PSRAM unavailable or allocation failed\n", kCacheSlots);
+    LogI("FONT", "cache=internal glyphs=%u; PSRAM unavailable or allocation failed", kCacheSlots);
   }
 }
 
@@ -61,7 +54,7 @@ void SdBitmapFont::releaseCache() {
   psramCache_->~PsramCache();
   psramCache_ = nullptr;
   cacheMemory_.end();
-  FONT_LOG("cache=psram released\n");
+  LogI("FONT", "cache=psram released");
 }
 
 SdBitmapFont::CacheSlot* SdBitmapFont::glyphSet(uint32_t codepoint) {
@@ -72,11 +65,11 @@ SdBitmapFont::CacheSlot* SdBitmapFont::glyphSet(uint32_t codepoint) {
 
 void SdBitmapFont::closeCurrent() {
   if (state_ != State::Closed) {
-    FONT_LOG("close size=%u index_hit=%lu miss=%lu glyph_hit=%lu miss=%lu common_hit=%lu miss=%lu\n",
-             metrics_.pixelSize, static_cast<unsigned long>(cacheStats_.indexHits),
-             static_cast<unsigned long>(cacheStats_.indexMisses),
-             static_cast<unsigned long>(cacheStats_.glyphHits),
-             static_cast<unsigned long>(cacheStats_.glyphMisses),
+    LogI("FONT", "close size=%u index_hit=%lu miss=%lu glyph_hit=%lu miss=%lu common_hit=%lu miss=%lu",
+         metrics_.pixelSize, static_cast<unsigned long>(cacheStats_.indexHits),
+         static_cast<unsigned long>(cacheStats_.indexMisses),
+         static_cast<unsigned long>(cacheStats_.glyphHits),
+         static_cast<unsigned long>(cacheStats_.glyphMisses),
              static_cast<unsigned long>(cacheStats_.commonHits),
              static_cast<unsigned long>(cacheStats_.commonMisses));
   }
@@ -104,9 +97,9 @@ void SdBitmapFont::end() {
 }
 
 bool SdBitmapFont::fail(Error error) {
-  FONT_LOG("error=%u size=%u offset=%lu; close file, OK retries\n",
-           static_cast<unsigned>(error), metrics_.pixelSize,
-           static_cast<unsigned long>(verifyOffset_));
+  LogW("FONT", "error=%u size=%u offset=%lu; close file, OK retries",
+       static_cast<unsigned>(error), metrics_.pixelSize,
+       static_cast<unsigned long>(verifyOffset_));
   file_.close();
   commonFile_.close();
   checkPhase_ = CheckPhase::Font;
@@ -127,7 +120,7 @@ bool SdBitmapFont::open(uint16_t pixelSize, bool useExternalCache) {
   verifyOffset_ = 0;
   char path[32];
   snprintf(path, sizeof(path), "/Font/font-%u.bin", pixelSize);
-  FONT_LOG("open %s\n", path);
+  LogI("FONT", "open %s", path);
   if (!file_.open(path)) return fail(Error::OpenFailed);
   uint8_t* header = header_;
   if (!file_.readAt(0, header, sizeof(header_))) return fail(Error::Header);
@@ -155,7 +148,7 @@ bool SdBitmapFont::open(uint16_t pixelSize, bool useExternalCache) {
   if (useExternalCache) beginCache();
   for (const auto& verified : verifiedHeaders_) {
     if (memcmp(verified, header, sizeof(header_)) == 0) {
-      FONT_LOG("size=%u CRC32=reused (same SD session/header)\n", pixelSize);
+      LogD("FONT", "size=%u CRC32=reused (same SD session/header)", pixelSize);
       beginCommonIndex();
       return true;
     }
@@ -187,10 +180,10 @@ void SdBitmapFont::tick() {
   if ((checksum_ ^ 0xFFFFFFFFU) != expectedChecksum_) { fail(Error::Crc); return; }
   memcpy(verifiedHeaders_[nextVerified_], header_, sizeof(header_));
   nextVerified_ = static_cast<uint8_t>((nextVerified_ + 1U) % kVerifiedFiles);
-  FONT_LOG("size=%u glyphs=%lu bytes=%lu CRC32=OK verify_ms=%lu\n", metrics_.pixelSize,
-           static_cast<unsigned long>(metrics_.glyphCount),
-           static_cast<unsigned long>(file_.size()),
-           static_cast<unsigned long>(millis() - verifyStartMs_));
+  LogI("FONT", "size=%u glyphs=%lu bytes=%lu CRC32=OK verify_ms=%lu", metrics_.pixelSize,
+       static_cast<unsigned long>(metrics_.glyphCount),
+       static_cast<unsigned long>(file_.size()),
+       static_cast<unsigned long>(millis() - verifyStartMs_));
   // Read the optional header on the next tick, keeping this tick within its
   // byte/time budget even when the NBFT payload ends exactly on a block limit.
   checkPhase_ = CheckPhase::CommonHeader;
@@ -203,7 +196,7 @@ void SdBitmapFont::disableCommonIndex(const char* reason) {
   // The optional index never makes an otherwise valid NBFT unusable.
   state_ = State::Ready;
   changed_ = true;
-  FONT_LOG("common=off size=%u reason=%s; full-font lookup\n", metrics_.pixelSize, reason);
+  LogI("FONT", "common=off size=%u reason=%s; full-font lookup", metrics_.pixelSize, reason);
   (void)reason;
 }
 
@@ -237,8 +230,8 @@ void SdBitmapFont::beginCommonIndex() {
   checkPhase_ = CheckPhase::CommonData;
   state_ = State::Checking;
   changed_ = true;
-  FONT_LOG("common=loading size=%u count=%lu\n", metrics_.pixelSize,
-           static_cast<unsigned long>(commonExpectedCount_));
+  LogI("FONT", "common=loading size=%u count=%lu", metrics_.pixelSize,
+       static_cast<unsigned long>(commonExpectedCount_));
 }
 
 void SdBitmapFont::tickCommonIndex() {
@@ -275,10 +268,10 @@ void SdBitmapFont::tickCommonIndex() {
   commonCount_ = commonLoaded_;
   state_ = State::Ready;
   changed_ = true;
-  FONT_LOG("common=ready size=%u count=%lu index_bytes=%lu cache_bytes=%u\n", metrics_.pixelSize,
-           static_cast<unsigned long>(commonCount_),
-           static_cast<unsigned long>(commonCount_ * kCommonRecordBytes),
-           static_cast<unsigned>(cacheMemory_.size()));
+  LogI("FONT", "common=ready size=%u count=%lu index_bytes=%lu cache_bytes=%u", metrics_.pixelSize,
+       static_cast<unsigned long>(commonCount_),
+       static_cast<unsigned long>(commonCount_ * kCommonRecordBytes),
+       static_cast<unsigned>(cacheMemory_.size()));
 }
 
 bool SdBitmapFont::commonRecord(uint32_t codepoint, uint32_t& recordIndex) const {

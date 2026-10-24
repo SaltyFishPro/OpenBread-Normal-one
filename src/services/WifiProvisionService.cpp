@@ -1,8 +1,9 @@
 #include "WifiProvisionService.h"
 #include "TimeService.h"
 
-#include <stdarg.h>
 #include <WiFi.h>
+
+#include "../log/Log.h"
 
 namespace {
 constexpr uint8_t kDnsPort = 53;
@@ -10,32 +11,13 @@ constexpr const char* kPrefsNs = "wifi";
 constexpr const char* kPrefsKeySsid = "ssid";
 constexpr const char* kPrefsKeyPass = "pass";
 
-#ifndef OB_WIFI_LOG_ENABLED
-#define OB_WIFI_LOG_ENABLED 1
-#endif
-
-void wifiLog(const char* fmt, ...) {
-#if OB_WIFI_LOG_ENABLED
-  if (!Serial) {
-    return;
-  }
-  Serial.print("[WIFI] ");
-  va_list args;
-  va_start(args, fmt);
-  Serial.vprintf(fmt, args);
-  va_end(args);
-  Serial.println();
-#else
-  (void)fmt;
-#endif
-}
 }  // namespace
 
 bool WifiProvisionService::begin() {
   loadCredentials();
   radioActive_ = false;
   WiFi.mode(WIFI_OFF);
-  wifiLog("init complete, radio off");
+  LogI("WIFI", "init complete, radio off");
   setState(State::Idle, Error::None);
   return true;
 }
@@ -43,7 +25,7 @@ bool WifiProvisionService::begin() {
 void WifiProvisionService::tick(uint32_t nowMs, TimeService& time) {
   if (state_ == State::SyncingTime) {
     if (time.snapshot().syncState != TimeService::SyncState::Syncing) {
-      wifiLog("post-provision time sync finished state=%u error=%u",
+      LogI("WIFI", "post-provision time sync finished state=%u error=%u",
               static_cast<unsigned>(time.snapshot().syncState),
               static_cast<unsigned>(time.snapshot().error));
       finishOnlineSession();
@@ -58,7 +40,7 @@ void WifiProvisionService::tick(uint32_t nowMs, TimeService& time) {
 
   if (connectPending_) {
     connectPending_ = false;
-    wifiLog("starting STA connect to '%s'", targetSsid_);
+    LogI("WIFI", "starting STA connect to '%s'", targetSsid_);
     startConnecting(nowMs);
   }
 
@@ -70,7 +52,7 @@ void WifiProvisionService::tick(uint32_t nowMs, TimeService& time) {
   }
 
   if (state_ == State::PortalReady && (nowMs - portalStartMs_) >= kPortalTimeoutMs) {
-    wifiLog("portal timeout");
+    LogI("WIFI", "portal timeout");
     setState(State::PortalTimeout, Error::Timeout);
     cleanupRadio(false);
     return;
@@ -97,13 +79,13 @@ void WifiProvisionService::tick(uint32_t nowMs, TimeService& time) {
   }
 
   if (s == WL_CONNECT_FAILED) {
-    wifiLog("connect failed: auth");
+    LogW("WIFI", "connect failed: auth");
     setState(State::Failed, Error::AuthFailed);
   } else if (s == WL_NO_SSID_AVAIL) {
-    wifiLog("connect failed: ap not found");
+    LogW("WIFI", "connect failed: ap not found");
     setState(State::Failed, Error::ApNotFound);
   } else {
-    wifiLog("connect failed: timeout");
+    LogW("WIFI", "connect failed: timeout");
     setState(State::Failed, Error::Timeout);
   }
   cleanupRadio(false);
@@ -123,7 +105,7 @@ void WifiProvisionService::startPortal(uint32_t nowMs) {
   WiFi.setSleep(false);
   WiFi.softAPdisconnect(true);
   WiFi.softAP(apSsid_);
-  wifiLog("portal started, AP='%s'", apSsid_);
+  LogI("WIFI", "portal started, AP='%s'", apSsid_);
 
   if (!routesReady_) {
     setupWebRoutes();
@@ -151,13 +133,13 @@ void WifiProvisionService::cancelProvision(TimeService& time) {
   if (!radioActive_) {
     return;
   }
-  wifiLog("provision canceled by user");
+  LogI("WIFI", "provision canceled by user");
   cleanupRadio(false);
   setState(State::Idle, Error::None);
 }
 
 void WifiProvisionService::finishOnlineSession() {
-  wifiLog("online session finished, radio off, keep connected state");
+  LogI("WIFI", "online session finished, radio off, keep connected state");
   cleanupRadio(false);
   setState(State::Connected, Error::None);
 }
@@ -260,7 +242,7 @@ void WifiProvisionService::startConnecting(uint32_t nowMs) {
   WiFi.disconnect(false, false);
   WiFi.begin(targetSsid_, targetPass_);
   connectStartMs_ = nowMs;
-  wifiLog("STA connect requested");
+  LogI("WIFI", "STA connect requested");
   setState(State::Connecting, Error::None);
 }
 
@@ -315,13 +297,13 @@ void WifiProvisionService::clearTarget() {
 void WifiProvisionService::finishProvisionSuccess(uint32_t nowMs, TimeService& time) {
   updateStaIpCache();
   saveCredentials();
-  wifiLog("connected, ip=%s; starting one-shot time sync", staIp_);
+  LogI("WIFI", "connected, ip=%s; starting one-shot time sync", staIp_);
   cleanupRadio(true);
   if (time.requestNtpSync(nowMs, targetSsid_, targetPass_, true)) {
     setState(State::SyncingTime, Error::None);
     return;
   }
-  wifiLog("post-provision time sync not started error=%u",
+  LogI("WIFI", "post-provision time sync not started error=%u",
           static_cast<unsigned>(time.snapshot().error));
   finishOnlineSession();
 }

@@ -2,10 +2,9 @@
 
 #include <Wire.h>
 
-#include <cstdarg>
-
 #include "BoardConfig.h"
 #include "IicBus.h"
+#include "../log/Log.h"
 
 namespace {
 static_assert(BoardConfig::kPinIicSda == 47, "RTC I2C SDA must be GPIO47");
@@ -27,42 +26,6 @@ constexpr uint8_t kControl2MinuteInterruptBit = 0x20;
 constexpr uint8_t kControl2HalfMinuteInterruptBit = 0x10;
 constexpr uint8_t kControl2TimerFlagBit = 0x08;
 
-#ifndef OB_RTC_LOG_ENABLED
-#define OB_RTC_LOG_ENABLED 1
-#endif
-
-void rtcLog(const char* fmt, ...) {
-#if OB_RTC_LOG_ENABLED
-  if (!Serial) {
-    return;
-  }
-  Serial.print("[RTC] ");
-  va_list args;
-  va_start(args, fmt);
-  Serial.vprintf(fmt, args);
-  va_end(args);
-  Serial.println();
-#else
-  (void)fmt;
-#endif
-}
-
-void rtcErr(const char* fmt, ...) {
-#if OB_RTC_LOG_ENABLED
-  if (!Serial) {
-    return;
-  }
-  Serial.print("[ERR][RTC] ");
-  va_list args;
-  va_start(args, fmt);
-  Serial.vprintf(fmt, args);
-  va_end(args);
-  Serial.println();
-#else
-  (void)fmt;
-#endif
-}
-
 void prepareRtcIicBus(bool resetBus) {
   (void)IicBus::begin(kRtcIicClockHz, resetBus);
   if (resetBus) {
@@ -83,18 +46,18 @@ bool RtcDriver::begin() {
       const uint8_t disabledControl2 = static_cast<uint8_t>(
           (control2 & ~kControl2ClockOutputMask) | kControl2ClockOutputOff);
       if (!rtc_.writeRegister(kRegControl2, disabledControl2)) {
-        rtcErr("failed to disable CLKOUT control2=0x%02X", control2);
+        LogE("RTC", "failed to disable CLKOUT control2=0x%02X", control2);
       } else {
         control2 = disabledControl2;
       }
     }
-    rtcLog("ready addr=0x51 sda=%d scl=%d battery_direct=1 clkout=%s control2=0x%02X clock=%lu",
-           BoardConfig::kPinIicSda, BoardConfig::kPinIicScl,
+    LogI("RTC", "ready addr=0x51 sda=%d scl=%d battery_direct=1 clkout=%s control2=0x%02X clock=%lu",
+         BoardConfig::kPinIicSda, BoardConfig::kPinIicScl,
            ((control2 & kControl2ClockOutputMask) == kControl2ClockOutputOff) ? "off" : "unknown",
            control2, static_cast<unsigned long>(kRtcIicClockHz));
   } else {
-    rtcErr("begin failed addr=0x51 sda=%d scl=%d battery_direct=1 clock=%lu",
-           BoardConfig::kPinIicSda, BoardConfig::kPinIicScl,
+    LogE("RTC", "begin failed addr=0x51 sda=%d scl=%d battery_direct=1 clock=%lu",
+         BoardConfig::kPinIicSda, BoardConfig::kPinIicScl,
            static_cast<unsigned long>(kRtcIicClockHz));
   }
   return ready_;
@@ -170,14 +133,14 @@ bool RtcDriver::readDiagnostics(Diagnostics& out) {
 
 bool RtcDriver::setMinuteInterruptEnabled(bool enabled) {
   if (!ready_) {
-    rtcErr("minute interrupt unavailable: rtc not ready");
+    LogE("RTC", "minute interrupt unavailable: rtc not ready");
     return false;
   }
 
   prepareRtcIicBus(false);
   uint8_t control2 = 0;
   if (!rtc_.readRegister(kRegControl2, control2)) {
-    rtcErr("failed to read control2 for minute interrupt");
+    LogE("RTC", "failed to read control2 for minute interrupt");
     return false;
   }
 
@@ -195,12 +158,12 @@ bool RtcDriver::setMinuteInterruptEnabled(bool enabled) {
   }
 
   if (!rtc_.writeRegister(kRegControl2, next)) {
-    rtcErr("failed to write control2 for minute interrupt control2=0x%02X", control2);
+    LogE("RTC", "failed to write control2 for minute interrupt control2=0x%02X", control2);
     return false;
   }
 
-  rtcLog("minute interrupt %s control2=0x%02X->0x%02X",
-         enabled ? "enabled" : "disabled", control2, next);
+  LogI("RTC", "minute interrupt %s control2=0x%02X->0x%02X",
+       enabled ? "enabled" : "disabled", control2, next);
   return true;
 }
 
@@ -212,7 +175,7 @@ bool RtcDriver::clearTimerFlag() {
   prepareRtcIicBus(false);
   uint8_t control2 = 0;
   if (!rtc_.readRegister(kRegControl2, control2)) {
-    rtcErr("failed to read control2 for timer flag clear");
+    LogE("RTC", "failed to read control2 for timer flag clear");
     return false;
   }
 
@@ -222,10 +185,10 @@ bool RtcDriver::clearTimerFlag() {
 
   const uint8_t cleared = static_cast<uint8_t>(control2 & ~kControl2TimerFlagBit);
   if (!rtc_.writeRegister(kRegControl2, cleared)) {
-    rtcErr("failed to clear timer flag control2=0x%02X", control2);
+    LogE("RTC", "failed to clear timer flag control2=0x%02X", control2);
     return false;
   }
 
-  rtcLog("timer flag cleared control2=0x%02X->0x%02X", control2, cleared);
+  LogI("RTC", "timer flag cleared control2=0x%02X->0x%02X", control2, cleared);
   return true;
 }

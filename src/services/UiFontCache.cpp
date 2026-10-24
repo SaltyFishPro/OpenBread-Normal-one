@@ -3,15 +3,7 @@
 #include <Arduino.h>
 #include <cstring>
 #include "UiFontCodepoints.h"
-
-#ifndef OB_SD_FONT_LOG_ENABLED
-#define OB_SD_FONT_LOG_ENABLED 1
-#endif
-#if OB_SD_FONT_LOG_ENABLED
-#define UI_FONT_LOG(...) do { if (Serial) Serial.printf("[FONT] ui " __VA_ARGS__); } while (0)
-#else
-#define UI_FONT_LOG(...) ((void)0)
-#endif
+#include "../log/Log.h"
 
 namespace {
 constexpr size_t kCount = sizeof(UiFontCodepoints::kValues) / sizeof(uint32_t);
@@ -44,22 +36,22 @@ bool UiFontCache::begin() {
   state_ = State::Loading;
   startedMs_ = millis();
   if (beginSubset()) {
-    UI_FONT_LOG("loading %s glyphs=%u\n", kSubsetPath, static_cast<unsigned>(kCount));
+    LogI("FONT", "ui loading %s glyphs=%u", kSubsetPath, static_cast<unsigned>(kCount));
     return true;
   }
   // Reuse the bounded index/common cache during extraction. With one index
   // block, every binary-search level re-reads SD and startup can take a minute.
   // source_.end() releases this temporary cache before the UI becomes Ready.
-  UI_FONT_LOG("loading /Font/font-14.bin glyphs=%u (no usable ui subset)\n",
-              static_cast<unsigned>(kCount));
+  LogI("FONT", "ui loading /Font/font-14.bin glyphs=%u (no usable ui subset)",
+       static_cast<unsigned>(kCount));
   if (!source_.open(14)) { fail("open font"); return false; }
   return true;
 }
 
 void UiFontCache::fail(const char* reason) {
-  UI_FONT_LOG("unavailable reason=%s source_error=%u loaded=%u/%u elapsed_ms=%lu; retry on next home entry\n",
-              reason, static_cast<unsigned>(source_.error()), static_cast<unsigned>(next_),
-              static_cast<unsigned>(kCount), static_cast<unsigned long>(millis() - startedMs_));
+  LogW("FONT", "ui unavailable reason=%s source_error=%u loaded=%u/%u elapsed_ms=%lu; retry on next home entry",
+       reason, static_cast<unsigned>(source_.error()), static_cast<unsigned>(next_),
+       static_cast<unsigned>(kCount), static_cast<unsigned long>(millis() - startedMs_));
   freeSubset();
   source_.end();
   memory_.end();
@@ -79,9 +71,9 @@ void UiFontCache::tick() {
   if (!glyphs_) {
     if (!memory_.allocate(kCount * sizeof(Glyph))) { fail("UI PSRAM allocation"); return; }
     glyphs_ = static_cast<Glyph*>(memory_.data());
-    UI_FONT_LOG("extract glyphs=%u source_cache=%u common=%lu\n", static_cast<unsigned>(kCount),
-                static_cast<unsigned>(source_.cacheBytes()),
-                static_cast<unsigned long>(source_.commonGlyphCount()));
+    LogI("FONT", "ui extract glyphs=%u source_cache=%u common=%lu", static_cast<unsigned>(kCount),
+         static_cast<unsigned>(source_.cacheBytes()),
+         static_cast<unsigned long>(source_.commonGlyphCount()));
   }
   const uint32_t start = millis();
   const size_t previous = next_;
@@ -111,15 +103,15 @@ void UiFontCache::tick() {
     ++processed;
   } while (next_ < kCount && processed < 8 && millis() - start < 4U);
   if (previous / 128 != next_ / 128)
-    UI_FONT_LOG("progress=%u/%u elapsed_ms=%lu\n", static_cast<unsigned>(next_),
-                static_cast<unsigned>(kCount), static_cast<unsigned long>(millis() - startedMs_));
+    LogD("FONT", "ui progress=%u/%u elapsed_ms=%lu", static_cast<unsigned>(next_),
+         static_cast<unsigned>(kCount), static_cast<unsigned long>(millis() - startedMs_));
   if (next_ != kCount) return;
   source_.end();
   state_ = State::Ready;
   changed_ = true;
-  UI_FONT_LOG("ready glyphs=%u bytes=%u elapsed_ms=%lu; SD closed, render reads=0\n",
-              static_cast<unsigned>(kCount), static_cast<unsigned>(cacheBytes()),
-              static_cast<unsigned long>(millis() - startedMs_));
+  LogI("FONT", "ui ready glyphs=%u bytes=%u elapsed_ms=%lu; SD closed, render reads=0",
+       static_cast<unsigned>(kCount), static_cast<unsigned>(cacheBytes()),
+       static_cast<unsigned long>(millis() - startedMs_));
 }
 
 bool UiFontCache::beginSubset() {
@@ -145,7 +137,7 @@ bool UiFontCache::beginSubset() {
       expectedCount != kCount || indexOffset != 64U ||
       bitmapOffset != 64U + count * 24U || fileSize != subsetFile_.size() ||
       fileSize < bitmapOffset || fileSize - 64U > kSubsetMaxBytes) {
-    UI_FONT_LOG("subset header rejected; fallback full font\n");
+    LogI("FONT", "ui subset header rejected; fallback full font");
     subsetFile_.close();
     return false;
   }
@@ -157,7 +149,7 @@ bool UiFontCache::beginSubset() {
   }
   subsetSize_ = fileSize - 64U;
   if (!subsetMemory_.allocate(subsetSize_)) {
-    UI_FONT_LOG("subset staging PSRAM unavailable; fallback full font\n");
+    LogI("FONT", "ui subset staging PSRAM unavailable; fallback full font");
     subsetFile_.close();
     return false;
   }
@@ -171,8 +163,8 @@ bool UiFontCache::beginSubset() {
   subsetCrc_ = 0xFFFFFFFFU;
   subsetCrcOk_ = false;
   subsetActive_ = true;
-  UI_FONT_LOG("subset open glyphs=%u payload=%lu bytes\n", static_cast<unsigned>(count),
-              static_cast<unsigned long>(subsetSize_));
+  LogI("FONT", "ui subset open glyphs=%u payload=%lu bytes", static_cast<unsigned>(count),
+       static_cast<unsigned long>(subsetSize_));
   return true;
 }
 
@@ -196,8 +188,8 @@ void UiFontCache::tickSubset() {
       return;
     }
     subsetCrcOk_ = true;
-    UI_FONT_LOG("subset CRC ok glyphs=%u bytes=%lu\n", static_cast<unsigned>(subsetCount_),
-                static_cast<unsigned long>(subsetSize_));
+    LogI("FONT", "ui subset CRC ok glyphs=%u bytes=%lu", static_cast<unsigned>(subsetCount_),
+         static_cast<unsigned long>(subsetSize_));
   }
   if (!glyphs_) {
     if (!memory_.allocate(kCount * sizeof(Glyph))) { fail("UI PSRAM allocation"); return; }
@@ -257,13 +249,13 @@ void UiFontCache::finishSubset() {
   freeSubset();
   state_ = State::Ready;
   changed_ = true;
-  UI_FONT_LOG("ready glyphs=%u bytes=%u elapsed_ms=%lu; source=ui subset, SD closed, render reads=0\n",
-              static_cast<unsigned>(kCount), static_cast<unsigned>(bytes),
-              static_cast<unsigned long>(elapsedMs));
+  LogI("FONT", "ui ready glyphs=%u bytes=%u elapsed_ms=%lu; source=ui subset, SD closed, render reads=0",
+       static_cast<unsigned>(kCount), static_cast<unsigned>(bytes),
+       static_cast<unsigned long>(elapsedMs));
 }
 
 void UiFontCache::fallbackToFullFont(const char* reason) {
-  UI_FONT_LOG("subset unavailable reason=%s; fallback full font\n", reason);
+  LogI("FONT", "ui subset unavailable reason=%s; fallback full font", reason);
   freeSubset();
   if (!source_.open(14)) fail("open font");
 }
@@ -297,8 +289,8 @@ const UiFontCache::Glyph* UiFontCache::glyph(uint32_t cp) const {
 
 void UiFontCache::cancelLoad() {
   if (state_ != State::Loading) return;
-  UI_FONT_LOG("cancel loaded=%u/%u elapsed_ms=%lu\n", static_cast<unsigned>(next_),
-              static_cast<unsigned>(kCount), static_cast<unsigned long>(millis() - startedMs_));
+  LogI("FONT", "ui cancel loaded=%u/%u elapsed_ms=%lu", static_cast<unsigned>(next_),
+       static_cast<unsigned>(kCount), static_cast<unsigned long>(millis() - startedMs_));
   end();
 }
 void UiFontCache::end() {

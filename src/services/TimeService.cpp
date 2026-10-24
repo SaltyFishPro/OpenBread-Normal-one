@@ -6,8 +6,9 @@
 #include <sys/time.h>
 #include <time.h>
 
-#include <cstdarg>
 #include <cstring>
+
+#include "../log/Log.h"
 
 namespace {
 constexpr const char* kTimePrefsNs = "time";
@@ -17,41 +18,6 @@ constexpr const char* kTimeEpochKey = "last_sync";
 constexpr uint32_t kMinValidEpoch = 1700000000UL;
 constexpr int32_t kUtcOffsetSeconds = 8 * 3600;
 
-#ifndef OB_TIME_LOG_ENABLED
-#define OB_TIME_LOG_ENABLED 1
-#endif
-
-void timeLog(const char* fmt, ...) {
-#if OB_TIME_LOG_ENABLED
-  if (!Serial) {
-    return;
-  }
-  Serial.print("[TIME] ");
-  va_list args;
-  va_start(args, fmt);
-  Serial.vprintf(fmt, args);
-  va_end(args);
-  Serial.println();
-#else
-  (void)fmt;
-#endif
-}
-
-void timeErr(const char* fmt, ...) {
-#if OB_TIME_LOG_ENABLED
-  if (!Serial) {
-    return;
-  }
-  Serial.print("[ERR][TIME] ");
-  va_list args;
-  va_start(args, fmt);
-  Serial.vprintf(fmt, args);
-  va_end(args);
-  Serial.println();
-#else
-  (void)fmt;
-#endif
-}
 }  // namespace
 
 bool TimeService::begin(RtcDriver& rtc) {
@@ -69,7 +35,7 @@ bool TimeService::begin(RtcDriver& rtc) {
     persistedValid_ = false;
     snapshot_.valid = false;
     snapshot_.error = Error::NoRtc;
-    timeErr("rtc unavailable at startup");
+    LogE("TIME", "rtc unavailable at startup");
     changed_ = true;
     return true;
   }
@@ -90,7 +56,7 @@ void TimeService::tick(uint32_t nowMs) {
       configTime(0, 0, "pool.ntp.org", "time.nist.gov");
       syncPhase_ = SyncPhase::AwaitTime;
       syncStartMs_ = nowMs;
-      timeLog("wifi connected for ntp, awaiting time");
+      LogI("TIME", "wifi connected for ntp, awaiting time");
       return;
     }
 
@@ -101,7 +67,7 @@ void TimeService::tick(uint32_t nowMs) {
       return;
     }
 
-    timeErr("wifi connect failed status=%s", wifiStatusText(status));
+    LogE("TIME", "wifi connect failed status=%s", wifiStatusText(status));
     cleanupRadio();
     syncPhase_ = SyncPhase::None;
     setSyncState(SyncState::Failed);
@@ -121,7 +87,7 @@ void TimeService::tick(uint32_t nowMs) {
       } else {
         setSyncState(SyncState::Success);
         setError(Error::None);
-        timeLog("ntp sync success epoch=%lu", static_cast<unsigned long>(epoch));
+        LogI("TIME", "ntp sync success epoch=%lu", static_cast<unsigned long>(epoch));
       }
       cleanupRadio();
       syncPhase_ = SyncPhase::None;
@@ -129,7 +95,7 @@ void TimeService::tick(uint32_t nowMs) {
     }
 
     if ((nowMs - syncStartMs_) >= kNtpTimeoutMs) {
-      timeErr("ntp sync timeout");
+      LogE("TIME", "ntp sync timeout");
       cleanupRadio();
       syncPhase_ = SyncPhase::None;
       setSyncState(SyncState::Failed);
@@ -172,7 +138,7 @@ bool TimeService::requestNtpSync(uint32_t nowMs, const char* ssid, const char* p
 
   // The provisioning service explicitly hands over its newly connected station.
   if (reuseConnectedStation && WiFi.status() == WL_CONNECTED) {
-    timeLog("reusing provisioned wifi for ntp");
+    LogI("TIME", "reusing provisioned wifi for ntp");
   } else {
     WiFi.disconnect(false, false);
     WiFi.mode(WIFI_STA);
@@ -184,7 +150,7 @@ bool TimeService::requestNtpSync(uint32_t nowMs, const char* ssid, const char* p
   syncStartMs_ = nowMs;
   setSyncState(SyncState::Syncing);
   setError(Error::None);
-  timeLog("ntp sync requested ssid=%s", syncSsid_);
+  LogI("TIME", "ntp sync requested ssid=%s", syncSsid_);
   return true;
 }
 
@@ -196,7 +162,7 @@ void TimeService::cancelNtpSync() {
   syncPhase_ = SyncPhase::None;
   setSyncState(SyncState::Idle);
   setError(Error::None);
-  timeLog("ntp sync canceled");
+  LogI("TIME", "ntp sync canceled");
 }
 
 const TimeService::Snapshot& TimeService::snapshot() const { return snapshot_; }
@@ -235,7 +201,7 @@ void TimeService::updateSnapshotTime(const DateTime& dt, bool valid) {
       snapshot_.now.hour != dt.hour || snapshot_.now.minute != dt.minute;
 
   if (validityChanged) {
-    timeLog("validity changed %u->%u persisted=%u",
+    LogI("TIME", "validity changed %u->%u persisted=%u",
             snapshot_.valid ? 1U : 0U, valid ? 1U : 0U, persistedValid_ ? 1U : 0U);
   }
 
@@ -250,7 +216,7 @@ void TimeService::updateSnapshotTime(const DateTime& dt, bool valid) {
 bool TimeService::refreshFromRtc(bool logStartupRead) {
   if (rtc_ == nullptr || !rtc_->isAvailable()) {
     if (logStartupRead || snapshot_.valid || snapshot_.error != Error::NoRtc) {
-      timeErr("rtc unavailable; time display disabled");
+      LogE("TIME", "rtc unavailable; time display disabled");
     }
     updateSnapshotTime(DateTime{}, false);
     setError(Error::NoRtc);
@@ -260,7 +226,7 @@ bool TimeService::refreshFromRtc(bool logStartupRead) {
   RtcDriver::DateTime rtcNow;
   if (!rtc_->read(rtcNow)) {
     if (logStartupRead || snapshot_.valid || snapshot_.error != Error::InvalidRtc) {
-      timeErr("rtc date/time read failed; check I2C bus and RTC power");
+      LogE("TIME", "rtc date/time read failed; check I2C bus and RTC power");
     }
     updateSnapshotTime(DateTime{}, false);
     setError(Error::InvalidRtc);
@@ -277,7 +243,7 @@ bool TimeService::refreshFromRtc(bool logStartupRead) {
   dt.year = static_cast<uint16_t>(2000U + rtcNow.year);
 
   if (logStartupRead || !snapshot_.valid) {
-    timeLog("rtc read accepted %04u-%02u-%02u %02u:%02u:%02u weekday=%u "
+    LogI("TIME", "rtc read accepted %04u-%02u-%02u %02u:%02u:%02u weekday=%u "
             "policy=read_success clock_lost=%u persisted=%u source=%u",
             static_cast<unsigned>(dt.year), static_cast<unsigned>(dt.month),
             static_cast<unsigned>(dt.day), static_cast<unsigned>(dt.hour),
@@ -357,7 +323,7 @@ bool TimeService::applyDateTime(const DateTime& dt, SyncSource source, uint32_t 
   rtcWrite.year = static_cast<uint8_t>(dt.year >= 2000U ? (dt.year - 2000U) : 0U);
   if (!rtc_->write(rtcWrite)) {
     setError(Error::RtcWriteFailed);
-    timeErr("rtc write failed");
+    LogE("TIME", "rtc write failed");
     return false;
   }
 
@@ -401,7 +367,7 @@ void TimeService::cleanupRadio() {
   esp_sntp_stop();
   WiFi.disconnect(false, true);
   WiFi.mode(WIFI_OFF);
-  timeLog("ntp session finished, sntp stopped, radio off");
+  LogI("TIME", "ntp session finished, sntp stopped, radio off");
   memset(syncSsid_, 0, sizeof(syncSsid_));
   memset(syncPass_, 0, sizeof(syncPass_));
 }

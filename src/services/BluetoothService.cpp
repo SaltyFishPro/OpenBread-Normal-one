@@ -5,13 +5,9 @@
 #include <BLEServer.h>
 #include <BLESecurity.h>
 
-#include <cstdarg>
+#include "../log/Log.h"
 
 namespace {
-#ifndef OB_BT_LOG_ENABLED
-#define OB_BT_LOG_ENABLED 1
-#endif
-
 constexpr uint8_t kHidReportDescriptor[] = {
     0x05, 0x0D,        // Usage Page (Digitizers)
     0x09, 0x04,        // Usage (Touch Screen)
@@ -63,38 +59,6 @@ constexpr uint16_t kSwipeEndY = kTouchCoordinateMax / 4U;
 constexpr size_t kTouchReportBytes = 7;  // Tip/in-range + contact ID + X/Y + contact count.
 constexpr uint16_t kHidDigitizerAppearance = 0x03C5;
 
-void btLog(const char* fmt, ...) {
-#if OB_BT_LOG_ENABLED
-  if (!Serial) {
-    return;
-  }
-  Serial.print("[BT] ");
-  va_list args;
-  va_start(args, fmt);
-  Serial.vprintf(fmt, args);
-  va_end(args);
-  Serial.println();
-#else
-  (void)fmt;
-#endif
-}
-
-void btErr(const char* fmt, ...) {
-#if OB_BT_LOG_ENABLED
-  if (!Serial) {
-    return;
-  }
-  Serial.print("[ERR][BT] ");
-  va_list args;
-  va_start(args, fmt);
-  Serial.vprintf(fmt, args);
-  va_end(args);
-  Serial.println();
-#else
-  (void)fmt;
-#endif
-}
-
 class BluetoothServerCallbacks : public BLEServerCallbacks {
 public:
   explicit BluetoothServerCallbacks(BluetoothService& service) : service_(service) {}
@@ -129,7 +93,7 @@ void BluetoothService::tick(uint32_t nowMs) {
   if (touchGesture_ != TouchGesture::None && nowMs >= pendingReleaseMs_) {
     if (touchGesture_ == TouchGesture::Tap) {
       sendTouchReport(false, touchX_, touchY_);
-      btLog("touch tap released");
+      LogD("BT", "touch tap released");
       touchGesture_ = TouchGesture::None;
       touchStep_ = 0;
       pendingReleaseMs_ = 0;
@@ -145,7 +109,7 @@ void BluetoothService::tick(uint32_t nowMs) {
       pendingReleaseMs_ = nowMs + kTouchSwipeStepMs;
     } else {
       sendTouchReport(false, touchX_, touchY_);
-      btLog("touch swipe released direction=%s", touchSwipeUp_ ? "up" : "down");
+      LogD("BT", "touch swipe released direction=%s", touchSwipeUp_ ? "up" : "down");
       touchGesture_ = TouchGesture::None;
       touchStep_ = 0;
       pendingReleaseMs_ = 0;
@@ -160,7 +124,7 @@ void BluetoothService::tick(uint32_t nowMs) {
     return;
   }
 
-  btLog("advertise timeout, shutting down bluetooth");
+  LogI("BT", "advertise timeout, shutting down bluetooth");
   stop();
   setState(State::Error, Error::Timeout);
 }
@@ -171,7 +135,7 @@ bool BluetoothService::start(uint32_t nowMs) {
   }
 
   if (!initializeStack()) {
-    btErr("ble init failed");
+    LogE("BT", "ble init failed");
     setState(State::Error, Error::InitFailed);
     return false;
   }
@@ -181,7 +145,7 @@ bool BluetoothService::start(uint32_t nowMs) {
   touchGesture_ = TouchGesture::None;
   touchStep_ = 0;
   BLEDevice::startAdvertising();
-  btLog("advertising started name=%s", deviceName_);
+  LogI("BT", "advertising started name=%s", deviceName_);
   setState(State::Advertising, Error::None);
   return true;
 }
@@ -236,7 +200,7 @@ bool BluetoothService::sendTouchTap(uint32_t nowMs, uint16_t x, uint16_t y, cons
   touchGesture_ = TouchGesture::Tap;
   pendingReleaseMs_ = nowMs + kTouchTapDurationMs;
   lastShutterMs_ = nowMs;
-  btLog("%s sent x=%u y=%u", label, static_cast<unsigned>(x), static_cast<unsigned>(y));
+  LogD("BT", "%s sent x=%u y=%u", label, static_cast<unsigned>(x), static_cast<unsigned>(y));
   return true;
 }
 
@@ -254,7 +218,7 @@ bool BluetoothService::sendTouchSwipe(uint32_t nowMs, bool upward, const char* l
   touchGesture_ = TouchGesture::Swipe;
   pendingReleaseMs_ = nowMs + kTouchSwipeStepMs;
   lastShutterMs_ = nowMs;
-  btLog("%s started x=%u y=%u", label, static_cast<unsigned>(touchX_),
+  LogD("BT", "%s started x=%u y=%u", label, static_cast<unsigned>(touchX_),
         static_cast<unsigned>(touchY_));
   return true;
 }
@@ -303,11 +267,11 @@ bool BluetoothService::initializeStack() {
 
   if (!bleStackReady_) {
     if (!BLEDevice::init(deviceName_)) {
-      btErr("ble device init returned failure");
+      LogE("BT", "ble device init returned failure");
       return false;
     }
     bleStackReady_ = true;
-    btLog("ble device initialized, controller memory retained");
+    LogI("BT", "ble device initialized, controller memory retained");
   }
 
   if (security_ == nullptr) {
@@ -337,7 +301,7 @@ bool BluetoothService::initializeStack() {
     hid_->reportMap(const_cast<uint8_t*>(kHidReportDescriptor), sizeof(kHidReportDescriptor));
     inputReport_ = hid_->inputReport(1);
     if (inputReport_ == nullptr) {
-      btErr("hid input report allocation failed id=1");
+      LogE("BT", "hid input report allocation failed id=1");
       cleanupStack();
       return false;
     }
@@ -347,7 +311,7 @@ bool BluetoothService::initializeStack() {
 
   BLEAdvertising* advertising = BLEDevice::getAdvertising();
   if (advertising == nullptr) {
-    btErr("ble advertising allocation failed");
+    LogE("BT", "ble advertising allocation failed");
     cleanupStack();
     return false;
   }
@@ -362,7 +326,7 @@ bool BluetoothService::initializeStack() {
   touchGesture_ = TouchGesture::None;
   touchStep_ = 0;
   initialized_ = true;
-  btLog("ble stack initialized as touch remote");
+  LogI("BT", "ble stack initialized as touch remote");
   return true;
 }
 
@@ -382,7 +346,7 @@ void BluetoothService::cleanupStack() {
   if (bleStackReady_) {
     BLEDevice::deinit(false);
     bleStackReady_ = false;
-    btLog("ble stack deinitialized, controller memory retained");
+    LogI("BT", "ble stack deinitialized, controller memory retained");
   }
   server_ = nullptr;
 
@@ -394,7 +358,7 @@ void BluetoothService::cleanupStack() {
   delete security_;
   security_ = nullptr;
 
-  btLog("ble stack released");
+  LogI("BT", "ble stack released");
 }
 
 void BluetoothService::onConnected(uint16_t connId) {
@@ -403,7 +367,7 @@ void BluetoothService::onConnected(uint16_t connId) {
   }
 
   activeConnId_ = connId;
-  btLog("phone connected conn_id=%u", static_cast<unsigned>(connId));
+  LogI("BT", "phone connected conn_id=%u", static_cast<unsigned>(connId));
   setState(State::Connected, Error::None);
 }
 
@@ -419,6 +383,6 @@ void BluetoothService::onDisconnected() {
   }
 
   BLEDevice::startAdvertising();
-  btLog("phone disconnected, advertising restarted");
+  LogI("BT", "phone disconnected, advertising restarted");
   setState(State::Advertising, Error::None);
 }

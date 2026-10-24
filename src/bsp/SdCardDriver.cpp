@@ -3,15 +3,12 @@
 #include <SD_MMC.h>
 
 #include "BoardConfig.h"
+#include "../log/Log.h"
 
 namespace {
 constexpr uint8_t kMaxMountRetries = 1;
 constexpr uint32_t kMountFrequencyKhz = 10000;
 }
-
-#ifndef OB_SD_LOG_ENABLED
-#define OB_SD_LOG_ENABLED 1
-#endif
 
 bool SdCardDriver::begin() {
   Info info;
@@ -37,10 +34,8 @@ bool SdCardDriver::refresh(Info& info) {
 
   const sdcard_type_t cardType = SD_MMC.cardType();
   if (cardType == CARD_NONE) {
-#if OB_SD_LOG_ENABLED
-    Serial.printf("[ERR][SD] mount failed mode=1bit clock_khz=%lu\r\n",
-                  static_cast<unsigned long>(kMountFrequencyKhz));
-#endif
+    LogE("SD", "mount failed mode=1bit clock_khz=%lu",
+         static_cast<unsigned long>(kMountFrequencyKhz));
     info = Info{};
     return false;
   }
@@ -51,11 +46,9 @@ bool SdCardDriver::refresh(Info& info) {
   File root = SD_MMC.open("/");
   info.rootReadable = root && root.isDirectory();
   root.close();
-#if OB_SD_LOG_ENABLED
-  Serial.printf("[SD] ready total=%llu used=%llu root=%u\r\n",
-                static_cast<unsigned long long>(info.totalBytes),
-                static_cast<unsigned long long>(info.usedBytes), info.rootReadable ? 1U : 0U);
-#endif
+  LogI("SD", "ready total=%llu used=%llu root=%u",
+       static_cast<unsigned long long>(info.totalBytes),
+       static_cast<unsigned long long>(info.usedBytes), info.rootReadable ? 1U : 0U);
   return true;
 }
 

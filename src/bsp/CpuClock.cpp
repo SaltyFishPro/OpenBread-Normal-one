@@ -2,12 +2,10 @@
 
 #include <Arduino.h>
 
+#include "../log/Log.h"
+
 #ifndef OB_CPU_IDLE_SCALING_ENABLED
 #define OB_CPU_IDLE_SCALING_ENABLED 1
-#endif
-
-#ifndef OB_CPU_CLOCK_LOG_ENABLED
-#define OB_CPU_CLOCK_LOG_ENABLED 1
 #endif
 
 namespace CpuClock {
@@ -17,18 +15,10 @@ uint8_t boostMask = 0;
 uint32_t activeMhz = kPerformanceMhz;
 
 void logSwitch(uint32_t mhz, uint8_t mask) {
-#if OB_CPU_CLOCK_LOG_ENABLED
-  if (!Serial) {
-    return;
-  }
-  Serial.printf("[CPU] %luMHz apb=%luMHz boost_mask=0x%02X\r\n",
-                static_cast<unsigned long>(mhz),
-                static_cast<unsigned long>(getApbFrequency() / 1000000UL),
-                static_cast<unsigned>(mask));
-#else
-  (void)mhz;
-  (void)mask;
-#endif
+  LogD("CPU", "%luMHz apb=%luMHz boost_mask=0x%02X",
+       static_cast<unsigned long>(mhz),
+       static_cast<unsigned long>(getApbFrequency() / 1000000UL),
+       static_cast<unsigned>(mask));
 }
 
 void setFrequency(uint32_t mhz) {

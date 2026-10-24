@@ -4,10 +4,10 @@
 
 #include "../bsp/BoardConfig.h"
 #include "../bsp/CpuClock.h"
-#include <cstdarg>
 #include <driver/gpio.h>
 #include <esp_sleep.h>
 #include <nvs_flash.h>
+#include "../log/Log.h"
 #include "IconBitmap.h"
 #include "AnimMath.h"
 #include "DrawUtils.h"
@@ -26,18 +26,6 @@
 #include "assets/main_menu/icons8-clock.h"
 
 namespace {
-#ifndef OB_SLEEP_LOG_ENABLED
-#define OB_SLEEP_LOG_ENABLED 1
-#endif
-
-#ifndef OB_POWER_WORK_LOG_ENABLED
-#define OB_POWER_WORK_LOG_ENABLED 1
-#endif
-
-#ifndef OB_DISPLAY_ROTATION_LOG_ENABLED
-#define OB_DISPLAY_ROTATION_LOG_ENABLED 1
-#endif
-
 // 局部刷新：音乐导航栏/列表动画只把脏区域推送到屏幕，降低 SPI 传输量。
 // 置 0 可退回整屏刷新以便对比排查。
 #ifndef OB_PARTIAL_REFRESH_ENABLED
@@ -46,22 +34,6 @@ namespace {
 
 constexpr uint32_t kAutoSleepTimeoutMs = 20000;
 constexpr uint32_t kBatteryRefreshIntervalMs = 10000;
-
-void sleepLog(const char* fmt, ...) {
-#if OB_SLEEP_LOG_ENABLED
-  if (!Serial) {
-    return;
-  }
-  Serial.print("[SLEEP] ");
-  va_list args;
-  va_start(args, fmt);
-  Serial.vprintf(fmt, args);
-  va_end(args);
-  Serial.println();
-#else
-  (void)fmt;
-#endif
-}
 
 constexpr uint32_t kSectionTransitionMs = 600;
 constexpr uint32_t kForwardBgEndMs = 90;
@@ -1089,20 +1061,16 @@ void UiManager::updateCpuClock(uint32_t nowMs) {
   // 满屏渲染后保持一段满速窗口；期间只画脏区域的局部帧可以降频执行。
   const bool uiActive = (nowMs - cpuBoostStartMs_) < kCpuBoostHoldMs;
 
-#if OB_POWER_WORK_LOG_ENABLED
   const bool musicBusy = musicService_.isBusy();
   const uint8_t workMask = (otaBusy ? 1U : 0U) | (audioActive ? 2U : 0U) |
                            (musicBusy ? 4U : 0U) | (bluetoothActive ? 8U : 0U);
   static uint8_t lastWorkMask = 0xFF;
   if (workMask != lastWorkMask) {
     lastWorkMask = workMask;
-    if (Serial) {
-      Serial.printf("[POWER] ota_busy=%u audio_realtime=%u music_busy=%u bt_active=%u\n",
-                    otaBusy ? 1U : 0U, audioActive ? 1U : 0U,
-                    musicBusy ? 1U : 0U, bluetoothActive ? 1U : 0U);
-    }
+    LogD("POWER", "ota_busy=%u audio_realtime=%u music_busy=%u bt_active=%u",
+         otaBusy ? 1U : 0U, audioActive ? 1U : 0U,
+         musicBusy ? 1U : 0U, bluetoothActive ? 1U : 0U);
   }
-#endif
 
   CpuClock::setBoost(CpuClock::Boost::Audio, audioActive);
   CpuClock::setBoost(CpuClock::Boost::Radio, radioActive);
@@ -1766,7 +1734,7 @@ void UiManager::openConfirm(const char* title, const char* primaryLabel, const c
 void UiManager::performConfirmAction(uint32_t nowMs) {
   switch (confirmAction_) {
     case ConfirmAction::Restart:
-      sleepLog("user confirmed restart");
+      LogI("SLEEP", "user confirmed restart");
       ESP.restart();
       break;
     case ConfirmAction::FactoryReset:
@@ -1789,10 +1757,10 @@ void UiManager::performConfirmAction(uint32_t nowMs) {
 }
 
 void UiManager::performFactoryReset() {
-  sleepLog("user confirmed factory reset: erasing NVS");
+  LogI("SLEEP", "user confirmed factory reset: erasing NVS");
   (void)nvs_flash_deinit();
   const esp_err_t err = nvs_flash_erase();
-  sleepLog("nvs erase err=%d; restarting", static_cast<int>(err));
+  LogI("SLEEP", "nvs erase err=%d; restarting", static_cast<int>(err));
   ESP.restart();
 }
 
@@ -1808,12 +1776,8 @@ void UiManager::setRemotePagePortrait(bool enabled) {
     return;
   }
   display_.setRotation(desiredRotation);
-#if OB_DISPLAY_ROTATION_LOG_ENABLED
-  if (Serial) {
-    Serial.printf("[DISPLAY] UI rotation=%u (%s)\n", static_cast<unsigned>(desiredRotation),
-                  enabled ? "portrait remote" : "default landscape");
-  }
-#endif
+  LogI("DISPLAY", "UI rotation=%u (%s)", static_cast<unsigned>(desiredRotation),
+       enabled ? "portrait remote" : "default landscape");
   needsRedraw_ = true;
 }
 
@@ -2068,17 +2032,17 @@ void UiManager::resetButtonDebounceState() {
 
 void UiManager::enterSleep(uint32_t nowMs) {
   const uint32_t idleMs = nowMs - lastActivityMs_;
-  sleepLog("enter home auto-sleep idle=%lums", static_cast<unsigned long>(idleMs));
+  LogI("SLEEP", "enter home auto-sleep idle=%lums", static_cast<unsigned long>(idleMs));
 
   const bool rtcWakeReady = rtcDriver_.setMinuteInterruptEnabled(true);
   if (rtcWakeReady) {
     pinMode(BoardConfig::kPinPcfInt, INPUT_PULLUP);
     gpio_wakeup_enable(static_cast<gpio_num_t>(BoardConfig::kPinPcfInt),
                        GPIO_INTR_LOW_LEVEL);
-    sleepLog("rtc minute interrupt wake enabled int_gpio=%d",
-             static_cast<int>(BoardConfig::kPinPcfInt));
+    LogI("SLEEP", "rtc minute interrupt wake enabled int_gpio=%d",
+         static_cast<int>(BoardConfig::kPinPcfInt));
   } else {
-    sleepLog("rtc minute interrupt unavailable; time refresh wake disabled");
+    LogI("SLEEP", "rtc minute interrupt unavailable; time refresh wake disabled");
   }
 
   display_.prepareForSleepKeepDisplay();
@@ -2089,7 +2053,7 @@ void UiManager::enterSleep(uint32_t nowMs) {
 
   esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
   esp_sleep_pd_config(ESP_PD_DOMAIN_MODEM, ESP_PD_OPTION_OFF);
-  sleepLog("power domains off: rtc_periph modem");
+  LogI("SLEEP", "power domains off: rtc_periph modem");
 
   bool keepSleeping = true;
   while (keepSleeping) {
@@ -2107,7 +2071,7 @@ void UiManager::enterSleep(uint32_t nowMs) {
     const uint32_t wakeNowMs = millis();
 
     if (sleepErr != ESP_OK) {
-      sleepLog("light sleep rejected err=%d", static_cast<int>(sleepErr));
+      LogW("SLEEP", "light sleep rejected err=%d", static_cast<int>(sleepErr));
       keepSleeping = false;
       break;
     }
@@ -2135,16 +2099,16 @@ void UiManager::enterSleep(uint32_t nowMs) {
       (void)rtcDriver_.clearTimerFlag();
       display_.prepareForSleepKeepDisplay();
       peripheralPower_.setSensorEnabled(false);
-      sleepLog("rtc minute wake at %lums; time refreshed, continue sleep",
-               static_cast<unsigned long>(wakeNowMs));
+      LogI("SLEEP", "rtc minute wake at %lums; time refreshed, continue sleep",
+           static_cast<unsigned long>(wakeNowMs));
       continue;
     }
 
     if (buttonPressed) {
-      sleepLog("button wake; exit sleep");
+      LogI("SLEEP", "button wake; exit sleep");
     } else {
-      sleepLog("unknown wake cause=%d; exit sleep",
-               static_cast<int>(esp_sleep_get_wakeup_cause()));
+      LogI("SLEEP", "unknown wake cause=%d; exit sleep",
+           static_cast<int>(esp_sleep_get_wakeup_cause()));
     }
     keepSleeping = false;
   }
@@ -2161,7 +2125,7 @@ void UiManager::enterSleep(uint32_t nowMs) {
   lastActivityMs_ = exitNowMs;
   lastRenderMs_ = exitNowMs;
   needsRedraw_ = true;
-  sleepLog("exit home auto-sleep at %lums", static_cast<unsigned long>(exitNowMs));
+  LogI("SLEEP", "exit home auto-sleep at %lums", static_cast<unsigned long>(exitNowMs));
 }
 
 bool UiManager::isPressed(uint8_t pin) const { return digitalRead(pin) == LOW; }

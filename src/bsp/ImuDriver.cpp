@@ -3,9 +3,7 @@
 #include <Wire.h>
 #include "IicBus.h"
 #include "BoardConfig.h"
-#ifndef OB_IMU_DRIVER_LOG_ENABLED
-#define OB_IMU_DRIVER_LOG_ENABLED 1
-#endif
+#include "../log/Log.h"
 
 namespace {
 constexpr uint8_t kAddresses[] = {0x6A, 0x6B};
@@ -51,21 +49,15 @@ bool ImuDriver::beginBus() {
 bool ImuDriver::beginLowPower() {
   powerOn();
   if (!beginBus()) {
-#if OB_IMU_DRIVER_LOG_ENABLED
-    Serial.printf("[ERR][IMU] low power init failed stage=bus sensor_ldo=1\r\n");
-#endif
+    LogE("IMU", "low power init failed stage=bus sensor_ldo=1");
     return false;
   }
   if (!writeRegister(kCtrl7, kCtrl7Disabled)) {
-#if OB_IMU_DRIVER_LOG_ENABLED
-    Serial.printf("[ERR][IMU] low power init failed stage=ctrl7 addr=0x%02X\r\n", address_);
-#endif
+    LogE("IMU", "low power init failed stage=ctrl7 addr=0x%02X", address_);
     return false;
   }
-#if OB_IMU_DRIVER_LOG_ENABLED
-  Serial.printf("[IMU] low power addr=0x%02X who=0x%02X ctrl7=0x%02X sensor_ldo=1\r\n",
-                address_, whoAmI_, kCtrl7Disabled);
-#endif
+  LogI("IMU", "low power addr=0x%02X who=0x%02X ctrl7=0x%02X sensor_ldo=1",
+       address_, whoAmI_, kCtrl7Disabled);
   return true;
 }
 
@@ -81,15 +73,11 @@ bool ImuDriver::readSample(Sample&s){uint8_t r[12]={0};if(!readRegisters(kData,r
 void ImuDriver::end() {
   if (address_ != 0U) {
     if (!writeRegister(kCtrl7, kCtrl7Disabled)) {
-#if OB_IMU_DRIVER_LOG_ENABLED
-      Serial.printf("[ERR][IMU] disable measurement failed addr=0x%02X\r\n", address_);
-#endif
+      LogE("IMU", "disable measurement failed addr=0x%02X", address_);
     }
   }
   powerOn();
-#if OB_IMU_DRIVER_LOG_ENABLED
-  Serial.printf("[IMU] measurement disabled ctrl7=0x%02X sensor_ldo=1\r\n", kCtrl7Disabled);
-#endif
+  LogI("IMU", "measurement disabled ctrl7=0x%02X sensor_ldo=1", kCtrl7Disabled);
 }
 
 uint8_t ImuDriver::address()const{return address_;}uint8_t ImuDriver::whoAmI()const{return whoAmI_;}

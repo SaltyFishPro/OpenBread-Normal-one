@@ -3,37 +3,24 @@
 #include <Arduino.h>
 
 #include "../bsp/PeripheralPower.h"
-
-#ifndef OB_POWER_DIAGNOSTIC_LOG_ENABLED
-#define OB_POWER_DIAGNOSTIC_LOG_ENABLED 1
-#endif
-
-#if OB_POWER_DIAGNOSTIC_LOG_ENABLED
-#define POWER_LOG(format, ...) \
-  Serial.printf("[SELFTEST][POWER] " format "\r\n", ##__VA_ARGS__)
-#define POWER_ERROR(format, ...) \
-  Serial.printf("[ERR][SELFTEST][POWER] " format "\r\n", ##__VA_ARGS__)
-#else
-#define POWER_LOG(format, ...) ((void)0)
-#define POWER_ERROR(format, ...) ((void)0)
-#endif
+#include "../log/Log.h"
 
 bool PowerDiagnosticService::run(PeripheralPower& peripheralPower) {
   audioLdoEnabled_ = peripheralPower.isAudioEnabled();
   sensorLdoEnabled_ = peripheralPower.isSensorEnabled();
   if (!readAndClassify()) {
     changed_ = true;
-    POWER_ERROR("MAX17048 read failed address=0x36");
+    LogE("SELFTEST/POWER", "MAX17048 read failed address=0x36");
     return false;
   }
 
   changed_ = true;
-  POWER_LOG("battery=3800mV/4350mV/800mAh version=0x%04X voltage_mv=%u soc_x100=%u remaining_mah=%u rate_x100=%ld estimated_current_x10_ma=%ld status=0x%04X audio_ldo=%u sensor_ldo=%u result=%s",
-            reading_.version, reading_.voltageMv, reading_.stateOfChargeX100,
-            estimatedRemainingMah(), static_cast<long>(reading_.chargeRateX100),
-            static_cast<long>(estimatedCurrentMaX10()), reading_.status,
-            audioLdoEnabled_ ? 1U : 0U,
-            sensorLdoEnabled_ ? 1U : 0U, state_ == State::Passed ? "passed" : "warning");
+  LogI("SELFTEST/POWER", "battery=3800mV/4350mV/800mAh version=0x%04X voltage_mv=%u soc_x100=%u remaining_mah=%u rate_x100=%ld estimated_current_x10_ma=%ld status=0x%04X audio_ldo=%u sensor_ldo=%u result=%s",
+       reading_.version, reading_.voltageMv, reading_.stateOfChargeX100,
+       estimatedRemainingMah(), static_cast<long>(reading_.chargeRateX100),
+       static_cast<long>(estimatedCurrentMaX10()), reading_.status,
+       audioLdoEnabled_ ? 1U : 0U,
+       sensorLdoEnabled_ ? 1U : 0U, state_ == State::Passed ? "passed" : "warning");
   return true;
 }
 
@@ -43,7 +30,7 @@ bool PowerDiagnosticService::refresh() {
   const Max17048Driver::Reading previousReading = reading_;
   if (!readAndClassify()) {
     if (previousState != State::Failed) {
-      POWER_ERROR("MAX17048 refresh failed address=0x36");
+      LogE("SELFTEST/POWER", "MAX17048 refresh failed address=0x36");
     }
     if (state_ != previousState) {
       changed_ = true;
@@ -60,9 +47,9 @@ bool PowerDiagnosticService::refresh() {
     changed_ = true;
   }
   if (state_ != previousState || voltageState_ != previousVoltageState) {
-    POWER_LOG("refresh voltage_mv=%u soc_x100=%u state=%u voltage_state=%u",
-              reading_.voltageMv, reading_.stateOfChargeX100,
-              static_cast<unsigned>(state_), static_cast<unsigned>(voltageState_));
+    LogI("SELFTEST/POWER", "refresh voltage_mv=%u soc_x100=%u state=%u voltage_state=%u",
+         reading_.voltageMv, reading_.stateOfChargeX100,
+         static_cast<unsigned>(state_), static_cast<unsigned>(voltageState_));
   }
   return true;
 }

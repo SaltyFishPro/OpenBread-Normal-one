@@ -3,6 +3,7 @@
 #include <cstdio>
 
 #include "../../bsp/DisplayMonoTft.h"
+#include "../../log/Log.h"
 #include "../DrawUtils.h"
 #include "../TextUtils.h"
 #include "../../services/IicScanService.h"
@@ -12,24 +13,6 @@
 #include "../../services/ImuTestService.h"
 #include "../../services/PowerDiagnosticService.h"
 #include "../../bsp/PeripheralPower.h"
-
-#ifndef OB_SELF_TEST_LOG_ENABLED
-#define OB_SELF_TEST_LOG_ENABLED 1
-#endif
-
-#if OB_SELF_TEST_LOG_ENABLED
-#define DISPLAY_TEST_LOG(format, ...) \
-  Serial.printf("[SELFTEST][DISPLAY] " format "\r\n", ##__VA_ARGS__)
-#else
-#define DISPLAY_TEST_LOG(format, ...) ((void)0)
-#endif
-
-#if OB_SELF_TEST_LOG_ENABLED
-#define BUTTON_TEST_LOG(format, ...) \
-  Serial.printf("[SELFTEST][BUTTON] " format "\r\n", ##__VA_ARGS__)
-#else
-#define BUTTON_TEST_LOG(format, ...) ((void)0)
-#endif
 
 namespace {
 constexpr uint8_t kPageSize = 5;
@@ -127,7 +110,7 @@ bool DeviceSelfTestPage::handleInput(bool leftEdge, bool leftLongEdge, bool upEd
   if (view_ == View::ButtonTest) {
     const bool changed = updateButtonTest(buttons);
     if (leftLongEdge) {
-      BUTTON_TEST_LOG("cancel completed=0x%02X", static_cast<unsigned>(completedButtonMask_));
+      LogI("SELFTEST/BUTTON", "cancel completed=0x%02X", static_cast<unsigned>(completedButtonMask_));
       view_ = View::List;
       return true;
     }
@@ -199,7 +182,7 @@ bool DeviceSelfTestPage::handleInput(bool leftEdge, bool leftLongEdge, bool upEd
   }
 
   if (view_ != View::List && (leftEdge || leftLongEdge)) {
-    DISPLAY_TEST_LOG("cancel pattern=%u", static_cast<unsigned>(screenPatternIndex_ + 1U));
+    LogI("SELFTEST/DISPLAY", "cancel pattern=%u", static_cast<unsigned>(screenPatternIndex_ + 1U));
     view_ = View::List;
     return true;
   }
@@ -209,7 +192,7 @@ bool DeviceSelfTestPage::handleInput(bool leftEdge, bool leftLongEdge, bool upEd
       viewedScreenPatterns_ = 0;
       selectScreenPattern(0);
       view_ = View::ScreenPattern;
-      DISPLAY_TEST_LOG("start patterns=%u", static_cast<unsigned>(kScreenPatternCount));
+      LogI("SELFTEST/DISPLAY", "start patterns=%u", static_cast<unsigned>(kScreenPatternCount));
       return true;
     }
     return false;
@@ -245,7 +228,7 @@ bool DeviceSelfTestPage::handleInput(bool leftEdge, bool leftLongEdge, bool upEd
     }
     if (okEdge) {
       screenResult_ = confirmScreenNormal_ ? ScreenResult::Passed : ScreenResult::Failed;
-      DISPLAY_TEST_LOG("finish result=%s", confirmScreenNormal_ ? "passed" : "failed");
+      LogI("SELFTEST/DISPLAY", "finish result=%s", confirmScreenNormal_ ? "passed" : "failed");
       view_ = View::List;
       return true;
     }
@@ -271,7 +254,7 @@ bool DeviceSelfTestPage::handleInput(bool leftEdge, bool leftLongEdge, bool upEd
     completedButtonMask_ = 0;
     buttonTestPassed_ = false;
     view_ = View::ButtonTest;
-    BUTTON_TEST_LOG("start initial_mask=0x%02X", static_cast<unsigned>(lastButtonMask_));
+    LogI("SELFTEST/BUTTON", "start initial_mask=0x%02X", static_cast<unsigned>(lastButtonMask_));
     return true;
   }
   if (okEdge && focusIndex_ == kIicTestItemIndex) {
@@ -631,8 +614,8 @@ void DeviceSelfTestPage::selectScreenPattern(uint8_t patternIndex) {
   screenPatternIndex_ = static_cast<uint8_t>(patternIndex % kScreenPatternCount);
   viewedScreenPatterns_ = static_cast<uint8_t>(
       viewedScreenPatterns_ | static_cast<uint8_t>(1U << screenPatternIndex_));
-  DISPLAY_TEST_LOG("pattern=%u viewed=0x%02X", static_cast<unsigned>(screenPatternIndex_ + 1U),
-                   static_cast<unsigned>(viewedScreenPatterns_));
+  LogI("SELFTEST/DISPLAY", "pattern=%u viewed=0x%02X", static_cast<unsigned>(screenPatternIndex_ + 1U),
+       static_cast<unsigned>(viewedScreenPatterns_));
 }
 
 uint8_t DeviceSelfTestPage::buttonMask(const ButtonState& buttons) const {
@@ -662,14 +645,14 @@ bool DeviceSelfTestPage::updateButtonTest(const ButtonState& buttons) {
   for (uint8_t index = 0; index < 5U; ++index) {
     const uint8_t bit = static_cast<uint8_t>(1U << index);
     if ((newlyCompleted & bit) != 0U) {
-      BUTTON_TEST_LOG("key=%s completed mask=0x%02X", kButtonNames[index],
-                      static_cast<unsigned>(completedButtonMask_));
+      LogI("SELFTEST/BUTTON", "key=%s completed mask=0x%02X", kButtonNames[index],
+           static_cast<unsigned>(completedButtonMask_));
     }
   }
 
   if (!buttonTestPassed_ && completedButtonMask_ == kAllButtonsCompleted) {
     buttonTestPassed_ = true;
-    BUTTON_TEST_LOG("finish result=passed");
+    LogI("SELFTEST/BUTTON", "finish result=passed");
   }
   return true;
 }
