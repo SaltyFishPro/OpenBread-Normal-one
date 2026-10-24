@@ -4,6 +4,7 @@
 
 class DisplayMonoTft;
 class U8G2_FOR_ST73XX;
+class SdBitmapFont;
 
 // 系统更新的布局、日志分页与滚动；联网、下载和应用仍由 OtaService 管理。
 class SystemUpdatePage {
@@ -25,12 +26,14 @@ public:
   static View viewOf(const OtaService& ota);
   void prepareEnter();
   bool update(const View& view, bool active, bool popupVisible, uint32_t nowMs,
-              U8G2_FOR_ST73XX& text);
+              U8G2_FOR_ST73XX& text, SdBitmapFont* font = nullptr);
+  bool isPreparingLogs() const { return active_ && logsVisible_ && building_; }
   bool handleLogInput(bool up, bool down, uint32_t nowMs);
   bool needsAnimationFrame() const { return active_ && animating_; }
   uint8_t logPage() const { return page_; }
   uint8_t logPageCount() const { return static_cast<uint8_t>((lineCount_ + 1U) / 2U); }
-  void render(DisplayMonoTft& display, int16_t yOffset, const View& view, uint32_t nowMs);
+  void render(DisplayMonoTft& display, int16_t yOffset, const View& view, uint32_t nowMs,
+              SdBitmapFont* font = nullptr);
 
 private:
   struct Line { uint16_t offset; uint8_t bytes; };
@@ -38,7 +41,10 @@ private:
   static constexpr uint32_t kAutoMs = 4000;
   static constexpr uint32_t kManualPauseMs = 8000;
   static constexpr uint32_t kSlideMs = 550;
-  void syncLogs(const View& view, U8G2_FOR_ST73XX& text);
+  bool syncLogs(const View& view, U8G2_FOR_ST73XX& text, SdBitmapFont* font);
+  bool buildLogs(U8G2_FOR_ST73XX& text);
+  int16_t logTop() const;
+  int16_t logBottom() const;
   void startSlide(uint8_t next, int8_t direction, uint32_t nowMs);
   void drawLogPage(DisplayMonoTft& display, uint8_t page, int16_t yOffset);
 
@@ -56,4 +62,9 @@ private:
   uint32_t lastAdvanceMs_ = 0;
   uint32_t lastManualMs_ = 0;
   uint32_t slideStartMs_ = 0;
+  SdBitmapFont* logFont_ = nullptr;
+  uint32_t fontSession_ = 0;
+  uint16_t scan_ = 0, lineStart_ = 0;
+  int16_t lineWidth_ = 0;
+  bool building_ = false;
 };

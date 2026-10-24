@@ -13,7 +13,7 @@ try {
         'tools/reader_font_preview/test.cpp', 'tmp/reader-sd-font/fonts.o',
         'src/ui/pages/ReaderPage.cpp', 'src/services/ReaderService.cpp',
         'src/bsp/SdFontFile.cpp', 'src/bsp/SdFontCacheBuffer.cpp',
-        'src/services/SdBitmapFont.cpp', 'src/ui/SdBitmapText.cpp',
+        'src/services/SdBitmapFont.cpp', 'src/ui/SdBitmapText.cpp', 'src/ui/SdUiText.cpp', 'src/services/UiFontCache.cpp',
         'lib/ST7305_MonoTFT_Library/src/ST73XX_UI.cpp',
         'lib/ST7305_MonoTFT_Library/src/ST7305_2p9_BW_DisplayDriver.cpp',
         'lib/ST7305_MonoTFT_Library/src/U8g2_for_ST73XX.cpp'

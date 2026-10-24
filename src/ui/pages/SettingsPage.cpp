@@ -1,4 +1,5 @@
 #include "SettingsPage.h"
+#include "../SdUiText.h"
 
 #include "../../app/FirmwareInfo.h"
 #include "../../bsp/DisplayMonoTft.h"
@@ -90,7 +91,7 @@ void renderAboutDeviceDetail(DisplayMonoTft& display, uint8_t detailPageIndex, i
   const int16_t kLineY[4] = {55, 87, 119, 151};
   const char* const* lines = (detailPageIndex == 0) ? kPage0Lines : kPage1Lines;
 
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setForegroundColor(ST7305_COLOR_BLACK);
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setFontMode(1);
@@ -135,9 +136,14 @@ const char* wifiErrorTextZh(WifiProvisionService::Error err) {
   }
 }
 
+void drawNetworkName(DisplayMonoTft& display, SdBitmapFont* font, int16_t baseline, const char* line) {
+  SdUiText::Scope externalText(display, font);
+  display.text().drawUTF8(8, baseline, line);
+}
+
 void renderWifiProvisionDetail(DisplayMonoTft& display, const WifiProvisionService& wifi,
                                const TimeService& time,
-                               int16_t yOffset) {
+                               int16_t yOffset, SdBitmapFont* font) {
   auto& canvas = display.canvas();
   auto& text = display.text();
   const int16_t width = static_cast<int16_t>(display.width());
@@ -146,7 +152,7 @@ void renderWifiProvisionDetail(DisplayMonoTft& display, const WifiProvisionServi
 
   DetailHeader::render(display, wifiStateTitleZh(state), yOffset);
 
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setForegroundColor(ST7305_COLOR_BLACK);
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setFontMode(1);
@@ -156,19 +162,19 @@ void renderWifiProvisionDetail(DisplayMonoTft& display, const WifiProvisionServi
   } else if (state == WifiProvisionService::State::PortalReady) {
     char line1[64];
     snprintf(line1, sizeof(line1), "AP: %s", wifi.apSsid());
-    text.drawUTF8(8, static_cast<int16_t>(yOffset + 58), line1);
+    drawNetworkName(display, font, yOffset + 58, line1);
     text.drawUTF8(8, static_cast<int16_t>(yOffset + 86), "连接后打开: 192.168.4.1");
     text.drawUTF8(8, static_cast<int16_t>(yOffset + 114), "网页输入WiFi名和密码");
   } else if (state == WifiProvisionService::State::Connecting) {
     char line1[64];
     snprintf(line1, sizeof(line1), "目标网络: %s", wifi.targetSsid());
-    text.drawUTF8(8, static_cast<int16_t>(yOffset + 58), line1);
+    drawNetworkName(display, font, yOffset + 58, line1);
     text.drawUTF8(8, static_cast<int16_t>(yOffset + 86), "正在连接，请稍候");
   } else if (state == WifiProvisionService::State::Connected ||
              state == WifiProvisionService::State::SyncingTime) {
     char line1[64];
     snprintf(line1, sizeof(line1), "SSID: %s", wifi.targetSsid());
-    text.drawUTF8(8, static_cast<int16_t>(yOffset + 58), line1);
+    drawNetworkName(display, font, yOffset + 58, line1);
     const char* status = "校时已取消，可在时间校准中重试";
     if (state == WifiProvisionService::State::SyncingTime) {
       status = "正在自动校准时间，请稍候";
@@ -211,7 +217,7 @@ void renderUsbSerialDetail(DisplayMonoTft& display, int16_t yOffset) {
 
   DetailHeader::render(display, "USB 串口", yOffset);
 
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setForegroundColor(ST7305_COLOR_BLACK);
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setFontMode(1);
@@ -347,9 +353,9 @@ bool SettingsPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, uint8_t
                                 const char* deviceIdText, const char* flashTotalText,
                                 const char* sdStatusText,
                                 const WifiProvisionService& wifi,
-                                const TimeService& time) const {
+                                const TimeService& time, SdBitmapFont* font) const {
   if (isWifiProvisionSelection(homeFocus, sectionFocus)) {
-    renderWifiProvisionDetail(display, wifi, time, yOffset);
+    renderWifiProvisionDetail(display, wifi, time, yOffset, font);
     return true;
   }
 

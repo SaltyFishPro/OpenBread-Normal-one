@@ -676,11 +676,15 @@ uint16_t U8G2_FOR_ST73XX::utf8_next(uint8_t b)
     if ( utf8_state != 0 )
       return 0x0fffe; /* nothing to do yet */
   }
-  return encoding;
+  // Resident U8g2 records are BMP-only. Never wrap a supplementary scalar into a different glyph.
+  return encoding > 0xFFFFU ? 0x25A1U : static_cast<uint16_t>(encoding);
 }
 
 int16_t U8G2_FOR_ST73XX::drawUTF8(int16_t x, int16_t y, const char *str)
 {
+  if (rendererDraw_ && u8g2.font == rendererFont_ && u8g2.font_decode.dir == 0)
+    return rendererDraw_(rendererContext_, x, y, str, u8g2.font_decode.fg_color,
+                         u8g2.font_decode.bg_color, u8g2.font_decode.is_transparent != 0);
   uint16_t e;
   int16_t delta, sum;
   
@@ -720,6 +724,8 @@ int16_t U8G2_FOR_ST73XX::drawUTF8(int16_t x, int16_t y, const char *str)
 
 int16_t U8G2_FOR_ST73XX::getUTF8Width(const char *str)
 {
+  if (rendererWidth_ && u8g2.font == rendererFont_ && u8g2.font_decode.dir == 0)
+    return rendererWidth_(rendererContext_, str);
   uint16_t e;
   int16_t dx, w;
   

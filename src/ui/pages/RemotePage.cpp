@@ -184,7 +184,7 @@ bool RemotePage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t y
                            : (isRemoteCamSelection(homeFocus, sectionFocus) ? "蓝牙拍照" : "翻页器"),
                        yOffset);
 
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setForegroundColor(ST7305_COLOR_BLACK);
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setFontMode(1);

@@ -181,7 +181,7 @@ void drawConfirm(DisplayMonoTft& display, int16_t yOffset, const ConfirmState& s
   // 内部元素随面板等比缩放、位置同步位移，文字保持最终字号（起始 85% 不会溢出）。
   const int16_t titleBaseline =
       static_cast<int16_t>(panelY + 30 * panelHeight / kConfirmPanelHeight);
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   drawCenteredText(display, title, static_cast<int16_t>(displayWidth / 2), titleBaseline,
                    ST7305_COLOR_WHITE, ST7305_COLOR_BLACK);
 
@@ -225,7 +225,7 @@ void drawInfo(DisplayMonoTft& display, int16_t yOffset, const InfoState& state, 
                       panelX, panelY, panelWidth, panelHeight);
   drawPanel(display, panelX, panelY, panelWidth, panelHeight);
 
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   drawCenteredText(display, title, static_cast<int16_t>(displayWidth / 2),
                    static_cast<int16_t>(panelY + 34 * panelHeight / kInfoPanelHeight),
                    ST7305_COLOR_WHITE, ST7305_COLOR_BLACK);
@@ -234,7 +234,7 @@ void drawInfo(DisplayMonoTft& display, int16_t yOffset, const InfoState& state, 
   drawCenteredText(display, value, static_cast<int16_t>(displayWidth / 2),
                    static_cast<int16_t>(panelY + 74 * panelHeight / kInfoPanelHeight),
                    ST7305_COLOR_WHITE, ST7305_COLOR_BLACK);
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
 }
 
 }  // namespace PopupView

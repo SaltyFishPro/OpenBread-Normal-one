@@ -5,6 +5,7 @@
 #include "../IconBitmap.h"
 
 class DisplayMonoTft;
+class SdBitmapFont;
 class WifiProvisionService;
 class OtaService;
 class TimeService;
@@ -58,7 +59,7 @@ public:
                     const char* flashTotalText,
                     const char* sdStatusText,
                     const WifiProvisionService& wifi,
-                    const TimeService& time) const;
+                    const TimeService& time, SdBitmapFont* font = nullptr) const;
 
   const char* confirmTitle(ConfirmKind kind) const;
   // 左侧安全项（默认选中）。

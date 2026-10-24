@@ -14,7 +14,7 @@ void render(DisplayMonoTft& display, const char* title, int16_t yOffset) {
                              static_cast<int16_t>(yOffset + kHeight - 1),
                              ST7305_COLOR_BLACK);
 
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setForegroundColor(ST7305_COLOR_WHITE);
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setFontMode(0);

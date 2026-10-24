@@ -8,6 +8,7 @@ namespace IconBitmap { struct Anim; }
 
 class HomePage {
 public:
+  enum class FontStatus : uint8_t { Loading, Unavailable, Ready };
   // 主菜单里直接进入详情页、跳过单条目二级目录的入口。
   static constexpr uint8_t kAlarmMenuIndex = 6;
   static constexpr uint8_t kCalendarMenuIndex = 7;
@@ -70,6 +71,8 @@ public:
   static const IconBitmap::Anim& sdUsbIcon();
   void setClockData(const ClockData& data);
   bool setBatteryData(const BatteryData& data);
+  void invalidateTextLayer() { staticLayerValid_ = false; }
+  bool setFontStatus(FontStatus status);
 
 private:
   enum class SlideState : uint8_t { Idle, Sliding };
@@ -111,6 +114,7 @@ private:
   uint32_t animationTimeMs_ = 0;
   ClockData clockData_;
   BatteryData batteryData_;
+  FontStatus fontStatus_ = FontStatus::Ready;
 
   static constexpr uint8_t kMenuCount = 13;
   static constexpr uint32_t kIdleAnimationTimeoutMs = 4000;

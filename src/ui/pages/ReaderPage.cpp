@@ -4,6 +4,7 @@
 #include "../DrawUtils.h"
 #include "../TextUtils.h"
 #include "../SdBitmapText.h"
+#include "../SdUiText.h"
 #include "../../services/SdCardService.h"
 #include "../../services/SdBitmapFont.h"
 
@@ -64,7 +65,7 @@ int16_t cardY(uint8_t index) {
 void drawCenteredText(DisplayMonoTft& display, const char* textValue, int16_t x, int16_t y,
                       int16_t width, int16_t height, bool selected) {
   auto& text = display.text();
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setForegroundColor(selected ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK);
   text.setBackgroundColor(selected ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE);
   text.setFontMode(selected ? 0 : 1);
@@ -90,7 +91,7 @@ void drawClippedTextLine(DisplayMonoTft& display, const char* value, int16_t x, 
   }
 
   auto& text = display.text();
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setForegroundColor(inverted ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK);
   text.setBackgroundColor(inverted ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE);
   text.setFontMode(inverted ? 0 : 1);
@@ -120,26 +121,33 @@ void drawClippedTextLine(DisplayMonoTft& display, const char* value, int16_t x, 
   text.setFontMode(1);
 }
 
-int16_t drawTextLineFast(DisplayMonoTft& display, const uint8_t* font, const char* value,
-                         int16_t x, int16_t baseline, int16_t maxWidth, bool inverted) {
-  if (value == nullptr || value[0] == '\0' || maxWidth <= 0) {
-    return 0;
+int16_t drawHeaderText(DisplayMonoTft& display, SdBitmapFont* font, const uint8_t* fallback,
+                       const char* value, int16_t x, int16_t baseline, int16_t maxWidth) {
+  if (!value || maxWidth <= 0) return 0;
+  display.text().setFont(fallback);
+  if (!SdUiText::ready(font, 60)) font = nullptr;
+  char line[ReaderService::kMaxMeaningLen] = {};
+  uint16_t bytes = 0;
+  int16_t width = 0;
+  const char* p = value;
+  while (*p) {
+    const char* next = p;
+    uint32_t cp;
+    SdBitmapText::nextCodepoint(next, cp);
+    const uint8_t count = static_cast<uint8_t>(next - p);
+    if (bytes + count >= sizeof(line)) break;
+    char glyph[5] = {};
+    memcpy(glyph, p, count);
+    const int16_t advance = SdUiText::width(display, font, glyph);
+    if (width + advance > maxWidth) break;
+    memcpy(line + bytes, p, count);
+    bytes += count;
+    width += advance;
+    p = next;
   }
-
-  auto& text = display.text();
-  text.setFont(font);
-  text.setForegroundColor(inverted ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK);
-  text.setBackgroundColor(inverted ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE);
-  text.setFontMode(inverted ? 0 : 1);
-
-  const int16_t width = text.getUTF8Width(value);
-  text.drawUTF8(x, baseline, value);
-
-  text.setFont(chinese_font_all);
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.setFontMode(1);
-  return width > maxWidth ? maxWidth : width;
+  SdUiText::draw(display, font, x, baseline, line, ST7305_COLOR_BLACK,
+                 {x, 0, static_cast<int16_t>(x + maxWidth - 1), kDividerY - 2});
+  return width;
 }
 
 bool startsWith(const char* value, const char* token) {
@@ -208,7 +216,8 @@ void drawPageArrow(ST7305_2p9_BW_DisplayDriver& canvas, int16_t centerY,
   }
 }
 
-void drawWordDetail(DisplayMonoTft& display, const ReaderService& reader) {
+void drawWordDetail(DisplayMonoTft& display, const ReaderService& reader,
+                    SdBitmapFont* bodyFont, SdBitmapFont* titleFont) {
   auto& canvas = display.canvas();
   auto& text = display.text();
   const int16_t width = static_cast<int16_t>(display.width());
@@ -218,20 +227,15 @@ void drawWordDetail(DisplayMonoTft& display, const ReaderService& reader) {
   const int16_t scrollRight = static_cast<int16_t>(kScrollX + kScrollWidth - 1);
 
   const char* title = entry.word[0] != '\0' ? entry.word : stateMessage(reader.state());
-  const int16_t titleWidth = drawTextLineFast(
-      display, u8g2_font_fur25_tf, title, kWordTextX,
-      kWordBaselineY, static_cast<int16_t>(width - kWordTextX - 1), false);
-
+  const int16_t maxTitleWidth = entry.phonetic[0] ? 230 : width - kWordTextX - 4;
+  const int16_t titleWidth = drawHeaderText(display, titleFont, u8g2_font_fur25_tf, title,
+                                           kWordTextX, kWordBaselineY, maxTitleWidth);
   if (entry.phonetic[0] != '\0' && reader.state() == ReaderService::State::Ready) {
-    int16_t phoneticX = static_cast<int16_t>(kWordTextX + titleWidth + kPhoneticGap);
-    const int16_t maxPhoneticX = static_cast<int16_t>(width - 24);
-    if (phoneticX > maxPhoneticX) {
-      phoneticX = maxPhoneticX;
-    }
-    const int16_t phoneticWidth = static_cast<int16_t>(width - phoneticX - 4);
-    (void)drawTextLineFast(display, chinese_font_all, entry.phonetic, phoneticX,
-                           kPhoneticBaselineY, phoneticWidth, false);
+    const int16_t phoneticX = kWordTextX + titleWidth + kPhoneticGap;
+    (void)drawHeaderText(display, bodyFont, u8g2_font_7x14_tf, entry.phonetic, phoneticX,
+                         kPhoneticBaselineY, width - phoneticX - 4);
   }
+  text.setFont(u8g2_font_7x14_tf);
 
   canvas.drawFilledRectangle(0, kDividerY, static_cast<int16_t>(width - 1),
                              static_cast<int16_t>(kDividerY + kDividerHeight - 1),
@@ -264,7 +268,9 @@ void drawWordDetail(DisplayMonoTft& display, const ReaderService& reader) {
   } else {
     std::snprintf(footer, sizeof(footer), "%s", book);
   }
-  drawClippedTextLine(display, footer, 8, 164, static_cast<int16_t>(kScrollX - 14), true);
+  const int16_t footerBaseline = kFooterY + kFooterHeight - 5;
+  drawClippedTextLine(display, footer, 8, footerBaseline,
+                      static_cast<int16_t>(kScrollX - 14), true);
 
   canvas.drawFilledRectangle(0, pageBottom, static_cast<int16_t>(width - 1), pageBottom,
                              ST7305_COLOR_BLACK);
@@ -292,7 +298,8 @@ void ReaderPage::handleDetailEnter(uint8_t homeFocus, uint8_t sectionFocus, SdBi
 
 bool ReaderPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool leftEdge,
                                    bool rightEdge, bool upEdge, bool downEdge, bool okEdge,
-                                   ReaderService& reader, SdCardService& sd, SdBitmapFont& font) {
+                                   ReaderService& reader, SdCardService& sd, SdBitmapFont& font,
+                                   SdBitmapFont* titleFont) {
   if (!isVocabularySelection(homeFocus, sectionFocus)) {
     return false;
   }
@@ -321,7 +328,8 @@ bool ReaderPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool
     if (okEdge && reader.state() == ReaderService::State::Ready &&
         (font.state() == SdBitmapFont::State::Error || font.state() == SdBitmapFont::State::Closed ||
          meaningState_ == MeaningState::Unsupported)) {
-      font.end();  // A retry may remount the card: close the old font first.
+      if (titleFont) titleFont->end();
+      font.end();  // A retry may remount the card: close both font handles first.
       if (sd.refresh() == SdCardService::Status::Ready) (void)font.open(14);
       resetMeaningPage();
     }
@@ -510,7 +518,7 @@ void ReaderPage::drawMeaning(DisplayMonoTft& display, const ReaderService& reade
     status = meaningState_ == MeaningState::Unsupported ? "字库行高不适合本页" : "正在排版释义，请稍候";
     hint = meaningState_ == MeaningState::Unsupported ? "重导出 14 字号字库后按 OK" : "长按 Left 可返回";
   }
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setForegroundColor(ST7305_COLOR_BLACK);
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setFontMode(1);
@@ -519,14 +527,15 @@ void ReaderPage::drawMeaning(DisplayMonoTft& display, const ReaderService& reade
 }
 
 bool ReaderPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                              DisplayMonoTft& display, const ReaderService& reader, SdBitmapFont& font) const {
+                              DisplayMonoTft& display, const ReaderService& reader, SdBitmapFont& font,
+                              SdBitmapFont* titleFont) const {
   (void)yOffset;
   if (!isVocabularySelection(homeFocus, sectionFocus)) {
     return false;
   }
 
   if (detailView_ == DetailView::Word) {
-    drawWordDetail(display, reader);
+    drawWordDetail(display, reader, &font, titleFont);
     if (reader.state() == ReaderService::State::Ready) drawMeaning(display, reader, font);
     const bool paged = font.state() == SdBitmapFont::State::Ready &&
                        meaningState_ == MeaningState::Ready;
@@ -544,7 +553,7 @@ bool ReaderPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t y
   canvas.drawFilledRectangle(0, 0, static_cast<int16_t>(width - 1),
                              static_cast<int16_t>(kTitleBarHeight - 1),
                              ST7305_COLOR_BLACK);
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setForegroundColor(ST7305_COLOR_WHITE);
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setFontMode(0);

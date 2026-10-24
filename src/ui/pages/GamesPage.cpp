@@ -77,7 +77,7 @@ bool GamesPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yO
   const int16_t height = static_cast<int16_t>(display.height());
   DetailHeader::render(display, "敲木鱼", yOffset);
 
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setForegroundColor(ST7305_COLOR_BLACK);
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setFontMode(1);

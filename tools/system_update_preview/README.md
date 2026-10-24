@@ -7,7 +7,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/system_update_preview/
 ```
 
 The tool compiles the production `SystemUpdatePage`, the actual ST7305 framebuffer
-driver, the project Chinese font, and the optional manifest log parser. It writes
+driver, the retained resident Latin/numeric font, and the optional manifest log parser. It writes
 native 384x168 PGM/PNG frames and a nearest-neighbor contact sheet to
 `tmp/system-update-render/`.
 

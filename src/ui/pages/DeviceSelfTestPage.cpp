@@ -358,7 +358,7 @@ void DeviceSelfTestPage::renderList(DisplayMonoTft& display, int16_t yOffset) co
   canvas.drawFilledRectangle(0, yOffset, width - 1,
                              static_cast<int16_t>(yOffset + kHeaderHeight - 1),
                              ST7305_COLOR_BLACK);
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setForegroundColor(ST7305_COLOR_WHITE);
   text.setFontMode(0);
@@ -438,7 +438,7 @@ void DeviceSelfTestPage::renderScreenIntro(DisplayMonoTft& display, int16_t yOff
                              ST7305_COLOR_WHITE);
   canvas.drawFilledRectangle(0, yOffset, width - 1, static_cast<int16_t>(yOffset + kHeaderHeight - 1),
                              ST7305_COLOR_BLACK);
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setFontMode(0);
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setForegroundColor(ST7305_COLOR_WHITE);
@@ -507,7 +507,7 @@ void DeviceSelfTestPage::renderScreenPattern(DisplayMonoTft& display, int16_t yO
     }
     case 6:
       canvas.drawRectangle(0, yOffset, width - 1, bottom, ST7305_COLOR_BLACK);
-      text.setFont(chinese_font_all);
+      text.setFont(u8g2_font_7x14_tf);
       text.setFontMode(1);
       text.setBackgroundColor(ST7305_COLOR_WHITE);
       text.setForegroundColor(ST7305_COLOR_BLACK);
@@ -564,7 +564,7 @@ void DeviceSelfTestPage::renderScreenPattern(DisplayMonoTft& display, int16_t yO
   const uint16_t footerForeground = blackBackground ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK;
   const int16_t footerTop = static_cast<int16_t>(yOffset + height - kPatternFooterHeight);
   canvas.drawFilledRectangle(0, footerTop, width - 1, bottom, footerBackground);
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setFontMode(blackBackground ? 0 : 1);
   text.setBackgroundColor(footerBackground);
   text.setForegroundColor(footerForeground);
@@ -592,7 +592,7 @@ void DeviceSelfTestPage::renderScreenConfirm(DisplayMonoTft& display, int16_t yO
 
   canvas.drawFilledRectangle(0, yOffset, width - 1, static_cast<int16_t>(yOffset + height - 1),
                              ST7305_COLOR_WHITE);
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setFontMode(1);
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setForegroundColor(ST7305_COLOR_BLACK);
@@ -685,7 +685,7 @@ void DeviceSelfTestPage::renderButtonTest(DisplayMonoTft& display, int16_t yOffs
   canvas.drawFilledRectangle(0, yOffset, width - 1,
                              static_cast<int16_t>(yOffset + kHeaderHeight - 1),
                              ST7305_COLOR_BLACK);
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setFontMode(0);
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setForegroundColor(ST7305_COLOR_WHITE);
@@ -750,7 +750,7 @@ void DeviceSelfTestPage::renderIicTest(DisplayMonoTft& display, int16_t yOffset,
   canvas.drawFilledRectangle(0, yOffset, width - 1,
                              static_cast<int16_t>(yOffset + kHeaderHeight - 1),
                              ST7305_COLOR_BLACK);
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setFontMode(0);
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setForegroundColor(ST7305_COLOR_WHITE);
@@ -818,7 +818,7 @@ void DeviceSelfTestPage::renderRtcTest(DisplayMonoTft& display, int16_t yOffset,
   canvas.drawFilledRectangle(0, yOffset, width - 1,
                              static_cast<int16_t>(yOffset + kHeaderHeight - 1),
                              ST7305_COLOR_BLACK);
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setFontMode(0);
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setForegroundColor(ST7305_COLOR_WHITE);
@@ -905,7 +905,7 @@ void DeviceSelfTestPage::renderRtcTest(DisplayMonoTft& display, int16_t yOffset,
 }
 
 void DeviceSelfTestPage::renderSdTest(DisplayMonoTft& d,int16_t y,const SdCardService&s)const{
-  auto&c=d.canvas();auto&t=d.text();int16_t w=d.width(),h=d.height();c.drawFilledRectangle(0,y,w-1,y+h-1,ST7305_COLOR_WHITE);c.drawFilledRectangle(0,y,w-1,y+27,ST7305_COLOR_BLACK);t.setFont(chinese_font_all);t.setFontMode(0);t.setBackgroundColor(ST7305_COLOR_BLACK);t.setForegroundColor(ST7305_COLOR_WHITE);int16_t tw=t.getUTF8Width("SD卡测试");t.drawUTF8((w-tw)/2,y+22,"SD卡测试");t.setFontMode(1);t.setBackgroundColor(ST7305_COLOR_WHITE);t.setForegroundColor(ST7305_COLOR_BLACK);const char*st=s.status()==SdCardService::Status::Ready?(s.rootReadable()?"只读测试通过":"根目录读取失败"):(s.status()==SdCardService::Status::NotInserted?"未检测到SD卡":"SD卡需要重新插入");t.drawUTF8(24,y+57,st);char line[64];snprintf(line,sizeof(line),"总容量：%llu MB",static_cast<unsigned long long>(s.totalBytes()/(1024ULL*1024ULL)));t.drawUTF8(24,y+88,line);snprintf(line,sizeof(line),"可用容量：%llu MB",static_cast<unsigned long long>(s.freeBytes()/(1024ULL*1024ULL)));t.drawUTF8(24,y+116,line);t.drawUTF8(24,y+151,"默认只读  OK重试  Left返回");}
+  auto&c=d.canvas();auto&t=d.text();int16_t w=d.width(),h=d.height();c.drawFilledRectangle(0,y,w-1,y+h-1,ST7305_COLOR_WHITE);c.drawFilledRectangle(0,y,w-1,y+27,ST7305_COLOR_BLACK);t.setFont(u8g2_font_7x14_tf);t.setFontMode(0);t.setBackgroundColor(ST7305_COLOR_BLACK);t.setForegroundColor(ST7305_COLOR_WHITE);int16_t tw=t.getUTF8Width("SD卡测试");t.drawUTF8((w-tw)/2,y+22,"SD卡测试");t.setFontMode(1);t.setBackgroundColor(ST7305_COLOR_WHITE);t.setForegroundColor(ST7305_COLOR_BLACK);const char*st=s.status()==SdCardService::Status::Ready?(s.rootReadable()?"只读测试通过":"根目录读取失败"):(s.status()==SdCardService::Status::NotInserted?"未检测到SD卡":"SD卡需要重新插入");t.drawUTF8(24,y+57,st);char line[64];snprintf(line,sizeof(line),"总容量：%llu MB",static_cast<unsigned long long>(s.totalBytes()/(1024ULL*1024ULL)));t.drawUTF8(24,y+88,line);snprintf(line,sizeof(line),"可用容量：%llu MB",static_cast<unsigned long long>(s.freeBytes()/(1024ULL*1024ULL)));t.drawUTF8(24,y+116,line);t.drawUTF8(24,y+151,"默认只读  OK重试  Left返回");}
 void DeviceSelfTestPage::renderImuTest(DisplayMonoTft& display, int16_t yOffset,
                                        const ImuTestService& service) const {
   auto& canvas = display.canvas();
@@ -915,7 +915,7 @@ void DeviceSelfTestPage::renderImuTest(DisplayMonoTft& display, int16_t yOffset,
   canvas.drawFilledRectangle(0, yOffset, width - 1, yOffset + height - 1,
                              ST7305_COLOR_WHITE);
   canvas.drawFilledRectangle(0, yOffset, width - 1, yOffset + 27, ST7305_COLOR_BLACK);
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setFontMode(0);
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setForegroundColor(ST7305_COLOR_WHITE);
@@ -963,7 +963,7 @@ void DeviceSelfTestPage::renderPowerTest(DisplayMonoTft& display, int16_t yOffse
   canvas.drawFilledRectangle(0, yOffset, width - 1, yOffset + height - 1,
                              ST7305_COLOR_WHITE);
   canvas.drawFilledRectangle(0, yOffset, width - 1, yOffset + 27, ST7305_COLOR_BLACK);
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setFontMode(0);
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setForegroundColor(ST7305_COLOR_WHITE);

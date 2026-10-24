@@ -16,13 +16,15 @@ public:
   void handleDetailEnter(uint8_t homeFocus, uint8_t sectionFocus, SdBitmapFont& font);
   bool handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool leftEdge,
                          bool rightEdge, bool upEdge, bool downEdge, bool okEdge,
-                         ReaderService& reader, SdCardService& sd, SdBitmapFont& font);
+                         ReaderService& reader, SdCardService& sd, SdBitmapFont& font,
+                         SdBitmapFont* titleFont = nullptr);
   bool handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus, ReaderService& reader,
                         SdBitmapFont& font);
   bool updateMeaning(const ReaderService& reader, SdBitmapFont& font);
   bool isPreparingMeaning() const { return meaningState_ == MeaningState::Building; }
   bool renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                    DisplayMonoTft& display, const ReaderService& reader, SdBitmapFont& font) const;
+                    DisplayMonoTft& display, const ReaderService& reader, SdBitmapFont& font,
+                    SdBitmapFont* titleFont = nullptr) const;
   bool isStaticWordDetail(uint8_t homeFocus, uint8_t sectionFocus) const;
 
 private:

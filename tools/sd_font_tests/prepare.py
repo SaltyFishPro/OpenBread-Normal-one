@@ -171,6 +171,6 @@ fixture("common-aligned", aligned)
 
 # Reuse the firmware's actual built-in header/control font for page previews only.
 source = (project / "lib/ST7305_MonoTFT_Library/src/u8g2_fonts.c").read_text(encoding="utf-8")
-start = source.index("const uint8_t chinese_font_all[")
+start = source.index("const uint8_t u8g2_font_7x14_tf[")
 end = source.index(";\n", start) + 1
 (root / "fonts.c").write_text('#include "u8g2_fonts.h"\n' + source[start:end] + "\n", encoding="utf-8")

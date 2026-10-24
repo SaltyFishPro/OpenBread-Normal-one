@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 class DisplayMonoTft;
+class SdBitmapFont;
 
 class AnswersBookPage {
 public:
@@ -15,7 +16,8 @@ public:
                          bool downEdge, bool okEdge, uint32_t nowMs);
   bool handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus);
   bool renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                    DisplayMonoTft& display, uint32_t nowMs) const;
+                    DisplayMonoTft& display, uint32_t nowMs,
+                    SdBitmapFont* bodyFont = nullptr, SdBitmapFont* answerFont = nullptr) const;
   bool needsAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus) const;
   bool isAnimating(uint8_t homeFocus, uint8_t sectionFocus) const;
 

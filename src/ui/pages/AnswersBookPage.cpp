@@ -9,6 +9,7 @@
 #include "../DetailHeader.h"
 #include "../DrawUtils.h"
 #include "../TextUtils.h"
+#include "../SdUiText.h"
 #include "AnswersBookData.h"
 
 namespace {
@@ -26,57 +27,51 @@ constexpr int16_t kAnswerMaxWidth = 320;
 constexpr int16_t kAnswerFirstBaseline = 94;
 constexpr int16_t kAnswerLineGap = 18;
 constexpr uint8_t kHistoryCapacity = 3;
-constexpr int16_t kHistoryFirstBaseline = 49;
-constexpr int16_t kHistoryLineGap = 24;
+constexpr int16_t kHistoryFirstBaseline = 43;
+constexpr int16_t kHistoryLineGap = 27;
 
 void drawCentered(U8G2_FOR_ST73XX& text, const char* value, int16_t centerX,
                  int16_t baseline) {
   text.drawUTF8(TextUtils::centeredTextX(text, value, centerX), baseline, value);
 }
 
-void drawWrappedCentered(U8G2_FOR_ST73XX& text, const char* value, int16_t centerX,
-                        int16_t firstBaseline, int16_t maxWidth, int16_t lineGap) {
+void drawWrappedCentered(DisplayMonoTft& display, SdBitmapFont* font, const char* value,
+                         int16_t centerX, int16_t yOffset) {
+  auto& text = display.text();
+  const bool fromSd = SdUiText::ready(font, 44);
+  if (!fromSd) font = nullptr;
+  const int16_t pitch = fromSd ? font->metrics().lineHeight() : kAnswerLineGap;
+  const SdBitmapText::Clip clip = {32, static_cast<int16_t>(yOffset + 74), 351,
+                                  static_cast<int16_t>(yOffset + 138)};
   const char* cursor = value;
-  char line[64] = {0};
-  uint8_t lineCount = 0;
-
-  while (*cursor != '\0' && lineCount < 3U) {
-    size_t lineBytes = 0;
-    const char* probe = cursor;
-    while (*probe != '\0') {
-      const uint8_t charBytes = TextUtils::utf8CharLen(*probe);
-      if (lineBytes + charBytes >= sizeof(line)) {
-        break;
-      }
-      memcpy(line + lineBytes, probe, charBytes);
-      line[lineBytes + charBytes] = '\0';
-      if (text.getUTF8Width(line) > maxWidth && lineBytes > 0U) {
-        break;
-      }
-      lineBytes += charBytes;
-      probe += charBytes;
+  for (uint8_t row = 0; *cursor && row < 2; ++row) {
+    char line[80] = {};
+    uint8_t bytes = 0;
+    int16_t width = 0;
+    while (*cursor) {
+      const char* next = cursor;
+      uint32_t cp;
+      SdBitmapText::nextCodepoint(next, cp);
+      const uint8_t count = static_cast<uint8_t>(next - cursor);
+      if (bytes + count >= sizeof(line)) break;
+      char glyph[5] = {};
+      memcpy(glyph, cursor, count);
+      const int16_t advance = SdUiText::width(display, font, glyph);
+      if (bytes && width + advance > kAnswerMaxWidth) break;
+      memcpy(line + bytes, cursor, count);
+      bytes += count;
+      line[bytes] = '\0';
+      width += advance;
+      cursor = next;
     }
-
-    if (lineBytes == 0U) {
-      const uint8_t charBytes = TextUtils::utf8CharLen(*cursor);
-      if (charBytes >= sizeof(line)) {
-        return;
-      }
-      memcpy(line, cursor, charBytes);
-      line[charBytes] = '\0';
-      lineBytes = charBytes;
-    }
-
-    drawCentered(text, line, centerX,
-                 static_cast<int16_t>(firstBaseline + lineCount * lineGap));
-    cursor += lineBytes;
-    ++lineCount;
+    SdUiText::centered(display, font, centerX, yOffset + kAnswerFirstBaseline + row * pitch,
+                       line, ST7305_COLOR_BLACK, clip);
   }
 }
 
-void drawCardShell(ST7305_2p9_BW_DisplayDriver& canvas, int16_t yOffset) {
+void drawCardShell(ST7305_2p9_BW_DisplayDriver& canvas, int16_t yOffset, bool answer) {
   DrawUtils::drawRoundRect(canvas, kCardX, static_cast<int16_t>(kCardY + yOffset),
-                           kCardWidth, kCardHeight,
+                           kCardWidth, answer ? 100 : kCardHeight,
                            kCardRadius, ST7305_COLOR_WHITE, ST7305_COLOR_BLACK);
 }
 
@@ -88,18 +83,17 @@ void drawFooter(U8G2_FOR_ST73XX& text, int16_t yOffset, const char* value,
                static_cast<int16_t>(yOffset + displayHeight - kFooterBaselineOffset));
 }
 
-void drawHistoryRow(ST7305_2p9_BW_DisplayDriver& canvas, U8G2_FOR_ST73XX& text,
-                    const char* value, int16_t rowTop, int16_t centerX,
-                    bool selected) {
-  if (selected) {
-    canvas.drawFilledRectangle(32, rowTop, 351,
-                               static_cast<int16_t>(rowTop + 21),
-                               ST7305_COLOR_BLACK);
-  }
-  text.setForegroundColor(selected ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK);
-  text.setBackgroundColor(selected ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE);
-  text.drawUTF8(TextUtils::centeredTextX(text, value, centerX),
-                static_cast<int16_t>(rowTop + 16), value);
+void drawHistoryRow(DisplayMonoTft& display, SdBitmapFont* font, const char* value,
+                    int16_t rowTop, int16_t centerX, bool selected) {
+  auto& canvas = display.canvas();
+  if (!SdUiText::ready(font, 27)) font = nullptr;
+  const int16_t height = 26;
+  if (selected)
+    DrawUtils::drawClippedFilledRect(canvas, 32, rowTop, 351, rowTop + height - 1,
+                                     ST7305_COLOR_BLACK);
+  const SdBitmapText::Clip clip = {32, rowTop, 351, static_cast<int16_t>(rowTop + height - 1)};
+  SdUiText::centered(display, font, centerX, rowTop + 18, value,
+                     selected ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK, clip);
 }
 }  // namespace
 
@@ -241,7 +235,8 @@ bool AnswersBookPage::isAnimating(uint8_t homeFocus, uint8_t sectionFocus) const
 }
 
 bool AnswersBookPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                                   DisplayMonoTft& display, uint32_t nowMs) const {
+                                   DisplayMonoTft& display, uint32_t nowMs,
+                                   SdBitmapFont* bodyFont, SdBitmapFont* answerFont) const {
   if (!isSelection(homeFocus, sectionFocus)) {
     return false;
   }
@@ -252,12 +247,12 @@ bool AnswersBookPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int1
   const int16_t height = static_cast<int16_t>(display.height());
 
   DetailHeader::render(display, view_ == View::History ? "答案记录" : "答案之书", yOffset);
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setFontMode(1);
   text.setForegroundColor(ST7305_COLOR_BLACK);
   text.setBackgroundColor(ST7305_COLOR_WHITE);
 
-  drawCardShell(canvas, yOffset);
+  drawCardShell(canvas, yOffset, view_ == View::Answer);
 
   if (view_ == View::Prompt) {
     drawCentered(text, "想好一个问题", static_cast<int16_t>(width / 2),
@@ -312,7 +307,7 @@ bool AnswersBookPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int1
       if (index >= AnswersBookData::kAnswerCount) {
         continue;
       }
-      drawHistoryRow(canvas, text, AnswersBookData::kAnswers[index],
+      drawHistoryRow(display, bodyFont, AnswersBookData::kAnswers[index],
                      static_cast<int16_t>(yOffset + kHistoryFirstBaseline +
                                           row * kHistoryLineGap),
                      static_cast<int16_t>(width / 2), row == historyCursor_);
@@ -323,11 +318,9 @@ bool AnswersBookPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int1
 
   if (hasAnswer_ && answerIndex_ < AnswersBookData::kAnswerCount) {
     drawCentered(text, "答案", static_cast<int16_t>(width / 2),
-                 static_cast<int16_t>(yOffset + 66));
-    drawWrappedCentered(text, AnswersBookData::kAnswers[answerIndex_],
-                        static_cast<int16_t>(width / 2),
-                        static_cast<int16_t>(yOffset + kAnswerFirstBaseline),
-                        kAnswerMaxWidth, kAnswerLineGap);
+                 static_cast<int16_t>(yOffset + 62));
+    drawWrappedCentered(display, answerFont, AnswersBookData::kAnswers[answerIndex_],
+                        static_cast<int16_t>(width / 2), yOffset);
   }
   drawFooter(text, yOffset, "OK 再问一次    LEFT 返回", width, height);
   return true;

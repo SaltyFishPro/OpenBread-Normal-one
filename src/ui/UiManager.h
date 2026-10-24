@@ -35,6 +35,7 @@
 #include "pages/SystemUpdatePage.h"
 #include "../services/SdCardService.h"
 #include "../services/SdBitmapFont.h"
+#include "../services/UiFontCache.h"
 #include "../services/ComputerStatusProtocol.h"
 
 class UiManager {
@@ -103,6 +104,10 @@ private:
   void performFactoryReset();
   void initDeviceInfoCache();
   void renderDetail(int16_t yOffset = 0);
+  enum class ContentFontUse : uint8_t { None, Answers, Update, Reader, External };
+  void syncContentFonts();
+  void closeContentFonts();
+  void syncUiFont();
   bool isComputerStatusDetail() const;
   void renderComputerStatusFrame();
   void startSectionFocusAnimation(uint8_t toIndex, uint32_t nowMs);
@@ -144,6 +149,10 @@ private:
   WifiProvisionService wifiProvisionService_;
   SdCardService sdCardService_;
   SdBitmapFont sdBitmapFont_;
+  SdBitmapFont sdTitleFont_;
+  UiFontCache uiFont_;
+  bool uiFontAttempted_ = false;
+  ContentFontUse contentFontUse_ = ContentFontUse::None;
   MusicService musicService_;
   IicScanService iicScanService_;
   RtcTestService rtcTestService_;

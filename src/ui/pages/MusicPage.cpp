@@ -9,6 +9,7 @@
 #include "../DrawUtils.h"
 #include "../IconBitmap.h"
 #include "../TextUtils.h"
+#include "../SdUiText.h"
 #include "../assets/musicapp/music_nav_icons.h"
 #include "../PopupView.h"
 
@@ -253,7 +254,7 @@ void drawRevealedLabel(DisplayMonoTft& display, uint8_t index, int16_t yOffset,
 
   const char* suffix = TextUtils::utf8SuffixByChars(label, visibleChars);
   const int16_t finalRight = static_cast<int16_t>(tabX(index) + kTabWidth - 9);
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setForegroundColor(ST7305_COLOR_BLACK);
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setFontMode(1);
@@ -395,14 +396,14 @@ void drawMusicListProgress(DisplayMonoTft& display, const MusicService& music,
 void drawMusicList(DisplayMonoTft& display, const MusicService& music, uint16_t pageIndex,
                    uint8_t rowIndex, uint32_t nowMs, bool focusAnimating,
                    uint8_t focusFromRow, uint8_t focusToRow,
-                   uint32_t focusAnimStartMs, int16_t xOffset) {
+                   uint32_t focusAnimStartMs, int16_t xOffset, SdBitmapFont* font) {
   auto& canvas = display.canvas();
   auto& text = display.text();
 
   canvas.drawFilledRectangle(static_cast<int16_t>(kListAreaX + xOffset), kListAreaY,
                              translatedRightEdge(xOffset, kListAreaWidth - 1),
                              static_cast<int16_t>(kListAreaHeight - 1), ST7305_COLOR_WHITE);
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setForegroundColor(ST7305_COLOR_BLACK);
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setFontMode(1);
@@ -422,6 +423,7 @@ void drawMusicList(DisplayMonoTft& display, const MusicService& music, uint16_t 
     return;
   }
 
+  SdUiText::Scope externalText(display, font);
   rowIndex = min<uint8_t>(rowIndex, static_cast<uint8_t>(page.count - 1U));
 
   char selectedLine[96];
@@ -935,7 +937,7 @@ const char* playerTitleFor(const MusicService& music, uint8_t rowIndex) {
 }
 
 void drawPlayerPreviewSurface(DisplayMonoTft& display, const MusicService& music,
-                              uint8_t rowIndex, uint32_t nowMs, bool playing) {
+                              uint8_t rowIndex, uint32_t nowMs, bool playing, SdBitmapFont* font) {
   auto& canvas = display.canvas();
   auto& text = display.text();
   canvas.drawFilledRectangle(kPlayerAreaX, kPlayerAreaY,
@@ -943,13 +945,16 @@ void drawPlayerPreviewSurface(DisplayMonoTft& display, const MusicService& music
                              static_cast<int16_t>(kPlayerAreaY + kPlayerAreaHeight - 1),
                              ST7305_COLOR_WHITE);
 
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setForegroundColor(ST7305_COLOR_BLACK);
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setFontMode(1);
-  drawMaskedScrollingText(display, playerTitleFor(music, rowIndex), kPlayerTitleX, kPlayerTitleY,
-                          kPlayerTitleWidth, kPlayerTitleHeight, kPlayerTitleBaselineY, nowMs,
-                          kTitleScrollPeriodMs);
+  {
+    SdUiText::Scope externalText(display, font);
+    drawMaskedScrollingText(display, playerTitleFor(music, rowIndex), kPlayerTitleX, kPlayerTitleY,
+                            kPlayerTitleWidth, kPlayerTitleHeight, kPlayerTitleBaselineY, nowMs,
+                            kTitleScrollPeriodMs);
+  }
   drawAudioOutputIndicator(display, music.headphonesInserted());
   drawPlayerSpectrum(display, music, nowMs, playing);
   drawPlayerProgress(display, music.currentSeconds(), music.durationSeconds());
@@ -961,7 +966,7 @@ void drawPlayerTransitionFrame(DisplayMonoTft& display, const MusicService& musi
                                uint16_t pageIndex, uint8_t rowIndex,
                                uint32_t nowMs, bool focusAnimating, uint8_t focusFromRow,
                                uint8_t focusToRow,
-                               uint32_t focusAnimStartMs, float progress) {
+                               uint32_t focusAnimStartMs, float progress, SdBitmapFont* font) {
   auto& canvas = display.canvas();
   progress = clamp01(progress);
 
@@ -975,7 +980,7 @@ void drawPlayerTransitionFrame(DisplayMonoTft& display, const MusicService& musi
   const int16_t listOffsetX = lerpInt(0, static_cast<int16_t>(display.width()), phase1);
   if (listOffsetX < static_cast<int16_t>(display.width())) {
     drawMusicList(display, music, pageIndex, rowIndex, nowMs, focusAnimating,
-                  focusFromRow, focusToRow, focusAnimStartMs, listOffsetX);
+                  focusFromRow, focusToRow, focusAnimStartMs, listOffsetX, font);
   }
 
   int16_t barX = lerpInt(kPlayerBarX, kPlayerCompactX, phase1);
@@ -1182,7 +1187,7 @@ bool MusicPage::handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus, MusicS
 
 bool MusicPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
                              DisplayMonoTft& display, const MusicService& music,
-                             uint32_t nowMs) {
+                             uint32_t nowMs, SdBitmapFont* font) {
   if (!isMusicListSelection(homeFocus, sectionFocus)) {
     return false;
   }
@@ -1199,12 +1204,12 @@ bool MusicPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yO
       playerTransitionStartProgress_ = 0.0f;
       playerTransitionTargetProgress_ = 0.0f;
       drawMusicList(display, music, pageIndex_, rowIndex_, nowMs, listFocusAnimating,
-                    listFocusFromRow_, listFocusToRow_, listFocusAnimStartMs_, 0);
+                    listFocusFromRow_, listFocusToRow_, listFocusAnimStartMs_, 0, font);
       drawMusicNavFrame(display, selectedIndex_, favoriteEnabled_, yOffset, 1.0f);
     } else {
       drawPlayerTransitionFrame(display, music, pageIndex_, rowIndex_, nowMs,
                                 listFocusAnimating, listFocusFromRow_, listFocusToRow_,
-                                listFocusAnimStartMs_, playerProgress);
+                                listFocusAnimStartMs_, playerProgress, font);
     }
 
     if (playerViewState_ == PlayerViewState::Entering && !playerAnimating) {
@@ -1215,7 +1220,7 @@ bool MusicPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yO
     if (playerViewState_ == PlayerViewState::Player) {
       playerUiPlaying_ = isPlaybackActive(music);
       playerUiShuffle_ = music.shuffleEnabled();
-      drawPlayerPreviewSurface(display, music, rowIndex_, nowMs, playerUiPlaying_);
+      drawPlayerPreviewSurface(display, music, rowIndex_, nowMs, playerUiPlaying_, font);
       drawPlayerSideControls(display, playerControlIndex_, playerUiPlaying_, playerUiShuffle_);
     }
     if (!listFocusAnimating) {
@@ -1225,7 +1230,7 @@ bool MusicPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yO
   }
 
   drawMusicList(display, music, pageIndex_, rowIndex_, nowMs, listFocusAnimating,
-                listFocusFromRow_, listFocusToRow_, listFocusAnimStartMs_, 0);
+                listFocusFromRow_, listFocusToRow_, listFocusAnimStartMs_, 0, font);
   drawMusicNavFrame(display, selectedIndex_, favoriteEnabled_, yOffset, progress);
   if (PopupView::isVisible(volumePopup_.anim)) {
     // 音量弹窗的进场/退场动画在这里推进，退场结束即自动消失。
@@ -1259,7 +1264,7 @@ bool MusicPage::renderDetailNavOnly(uint8_t homeFocus, uint8_t sectionFocus, int
 
 bool MusicPage::renderDetailListOnly(uint8_t homeFocus, uint8_t sectionFocus,
                                      DisplayMonoTft& display, const MusicService& music,
-                                     uint32_t nowMs) {
+                                     uint32_t nowMs, SdBitmapFont* font) {
   if (!isMusicListSelection(homeFocus, sectionFocus) ||
       playerViewState_ != PlayerViewState::List) {
     return false;
@@ -1268,7 +1273,7 @@ bool MusicPage::renderDetailListOnly(uint8_t homeFocus, uint8_t sectionFocus,
   const bool listFocusAnimating = isListFocusAnimating(nowMs);
   clearMusicListArea(display);
   drawMusicList(display, music, pageIndex_, rowIndex_, nowMs, listFocusAnimating,
-                listFocusFromRow_, listFocusToRow_, listFocusAnimStartMs_, 0);
+                listFocusFromRow_, listFocusToRow_, listFocusAnimStartMs_, 0, font);
   if (!listFocusAnimating) {
     listFocusAnimating_ = false;
   }

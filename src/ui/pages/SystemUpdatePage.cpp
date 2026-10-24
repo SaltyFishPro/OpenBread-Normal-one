@@ -5,13 +5,12 @@
 #include "../DetailHeader.h"
 #include "../DrawUtils.h"
 #include "../TextUtils.h"
+#include "../SdUiText.h"
 
 namespace {
 constexpr int16_t kHeroX = 20;
 constexpr int16_t kDetailX = 164;
 constexpr int16_t kDetailWidth = 204;
-constexpr int16_t kLogTop = 70;
-constexpr int16_t kLogBottom = 113;
 constexpr int16_t kLinePitch = 22;
 const char kLocalNotes[] =
     "新增电脑状态看板\n优化 USB 连接等待\n完善答案之书记录\n"
@@ -104,41 +103,75 @@ SystemUpdatePage::View SystemUpdatePage::viewOf(const OtaService& ota) {
 
 void SystemUpdatePage::prepareEnter() {
   notes_ = nullptr;
+  logFont_ = nullptr;
+  building_ = false;
   lineCount_ = page_ = previousPage_ = 0;
   active_ = logsVisible_ = animating_ = manualPause_ = false;
 }
 
-void SystemUpdatePage::syncLogs(const View& view, U8G2_FOR_ST73XX& text) {
+bool SystemUpdatePage::syncLogs(const View& view, U8G2_FOR_ST73XX& text, SdBitmapFont* font) {
   logsVisible_ = showsLogs(view.state);
+  if (!SdUiText::ready(font, 27)) font = nullptr;
+  const uint32_t session = font ? font->session() : 0;
   const char* source = view.state == OtaService::State::Idle ? kLocalNotes : view.notes;
   if (!source || !*source) source = kEmptyNotes;
-  if (source == notes_ && view.state == notesState_) return;
+  if (source == notes_ && view.state == notesState_ && font == logFont_ && session == fontSession_)
+    return false;
   notes_ = source;
   notesState_ = view.state;
+  logFont_ = font;
+  fontSession_ = session;
   lineCount_ = page_ = previousPage_ = 0;
+  scan_ = lineStart_ = 0;
+  lineWidth_ = 0;
   animating_ = manualPause_ = false;
-  text.setFont(chinese_font_all);
-  const char* p = source;
-  while (*p && lineCount_ < kMaxLines) {
-    while (*p == '\n' || *p == '\r') ++p;
-    if (!*p) break;
-    const char* start = p;
-    uint8_t bytes = 0;
-    int16_t width = 0;
-    while (*p && *p != '\n' && *p != '\r') {
-      const uint8_t len = TextUtils::utf8CharLen(*p);
-      char glyph[5] = {};
-      if (strlen(p) < len) break;
-      memcpy(glyph, p, len);
-      const int16_t glyphWidth = text.getUTF8Width(glyph);
-      if (bytes && (width + glyphWidth > kDetailWidth || bytes + len > 63)) break;
-      bytes += len;
-      width += glyphWidth;
-      p += len;
+  building_ = logsVisible_;
+  // Offline UI text is cheap; SD layout yields between small batches.
+  if (!font) while (building_) buildLogs(text);
+  return true;
+}
+
+bool SystemUpdatePage::buildLogs(U8G2_FOR_ST73XX& text) {
+  if (!building_) return false;
+  text.setFont(u8g2_font_7x14_tf);
+  const uint32_t started = millis();
+  for (uint8_t count = 0; count < 16 && building_; ++count) {
+    const char* p = notes_ + scan_;
+    const char* next = p;
+    uint32_t cp = 0;
+    const bool has = SdBitmapText::nextCodepoint(next, cp);
+    char glyph[5] = {};
+    if (has) memcpy(glyph, p, next - p);
+    const int16_t advance = logFont_ ? SdBitmapText::measureUTF8(*logFont_, glyph)
+                                    : text.getUTF8Width(glyph);
+    if (logFont_ && logFont_->state() != SdBitmapFont::State::Ready) {
+      building_ = false; // syncLogs replaces the layout with offline UI text next tick.
+      return true;
     }
-    if (!bytes) break;
-    lines_[lineCount_++] = {static_cast<uint16_t>(start - source), bytes};
+    const bool newline = cp == '\n' || cp == '\r';
+    int16_t nextWidth = lineWidth_ + advance;
+    if (!logFont_ && has && !newline && next - notes_ - lineStart_ <= 63) {
+      // Mixed ASCII/Chinese uses the cached SD face, whereas a pure ASCII
+      // string keeps native U8g2 metrics. Measure the actual candidate string.
+      char candidate[64] = {};
+      memcpy(candidate, notes_ + lineStart_, next - notes_ - lineStart_);
+      nextWidth = text.getUTF8Width(candidate);
+    }
+    if (!has || newline || (scan_ > lineStart_ &&
+        (nextWidth > kDetailWidth || next - notes_ - lineStart_ > 63))) {
+      if (scan_ > lineStart_)
+        lines_[lineCount_++] = {lineStart_, static_cast<uint8_t>(scan_ - lineStart_)};
+      lineStart_ = scan_;
+      lineWidth_ = 0;
+      nextWidth = advance;
+      if (!has || lineCount_ == kMaxLines) { building_ = false; break; }
+    }
+    scan_ = static_cast<uint16_t>(next - notes_);
+    if (newline) lineStart_ = scan_;
+    else lineWidth_ = nextWidth;
+    if (logFont_ && millis() - started >= 4U) break;
   }
+  return true;
 }
 
 void SystemUpdatePage::startSlide(uint8_t next, int8_t direction, uint32_t nowMs) {
@@ -150,21 +183,20 @@ void SystemUpdatePage::startSlide(uint8_t next, int8_t direction, uint32_t nowMs
 }
 
 bool SystemUpdatePage::update(const View& view, bool active, bool popupVisible,
-                               uint32_t nowMs, U8G2_FOR_ST73XX& text) {
+                               uint32_t nowMs, U8G2_FOR_ST73XX& text, SdBitmapFont* font) {
   if (!active) {
     active_ = animating_ = false;
     return false;
   }
-  const char* oldNotes = notes_;
-  const auto oldState = notesState_;
-  syncLogs(view, text);
-  const bool reset = !active_ || notes_ != oldNotes || notesState_ != oldState;
+  const bool wasActive = active_;
+  const bool reset = syncLogs(view, text, font) || !wasActive;
+  const bool built = buildLogs(text);
   active_ = true;
-  if (reset || popupVisible || !logsVisible_) {
+  if (reset || built || popupVisible || !logsVisible_) {
     lastAdvanceMs_ = nowMs;
     const bool wasAnimating = animating_;
     animating_ = false;
-    return reset || wasAnimating;
+    return reset || built || wasAnimating;
   }
   if (animating_ && nowMs - slideStartMs_ >= kSlideMs) {
     animating_ = false;
@@ -180,12 +212,18 @@ bool SystemUpdatePage::update(const View& view, bool active, bool popupVisible,
 }
 
 bool SystemUpdatePage::handleLogInput(bool up, bool down, uint32_t nowMs) {
-  if ((!up && !down) || !logsVisible_ || logPageCount() < 2) return false;
+  if ((!up && !down) || building_ || !logsVisible_ || logPageCount() < 2) return false;
   lastManualMs_ = lastAdvanceMs_ = nowMs;
   manualPause_ = true;
   if (up && page_ > 0) startSlide(static_cast<uint8_t>(page_ - 1), -1, nowMs);
   else if (down && page_ + 1 < logPageCount()) startSlide(static_cast<uint8_t>(page_ + 1), 1, nowMs);
   return true;
+}
+
+int16_t SystemUpdatePage::logTop() const { return logFont_ ? 65 : 70; }
+int16_t SystemUpdatePage::logBottom() const {
+  const int16_t pitch = logFont_ ? logFont_->metrics().lineHeight() : kLinePitch;
+  return logTop() + 2 * pitch - 1;
 }
 
 void SystemUpdatePage::drawLogPage(DisplayMonoTft& display, uint8_t page, int16_t yOffset) {
@@ -194,17 +232,20 @@ void SystemUpdatePage::drawLogPage(DisplayMonoTft& display, uint8_t page, int16_
     if (index >= lineCount_) break;
     char line[64] = {};
     memcpy(line, notes_ + lines_[index].offset, lines_[index].bytes);
-    display.text().drawUTF8(kDetailX, static_cast<int16_t>(yOffset + 86 + row * kLinePitch), line);
+    const int16_t pitch = logFont_ ? logFont_->metrics().lineHeight() : kLinePitch;
+    const int16_t baseline = logFont_ ? logTop() + logFont_->metrics().ascent : 86;
+    SdUiText::draw(display, logFont_, kDetailX, yOffset + baseline + row * pitch, line,
+                   ST7305_COLOR_BLACK, {kDetailX, 0, 367, 167});
   }
 }
 
 void SystemUpdatePage::render(DisplayMonoTft& display, int16_t yOffset, const View& view,
-                               uint32_t nowMs) {
+                               uint32_t nowMs, SdBitmapFont* font) {
   using State = OtaService::State;
   auto& text = display.text();
   auto& canvas = display.canvas();
-  syncLogs(view, text);
-  text.setFont(chinese_font_all);
+  syncLogs(view, text, font);
+  text.setFont(u8g2_font_7x14_tf);
   text.setFontMode(1);
   text.setForegroundColor(ST7305_COLOR_BLACK);
   text.setBackgroundColor(ST7305_COLOR_WHITE);
@@ -214,16 +255,17 @@ void SystemUpdatePage::render(DisplayMonoTft& display, int16_t yOffset, const Vi
       if (t > kSlideMs) t = kSlideMs;
       // 缓出曲线，仅在 550ms 滚动期间计算。
       const uint32_t remaining = kSlideMs - t;
-      const int16_t shift = static_cast<int16_t>(44U - 44U * remaining * remaining / (kSlideMs * kSlideMs));
+      const uint32_t span = logBottom() - logTop() + 1;
+      const int16_t shift = static_cast<int16_t>(span - span * remaining * remaining / (kSlideMs * kSlideMs));
       drawLogPage(display, previousPage_, static_cast<int16_t>(yOffset - direction_ * shift));
-      drawLogPage(display, page_, static_cast<int16_t>(yOffset + direction_ * (44 - shift)));
+      drawLogPage(display, page_, static_cast<int16_t>(yOffset + direction_ * (span - shift)));
     } else {
       drawLogPage(display, page_, yOffset);
     }
     // 整帧绘制时遮去视口上下的字形，再画标题/状态/页码，避免滚动残留。
     DrawUtils::drawClippedFilledRect(canvas, kDetailX, yOffset, 383,
-                                    static_cast<int16_t>(yOffset + kLogTop - 1), ST7305_COLOR_WHITE);
-    DrawUtils::drawClippedFilledRect(canvas, kDetailX, static_cast<int16_t>(yOffset + kLogBottom + 1),
+                                    static_cast<int16_t>(yOffset + logTop() - 1), ST7305_COLOR_WHITE);
+    DrawUtils::drawClippedFilledRect(canvas, kDetailX, static_cast<int16_t>(yOffset + logBottom() + 1),
                                     383, static_cast<int16_t>(yOffset + 167), ST7305_COLOR_WHITE);
   }
   DetailHeader::render(display, "系统更新", yOffset);
@@ -250,7 +292,7 @@ void SystemUpdatePage::render(DisplayMonoTft& display, int16_t yOffset, const Vi
     if (text.getUTF8Width(big) > 128) text.setFont(u8g2_font_logisoso24_tr);
     drawFitted(text, kHeroX, yOffset + 103, big, 128);
   }
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   char current[64];
   snprintf(current, sizeof(current), "当前 %s", FirmwareInfo::kVersion);
   drawFitted(text, kHeroX, yOffset + 130, current, 128);
@@ -308,7 +350,7 @@ void SystemUpdatePage::render(DisplayMonoTft& display, int16_t yOffset, const Vi
     snprintf(meta, sizeof(meta), "%s / %s", downloaded, total);
     text.setFont(u8g2_font_7x14_tf);
     text.drawUTF8(kDetailX, yOffset + 107, meta);
-    text.setFont(chinese_font_all);
+    text.setFont(u8g2_font_7x14_tf);
     text.drawUTF8(kDetailX, yOffset + 130, "请勿断开电源");
   } else if (logsVisible_) {
     const char* label = view.state == State::Idle ? "本版日志" : "更新说明";
@@ -319,7 +361,12 @@ void SystemUpdatePage::render(DisplayMonoTft& display, int16_t yOffset, const Vi
     } else {
       snprintf(meta, sizeof(meta), "%s %u/%u", label, page_ + 1, logPageCount());
     }
-    drawFitted(text, kDetailX, yOffset + 130, meta, kDetailWidth);
+    const char* caption = building_ ? "正在排版更新说明" : meta;
+    if (logFont_)
+      SdUiText::draw(display, logFont_, kDetailX, yOffset + 132, caption, ST7305_COLOR_BLACK,
+                     {kDetailX, static_cast<int16_t>(yOffset + 120), 367,
+                      static_cast<int16_t>(yOffset + 134)});
+    else drawFitted(text, kDetailX, yOffset + 130, caption, kDetailWidth);
   } else {
     drawFitted(text, kDetailX, yOffset + 86, line1, kDetailWidth);
     drawFitted(text, kDetailX, yOffset + 108, line2, kDetailWidth);

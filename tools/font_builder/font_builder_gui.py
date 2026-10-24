@@ -275,6 +275,7 @@ class FontBuilderApp:
             names = [f"font-{size}.bin" for size in sizes] + ["manifest.json", "preview.png", "charset.txt", "missing.txt"]
             names += [f"preview-{size}.png" for size in sizes]
             names += ["Font/manifest.json"]
+            names += [f"Font/font-{size}.ui.bin" for size in sizes]
             if export and any((output / name).exists() for name in names):
                 if not messagebox.askyesno("覆盖导出", "输出目录已有同名文件，是否替换这些字库和预览？"):
                     return
@@ -332,6 +333,9 @@ class FontBuilderApp:
             frame = ttk.Frame(self.tabs, padding=8)
             self.tabs.add(frame, text=f"{entry['pixel_size']} px")
             text = f"{entry['glyph_count']} 字符 · {entry['bytes']:,} bytes · 行高 {entry['line_height']} px"
+            if "ui_subset" in entry:
+                text += (f" · UI 子集 {entry['ui_subset']['glyph_count']} 字形 / "
+                         f"{entry['ui_subset']['bytes']:,} bytes")
             ttk.Label(frame, text=text).pack(anchor="w", pady=(0, 8))
             controls = ttk.Frame(frame)
             controls.pack(fill="x", pady=(0, 8))
@@ -374,6 +378,13 @@ class FontBuilderApp:
             self.result.set(self.result.get() +
                             f" 常用字收录 {common['glyph_count']:,} / {common['requested_count']:,}；"
                             f"未收录 {len(common['missing_codepoints'])} 个（见 common-missing.txt）。")
+        ui_subsets = [entry for entry in result["fonts"] if "ui_subset" in entry]
+        if ui_subsets:
+            missing_total = sum(len(entry["ui_subset"]["missing_codepoints"]) for entry in ui_subsets)
+            note = f" 已生成固定 UI 子集 {len(ui_subsets)} 份（font-*.ui.bin）"
+            if missing_total:
+                note += f"，源字体缺 {missing_total} 个 UI 字形（占位框）"
+            self.result.set(self.result.get() + note + "。")
 
     def close(self):
         if self.busy:

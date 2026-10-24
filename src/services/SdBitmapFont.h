@@ -41,7 +41,7 @@ public:
   };
 
   // Reuses verified headers until end(); callers must end before SD ownership changes.
-  bool open(uint16_t pixelSize);
+  bool open(uint16_t pixelSize, bool useExternalCache = true);
   void end();
   void tick();
   bool consumeChanged();
@@ -49,6 +49,7 @@ public:
   bool readRow(const Glyph& glyph, uint16_t row, uint8_t* data, size_t capacity);
   State state() const { return state_; }
   Error error() const { return error_; }
+  uint32_t session() const { return session_; }
   const Metrics& metrics() const { return metrics_; }
   const CacheStats& cacheStats() const { return cacheStats_; }
   size_t cacheBytes() const { return cacheMemory_.size(); }

@@ -144,9 +144,27 @@ void u8g2_SetBackgroundColor(u8g2_font_t *u8g2, uint16_t bg);
 
 class U8G2_FOR_ST73XX : public Print {
   public:
+    // Optional UI-owned renderer. The display library does not open files or mount SD.
+    using Utf8Width = int16_t (*)(void*, const char*);
+    using Utf8Draw = int16_t (*)(void*, int16_t, int16_t, const char*, uint16_t, uint16_t, bool);
+    struct Utf8Renderer {
+      const uint8_t* font;
+      void* context;
+      Utf8Width width;
+      Utf8Draw draw;
+    };
+    Utf8Renderer utf8Renderer() const {
+      return {rendererFont_, rendererContext_, rendererWidth_, rendererDraw_};
+    }
+    void setUTF8Renderer(Utf8Renderer renderer) {
+      setUTF8Renderer(renderer.font, renderer.context, renderer.width, renderer.draw);
+    }
+    void setUTF8Renderer(const uint8_t* font, void* context, Utf8Width width, Utf8Draw draw) {
+      rendererFont_ = font; rendererContext_ = context; rendererWidth_ = width; rendererDraw_ = draw;
+    }
     u8g2_font_t u8g2;
     int16_t tx, ty;       // current position for the print command
-    uint16_t encoding;    // the unicode, detected by the utf-8 decoder
+    uint32_t encoding;    // Keep supplementary values intact until resident-font fallback.
     uint8_t utf8_state;   // current state of the utf-8 decoder, contains the remaining bytes for a detected unicode glyph 
 
     void home(void) 
@@ -227,6 +245,11 @@ class U8G2_FOR_ST73XX : public Print {
       }
       return cnt;
     }
+  private:
+    const uint8_t* rendererFont_ = nullptr;
+    void* rendererContext_ = nullptr;
+    Utf8Width rendererWidth_ = nullptr;
+    Utf8Draw rendererDraw_ = nullptr;
 };
 
 
@@ -1922,7 +1945,6 @@ extern const uint8_t u8g2_font_px437wyse700b_tn[] U8G2_FONT_SECTION("u8g2_font_p
 extern const uint8_t u8g2_font_px437wyse700b_mf[] U8G2_FONT_SECTION("u8g2_font_px437wyse700b_mf");
 extern const uint8_t u8g2_font_px437wyse700b_mr[] U8G2_FONT_SECTION("u8g2_font_px437wyse700b_mr");
 extern const uint8_t u8g2_font_px437wyse700b_mn[] U8G2_FONT_SECTION("u8g2_font_px437wyse700b_mn");
-extern const uint8_t chinese_font_all[] U8G2_FONT_SECTION("chinese_font_all");
 
 /* end font list */
 

@@ -3,7 +3,7 @@ $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 Push-Location $projectRoot
 try {
     New-Item -ItemType Directory -Force tmp/computer-status-render | Out-Null
-    # Reuse the existing extraction of the actual firmware Chinese font.
+    # Reuse the existing extraction of the firmware's current resident font.
     python tools/answers_book_preview/prepare_font.py
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     uv run --with ziglang==0.13.0 python -m ziglang cc -O1 `

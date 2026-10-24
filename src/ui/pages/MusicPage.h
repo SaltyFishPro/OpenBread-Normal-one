@@ -7,6 +7,7 @@
 
 class DisplayMonoTft;
 class SdCardService;
+class SdBitmapFont;
 
 class MusicPage {
 public:
@@ -24,11 +25,12 @@ public:
   bool handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus, MusicService& music,
                         SdCardService& sd);
   bool renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                    DisplayMonoTft& display, const MusicService& music, uint32_t nowMs);
+                    DisplayMonoTft& display, const MusicService& music, uint32_t nowMs,
+                    SdBitmapFont* font = nullptr);
   bool renderDetailNavOnly(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
                            DisplayMonoTft& display, uint32_t nowMs);
   bool renderDetailListOnly(uint8_t homeFocus, uint8_t sectionFocus, DisplayMonoTft& display,
-                            const MusicService& music, uint32_t nowMs);
+                            const MusicService& music, uint32_t nowMs, SdBitmapFont* font = nullptr);
   bool needsAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus, uint32_t nowMs) const;
   bool needsNavAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus, uint32_t nowMs) const;
   bool needsListAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus, uint32_t nowMs) const;

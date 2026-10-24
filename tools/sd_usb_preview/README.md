@@ -6,7 +6,7 @@
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/sd_usb_preview/build.ps1
 ```
 
-工具编译实际 `HomePage`、`SdUsbPage`、共享图标/标题、ST7305 和 U8g2 绘制代码，提取固件真实中英文字库，从 8064 字节帧缓冲按当前屏幕旋转映射导出 384×168 图片。Arduino/SPI 使用主机替代实现，GPIO 测试单独编译实际 `SdUsbSwitch.cpp` 并记录引脚操作。
+工具编译实际 `HomePage`、`SdUsbPage`、共享图标/标题、ST7305 和 U8g2 绘制代码，提取固件当前保留字体，从 8064 字节帧缓冲按当前屏幕旋转映射导出 384×168 图片。Arduino/SPI 使用主机替代实现，GPIO 测试单独编译实际 `SdUsbSwitch.cpp` 并记录引脚操作。
 
 输出位于 `tmp/sd-usb-render/`，合览为 `sd-usb-framebuffers.png`；另有主页、进入转场、开启和未开启状态的原尺寸/3 倍 PNG。主机自检覆盖 13 个菜单项、首尾双向切换、OK 进入请求、静态重复绘制、状态差异、转场偏移绘制，以及 GPIO16 初始化 LOW、进入 HIGH、退出 LOW、重复设置和重新初始化。该工具不运行完整 `UiManager`，SD 文件释放与两个 Left 路径的接线仍需代码审查及实机验证。
 

@@ -17,7 +17,7 @@ bool DisplayMonoTft::begin() {
   text_.setFontMode(1);
   text_.setForegroundColor(ST7305_COLOR_BLACK);
   text_.setBackgroundColor(ST7305_COLOR_WHITE);
-  text_.setFont(chinese_font_all);
+  text_.setFont(u8g2_font_7x14_tf);
   return true;
 }
 void DisplayMonoTft::clear() { display_.clearDisplay(); }

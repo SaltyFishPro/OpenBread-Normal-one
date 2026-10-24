@@ -22,10 +22,13 @@ from fontTools.ttLib import TTFont
 from font_bin import BitmapFont, FileBitmapFont, Glyph, HEADER, MAGIC, RECORD, ROW_MSB, VERSION
 from font_common_index import (COMMON_HEADER_SIZE, COMMON_RECORD, COMMON_VERSION,
                                CommonGlyphIndex, encode_common_index)
+from font_ui_subset import build_subset
 
 
 DEFAULT_TEXT = "电脑状态看板 12:30\n系统更新  阅读  音乐\n今天也会有好事发生。\nCPU 28%  RAM 46%  26℃"
 EXAMPLE_CHARSET = Path(__file__).with_name("example_charset.txt")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+UI_CODEPOINTS_HEADER = REPO_ROOT / "src/services/UiFontCodepoints.h"
 
 
 def parse_sizes(value: str) -> list[int]:
@@ -202,8 +205,9 @@ def publish_export(staging: Path, output: Path, clean_old_fonts: bool = False):
         try:
             previous = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
             for entry in previous["fonts"]:
-                for name in (entry["file"], entry.get("common_index", {}).get("file", "")):
-                    if re.fullmatch(r"font-\d+(?:\.common)?\.bin", name) and name not in files:
+                for name in (entry["file"], entry.get("common_index", {}).get("file", ""),
+                             entry.get("ui_subset", {}).get("file", "")):
+                    if re.fullmatch(r"font-\d+(?:\.(?:common|ui))?\.bin", name) and name not in files:
                         obsolete.add(name)
         except (ValueError, KeyError, TypeError, AttributeError):
             raise ValueError(f"无法读取旧导出清单，请选择新的输出目录：{output}") from None
@@ -316,6 +320,19 @@ def build_fonts(font_path: str | Path, charset: str, sizes: list[int], output: s
                     "sha256": hashlib.sha256(common_data).hexdigest(),
                 }
                 del verified, common_data
+            if UI_CODEPOINTS_HEADER.is_file():
+                ui_data, ui_missing = build_subset(bin_path, UI_CODEPOINTS_HEADER)
+                ui_name = f"font-{size}.ui.bin"
+                (staging / ui_name).write_bytes(ui_data)
+                ui_count = struct.unpack_from("<I", ui_data, 20)[0]
+                notify(f"生成 {size}px 固定 UI 子集：{ui_count} 字形，{len(ui_data):,} bytes")
+                manifest["fonts"][-1]["ui_subset"] = {
+                    "file": ui_name, "format": "NBFT", "version": VERSION,
+                    "source_codepoints_header": UI_CODEPOINTS_HEADER.name,
+                    "glyph_count": ui_count, "bytes": len(ui_data),
+                    "sha256": hashlib.sha256(ui_data).hexdigest(),
+                    "missing_codepoints": [f"U+{cp:04X}" for cp in ui_missing],
+                }
             del data, decoded
         sheet = Image.new("RGB", (792, len(previews) * 390 + 12), "#e9edf1")
         draw = ImageDraw.Draw(sheet)
@@ -346,6 +363,9 @@ def build_fonts(font_path: str | Path, charset: str, sizes: list[int], output: s
             shutil.copyfile(staging / entry["file"], package / entry["file"])
             if "common_index" in entry:
                 name = entry["common_index"]["file"]
+                shutil.copyfile(staging / name, package / name)
+            if "ui_subset" in entry:
+                name = entry["ui_subset"]["file"]
                 shutil.copyfile(staging / name, package / name)
         for name in ("charset.txt", "missing.txt", "common-charset.txt",
                      "common-codepoints.txt", "common-missing.txt"):

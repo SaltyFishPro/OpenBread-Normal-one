@@ -54,7 +54,7 @@ for case in ("valid", "plain", "missing", "crc", "wrong-size", "tall"):
 
 source = (project / "lib/ST7305_MonoTFT_Library/src/u8g2_fonts.c").read_text(encoding="utf-8")
 declarations = []
-for name in ("chinese_font_all", "u8g2_font_fur25_tf"):
+for name in ("u8g2_font_7x14_tf", "u8g2_font_fur25_tf"):
     start = source.index(f"const uint8_t {name}[")
     declarations.append(source[start:source.index(";\n", start) + 1])
 (root / "fonts.c").write_text('#include "u8g2_fonts.h"\n' + "\n".join(declarations), encoding="utf-8")

@@ -2,7 +2,7 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parents[2]
 source = (root / 'lib/ST7305_MonoTFT_Library/src/u8g2_fonts.c').read_text(encoding='utf-8')
-fonts = ['chinese_font_all', 'u8g2_font_7x14_tf', 'u8g2_font_7x14B_tf', 'u8g2_font_logisoso32_tr',
+fonts = ['u8g2_font_7x14_tf', 'u8g2_font_7x14B_tf', 'u8g2_font_logisoso32_tr',
          'u8g2_font_logisoso24_tr']
 chunks = ['#include "u8g2_fonts.h"\n']
 for name in fonts:

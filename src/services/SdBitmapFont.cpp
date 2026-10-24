@@ -120,8 +120,9 @@ bool SdBitmapFont::fail(Error error) {
   return false;
 }
 
-bool SdBitmapFont::open(uint16_t pixelSize) {
+bool SdBitmapFont::open(uint16_t pixelSize, bool useExternalCache) {
   closeCurrent();
+  if (!useExternalCache) releaseCache();
   metrics_.pixelSize = pixelSize;
   verifyOffset_ = 0;
   char path[32];
@@ -151,7 +152,7 @@ bool SdBitmapFont::open(uint16_t pixelSize) {
       le32(header + 32) != file_.size() || bitmapOffset_ > file_.size())
     return fail(Error::Header);
   expectedChecksum_ = le32(header + 36);
-  beginCache();
+  if (useExternalCache) beginCache();
   for (const auto& verified : verifiedHeaders_) {
     if (memcmp(verified, header, sizeof(header_)) == 0) {
       FONT_LOG("size=%u CRC32=reused (same SD session/header)\n", pixelSize);

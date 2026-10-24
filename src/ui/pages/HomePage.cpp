@@ -1,4 +1,4 @@
-﻿#include "HomePage.h"
+#include "HomePage.h"
 
 #include <cstdio>
 
@@ -259,7 +259,7 @@ void drawHomeDatePreview(ST7305_2p9_BW_DisplayDriver& canvas, U8G2_FOR_ST73XX& t
   text.setFont(u8g2_font_6x12_mf);
 
   if (!clockData.valid) {
-    text.setFont(chinese_font_all);
+    text.setFont(u8g2_font_7x14_tf);
     const char* placeholder = "时间需校准";
     const int16_t textX = TextUtils::centeredTextXInBox(
         text, placeholder, boxX1, static_cast<int16_t>(boxX2 - boxX1 + 1));
@@ -586,6 +586,13 @@ void HomePage::render(DisplayMonoTft& display, int16_t pageOffsetX, uint32_t now
   renderTransition(display, pageOffsetX, pageOffsetX, 0, 0, 0, nowMs);
 }
 
+bool HomePage::setFontStatus(FontStatus status) {
+  if (fontStatus_ == status) return false;
+  fontStatus_ = status;
+  invalidateTextLayer();
+  return true;
+}
+
 void HomePage::renderTransition(DisplayMonoTft& display, int16_t backgroundOffsetX,
                                 int16_t menuBaseOffsetX, int16_t menuUpExtraOffsetX,
                                 int16_t menuFocusExtraOffsetX,
@@ -626,6 +633,14 @@ void HomePage::renderTransition(DisplayMonoTft& display, int16_t backgroundOffse
       lastUncalibratedFrame_ = IconBitmap::frameAt(kUncalibratedBread, nowMs);
     }
     drawHomeDatePreview(canvas, text, nowMs, backgroundOffsetX, clockData_);
+    if (fontStatus_ != FontStatus::Ready) {
+      const int16_t left = backgroundOffsetX + 15;
+      DrawUtils::drawClippedFilledRect(canvas, left, 65, left + 125, 81, ST7305_COLOR_WHITE);
+      text.setFont(u8g2_font_6x12_mf);
+      text.setFontMode(1);
+      text.setForegroundColor(ST7305_COLOR_BLACK);
+      text.drawUTF8(left, 78, fontStatus_ == FontStatus::Loading ? "SD font loading" : "SD font unavailable");
+    }
     if (backgroundOffsetX == 0 && menuBaseOffsetX == 0) {
       drawHomeBatteryPreview(canvas, text, batteryData_);
     }
@@ -648,7 +663,7 @@ void HomePage::drawMenuWheel(DisplayMonoTft& display, int16_t frameBaseX, int16_
   auto& text = display.text();
 
   if (!iconsOnly) {
-    text.setFont(chinese_font_all);
+    text.setFont(u8g2_font_7x14_tf);
     text.setBackgroundColor(ST7305_COLOR_WHITE);
     text.setFontMode(1);
     text.setForegroundColor(ST7305_COLOR_BLACK);

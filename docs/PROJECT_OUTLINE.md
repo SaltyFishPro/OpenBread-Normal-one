@@ -63,9 +63,9 @@ src/
 
 当前代码另有 `src/services/BluetoothService.*`、`SdCardService.*`、`TimeService.*`、`ComputerStatusProtocol.*` 等，以及 `src/ui/pages/AnswersBookPage.*`、`ComputerStatusPage.*`、`FocusClockPage.*`、`GamesPage.*`、`DeviceSelfTestPage.*` 等。`SettingsService`、`AlarmService`、`GestureService`、`HapticService`、`AlarmPage` 和 `data/` 仍属规划，不能按已存在模块引用。新增页面业务放 `ui/pages`，输入路由与转场放 `UiManager`，硬件访问放 `bsp`，跨页面业务放 `services`。
 
-SD 字库分层为 `src/bsp/SdFontFile.*`（只读文件）、`SdFontCacheBuffer.*`（有预算的外部内存申请/释放）、`src/services/SdBitmapFont.*`（格式、校验与缓存）、`src/ui/SdBitmapText.*`（UTF-8 排版绘制）、`src/ui/pages/SdFontTestPage.*`（测试业务）。页面通过现有 `SdCardService` 挂载，不在字库服务中绘图或切换硬件路由。
+SD 字库分层为 `src/bsp/SdFontFile.*`（只读文件）、`SdFontCacheBuffer.*`（有预算的外部内存申请/释放）、`src/services/SdBitmapFont.*`（格式、校验与缓存）、`UiFontCache.*`（固定 UI 的有限字形缓存）、`src/ui/SdBitmapText.*`（UTF-8 排版绘制）、`SdUiText.*`（固定/内容字体作用域）、`src/ui/pages/SdFontTestPage.*`（测试业务）。页面通过现有 `SdCardService` 挂载，不在字库服务中绘图或切换硬件路由。
 
-电脑端字库预处理放在 `tools/font_builder/`：`font_builder.py` 负责栅格化与成套导出，`font_bin.py` 负责 NBFT 回读，`font_common_index.py` 负责 NBCI 常用字码点/位置索引的生成、字库绑定和回读验证，`font_builder_gui.py` 负责参数与交互。用户选择常用字 TXT 不改变完整字库范围；导出 `Font/` 可直接复制到 SD 卡。设备端 NBCI 解析与分步加载属于 `SdBitmapFont` 服务，在已有 128KiB 总预算内保留最多 7500 条记录；UI 不处理文件布局。「SD字库测试」与阅读单词释义试点已接入，不能视为全机字体迁移已完成。
+电脑端字库预处理放在 `tools/font_builder/`：`font_builder.py` 负责栅格化与成套导出，`font_bin.py` 负责 NBFT 回读，`font_common_index.py` 负责 NBCI 常用字码点/位置索引的生成、字库绑定和回读验证，`font_builder_gui.py` 负责参数与交互。用户选择常用字 TXT 不改变完整字库范围；导出 `Font/` 可直接复制到 SD 卡。设备端 NBCI 解析与分步加载属于 `SdBitmapFont` 服务，在单份 128KiB 预算内保留最多 7500 条记录；UI 不处理文件布局。固定中文现从 SD 14 号载入另一份不超过 64KiB 的离线缓存，答案/阅读/日志等外部内容按页读取。音乐专项优化和全机实物验收仍待完成。
 
 ## 4. 核心设计原则
 - 实时优先：所有主路径满足可预测时延，输入与告警链路优先级最高。
@@ -291,7 +291,7 @@ SD 字库分层为 `src/bsp/SdFontFile.*`（只读文件）、`SdFontCacheBuffer
 
 ### 7.3 ReaderService
 - 当前职责：读取 SD 单词书、建立词条索引、提供词条与释义给 `ReaderPage`。
-- `ReaderPage` 现已试点用 SD 14 号字体绘制释义，按实际行高分步排版并缓存当前页行跨度，保持原切词与分页操作；标题、音标、列表与提示保留内置字体。
+- `ReaderPage` 用 SD 14 号绘制释义，按实际行高分步排版并缓存当前页行跨度，保持原切词与分页操作；标题/音标用 24/14 号，固定词库列表、底栏与提示由全局 SD UI 缓存绘制，详见 SD 字库文档。
 - 目标扩展：长文本分页、书签定位、字号与行高配置、受限内存下的缓存窗口。
 - 提词器仍是占位入口，不能把目标扩展当作已实现功能。
 
@@ -395,7 +395,7 @@ SD 字库分层为 `src/bsp/SdFontFile.*`（只读文件）、`SdFontCacheBuffer
 | --- | --- | --- |
 | 设置 | 子菜单 → 详情 | 重启、系统更新、WiFi 配网、时间校准、设备自检（含 SD字库测试）、USB 串口、恢复默认设置、设备/作者信息已有页面和处理路径 |
 | 音乐 | 子菜单 → 详情 | SD 音乐列表、播放控制、收藏已有代码；实际音频输出仍需实机回归 |
-| 阅读 | 子菜单 → 详情 | SD 单词书、词条与释义翻页已有代码；释义 SD 14 号字库试点与错误重试已实现，待实机验证；提词器占位 |
+| 阅读 | 子菜单 → 详情 | SD 单词书、词条与释义翻页已有代码；释义/音标 SD 14 号、标题 24 号与错误重试已实现，待实机验证；提词器占位 |
 | 专注时钟 | 直达详情 | 页面已实现 |
 | 无线功能 | 子菜单 → 详情 | 蓝牙连接和远程拍照已有处理路径 |
 | 游戏 | 子菜单 → 详情 | 敲木鱼可操作；飞机世界大战占位 |
@@ -409,11 +409,11 @@ SD 字库分层为 `src/bsp/SdFontFile.*`（只读文件）、`SdFontCacheBuffer
 
 答案之书的记录保存在页面运行态内存，重新进入页面时清空，没有 SD/NVS 持久化。记录页同时显示最多 3 条，`Up/Down` 改变反白焦点，`OK` 再问，`Left` 返回；行与卡片底边之间应保留可见留白。
 
-SD字库测试读取 `/Font/font-14.bin`、`font-20.bin`、`font-24.bin` 及可选的同目录 `font-字号.common.bin`。首次分步校验完整 NBFT CRC，同次测试内复用完整文件头匹配的结果；NBFT 校验、NBCI 文件头与正文分阶段推进，每 tick 最多 32KiB、按 4ms 让出，轮间让出 1ms。查询先走字形缓存、当前字号的常用字索引，再回退 32 位 Unicode 二分查找，不整体加载字库。固定申请 125,792 bytes PSRAM（128KiB 预算），含最多 7500 常用字记录、64 索引块、256 字形槽；不足时回退内部 8 槽字形/1 索引块并跳过 NBCI。NBCI 校验绑定、CRC、顺序与偏移，实际命中时核对目标码点；缺失、损坏、超限或目标不符时回退普通查字。`Up/Down` 切换字号复用分配但清空缓存并重新加载 NBCI，`OK` 刷新 SD 状态及重新完整检查，普通/长按 `Left` 关闭文件、释放 PSRAM、清除校验记录并卸载 SD。主机读取与绘制核对已通过，真实 SD 速度与交互待实机验证。阅读释义已增加 SD 14 号字库试点，其他文字保留内置字体；音乐尚未接入，完整内置字库尚未裁减。进入 SD卡转USB 和休眠卸载前同样先关闭字库，详细约束见 [SD 点阵字库](SD_BITMAP_FONTS.md)。
+SD字库测试读取 `/Font/font-14.bin`、`font-20.bin`、`font-24.bin` 及可选的同目录 `font-字号.common.bin`。首次分步校验完整 NBFT CRC，同次测试内复用完整文件头匹配的结果；NBFT 校验、NBCI 文件头与正文分阶段推进，每 tick 最多 32KiB、按 4ms 让出，轮间让出 1ms。查询先走字形缓存、当前字号的常用字索引，再回退 32 位 Unicode 二分查找，不整体加载字库。固定申请 125,792 bytes PSRAM（128KiB 预算），含最多 7500 常用字记录、64 索引块、256 字形槽；不足时回退内部 8 槽字形/1 索引块并跳过 NBCI。NBCI 校验绑定、CRC、顺序与偏移，实际命中时核对目标码点；缺失、损坏、超限或目标不符时回退普通查字。`Up/Down` 切换字号复用分配但清空缓存并重新加载 NBCI，`OK` 刷新 SD 状态及重新完整检查，普通/长按 `Left` 关闭文件、释放 PSRAM、清除校验记录并卸载 SD。主机读取与绘制核对已通过，真实 SD 速度与交互待实机验证。阅读释义/音标、答案/历史和系统更新日志已接入，阅读标题用 24 号、答案用 20 号；歌曲名/WiFi 外部文字有基础 14 号适配，音乐专项优化仍待执行。当前已移除完整内置中文字库，保留七段数字和 U8g2 拉丁/数字字体；固定中文由独立的 60,952-byte PSRAM 缓存提供，首次从 SD 14 号加载后关闭文件，USB/轻睡眠期间保留。进入 SD卡转USB 和休眠卸载前先关闭内容字库、取消未完成的 UI 字形加载，详细约束见 [SD 点阵字库](SD_BITMAP_FONTS.md)。
 
 「SD卡转USB」由 `bsp/SdUsbSwitch` 访问 GPIO16，`UiManager` 编排进入/退出，`ui/pages/SdUsbPage` 只负责绘制。启动初始化 LOW；完成进入转场后清除阅读缓存，并复用音乐退出流程停止音频/扫描、关闭文件、卸载 SD_MMC，然后置 HIGH。Left 返回时先置 LOW 再退场，后续按需挂载。现有 SD 总线是 SD_MMC 1-bit（CLK=11、CMD=12、D0=10），`BoardConfig` 的 MISO/MOSI 名称为旧别名。该功能依赖板载芯片的 HIGH/LOW 路由，不通过 ESP32 实现软件 USB MSC；默认不推断电脑是否已挂载卡。页面静态显示并提示安全弹出，`[SDUSB]` 日志可通过 `OB_SD_USB_LOG_ENABLED=0` 关闭。
 
-当前局部刷新由 `Render1bpp` 合并脏区域，`UiManager` 决定重绘时机并调用 `DisplayMonoTft` 提交；音乐导航/列表、主页时间卡片与图标等路径可按区域推送。主页面满足休眠条件时约 20 秒无操作进入 light sleep，保留画面并由按键唤醒；配网、OTA、播放等忙碌状态会限制休眠。功耗和刷新效果仍须实机测量。
+当前局部刷新由 `Render1bpp` 合并脏区域，`UiManager` 决定重绘时机并调用 `DisplayMonoTft` 提交；音乐导航/列表、主页时间卡片与图标等路径可按区域推送。主页面满足休眠条件时约 20 秒无操作进入 light sleep，保留画面并由按键唤醒；配网、OTA、播放及首次 UI 字库加载等忙碌状态会限制休眠。首次 UI 字库加载完成或失败后重新开始 20 秒无操作计时，超时失败也恢复休眠资格。功耗和刷新效果仍须实机测量。
 
 ## 16. 真实帧缓冲预览与交互验证
 
@@ -423,7 +423,7 @@ SD字库测试读取 `/Font/font-14.bin`、`font-20.bin`、`font-24.bin` 及可�
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/answers_book_preview/build.ps1
 ```
 
-该脚本需要 Python 与 `uv`，并通过 `uv` 使用 Zig 0.13 和 Pillow。它从项目字库提取实际中文字形，编译当前 `AnswersBookPage.cpp`、`DetailHeader.cpp`、ST7305 驱动和 U8g2 绘制代码；主机侧仅替代 Arduino/SPI 访问。工具注入固定页面状态与答案索引，捕获和屏幕提交同源的 8064 字节帧缓冲，按当前驱动旋转映射导出 384×168 PGM，再无插值放大为 PNG。
+该脚本需要 Python 与 `uv`，并通过 `uv` 使用 Zig 0.13 和 Pillow。它提取当前保留的 U8g2 拉丁/数字字体，编译当前 `AnswersBookPage.cpp`、`DetailHeader.cpp`、ST7305 驱动和 U8g2 绘制代码；主机侧仅替代 Arduino/SPI 访问。工具注入固定页面状态与答案索引，捕获和屏幕提交同源的 8064 字节帧缓冲，按当前驱动旋转映射导出 384×168 PGM，再无插值放大为 PNG。
 
 输出位于被 Git 忽略的 `tmp/answers-book-render/`；合览图为 `answers-book-real-framebuffers.png`，另有 6 张单页 PNG。覆盖提示、思考中、翻开、答案、记录首项选中和第三项选中。逐张核对字形、留白、卡片边界、进度条、焦点、页脚和底边；再按第 12、14 节要求进行编译、按键逻辑及实机验证。该图是**当前绘制代码产生的像素**，并非实机照片，不能证明 SPI 时序、屏幕残影或真实按键手感。
 
@@ -433,7 +433,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/answers_book_preview/b
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/computer_status_preview/build.ps1
 ```
 
-工具编译生产 `ComputerStatusPage.cpp`、共享标题与图标绘制、ST7305 驱动和 U8g2，复用主菜单 USB 资源和真实中文字库。输出 `tmp/computer-status-render/` 中的转场、动画开始/中段/结束及已连接状态 PNG；合览为 `computer-status-waiting-framebuffers.png`。同时检查动画结束静止、连接变化重绘和重新进入重置。检查页脚分隔线与文字间距、两列留白、图标完整性和转场裁剪；实机再验证 Left 返回、握手成功等待首帧、首帧替换和退出后停止动画。操作详见 [等待页预览工具](../tools/computer_status_preview/README.md)。
+工具编译生产 `ComputerStatusPage.cpp`、共享标题与图标绘制、ST7305 驱动和 U8g2，复用主菜单 USB 资源和当前保留字体。输出 `tmp/computer-status-render/` 中的转场、动画开始/中段/结束及已连接状态 PNG；合览为 `computer-status-waiting-framebuffers.png`。同时检查动画结束静止、连接变化重绘和重新进入重置。检查页脚分隔线与文字间距、两列留白、图标完整性和转场裁剪；实机再验证 Left 返回、握手成功等待首帧、首帧替换和退出后停止动画。操作详见 [等待页预览工具](../tools/computer_status_preview/README.md)。
 
 2026-10-11 等待页验证记录：六种画面均生成 384×168 黑白缓冲，首次与再次进入的半屏转场逐字节一致，静态等待及连接状态重绘检查通过。`pio run -e esp32s3` 成功：RAM 94,688 bytes（28.9%）、Flash 3,920,739 bytes（53.4%）；构建日志为 `tmp/computer-status-waiting-build-20261011.log`。该记录只确认主机绘制、逻辑自检与编译，新版等待页的实机交互和刷新效果仍待验收。
 
@@ -487,11 +487,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/sd_font_tests/build.ps
 
 另以生产 HomePage、GamesPage、ST7305 驱动复查菜单循环、OK 进入与木鱼交互，703 张帧缓冲与上轮一致，合计 934 张修改前后逐字节一致。`python tools/gif_to_c/verify.py` 通过。完整 `pio run -e esp32s3` 通过：RAM 97,744 bytes（29.8%）不变，Flash 3,906,931 bytes（53.2%），比本轮基线增加 12 bytes；`firmware.bin` 仍为 3,907,424 bytes（映像对齐）。记录与合览为 `tmp/rle-sequential/`，可复用检查见 [GIF 工具第 8 节](../tools/gif_to_c/README.md#8-large-rle-drawing-verification)。未烧录。实机重点检查主界面背景、音乐/阅读/无线等二级菜单大图及往返转场，快速切换选项时确认完整、无横条、残影或闪烁，并观察响应与流畅度；当前页布局、按键、引脚和显示提交时序不变。
 
-剩余优化候选（未实施）：继续优化阅读标题/音标和音乐的文字测量缓存（阅读释义已按内容/页变化分步排版）；评估将图标缓存和页面缓冲迁移至 PSRAM（先测速度）；音频任务与缓冲按需创建/释放（保留后台播放语义）；阅读释义试点实机通过后继续逐页接入 SD 字库，最终整理最小内置回退并缩小完整内置中文字库；继续整理页面中重复的标题与文本状态绘制（以维护收益为主，Flash 收益另测）。每项独立验证与统计收益，避免同时改变多条资源路径。
+剩余优化候选（未实施）：继续优化阅读标题/音标和音乐的文字测量缓存（阅读释义已按内容/页变化分步排版）；评估将图标缓存和页面缓冲迁移至 PSRAM（先测速度）；音频任务与缓冲按需创建/释放（保留后台播放语义）；完成 SD 字体阶段 3/4/5 的实机验收，随后处理音乐专项的排版与测量缓存；继续整理页面中重复的标题与文本状态绘制（以维护收益为主，Flash 收益另测）。每项独立验证与统计收益，避免同时改变多条资源路径。
 
-2026-10-24 阅读页 SD 字库试点：`ReaderPage` 负责正文分页与交互，`UiManager` 传入现有共享字库并推进布局。仅打开词库后读取 `/Font/font-14.bin` 和可选 common 索引；当前字库实际行高 27px、正文每页 3 行。每次布局最多处理 16 个码点并按 4ms 让出，稳定页面不重复测宽；最多保留可见 8 行跨度，绘制缓存未命中仍可能读卡。退出先关闭字库与词条索引，不主动卸载共享 SD，保留后台音乐语义；音乐并发性能仍待实测。字库异常用内置提示、OK 重试，长按 Left 返回词库；首词短按 Left 同样返回，其他词短按 Left 上一词。缺字显示框，正文有明确裁剪。另修复本页实心翻页箭头在旋转坐标下消失的问题，使用逻辑坐标线段，不修改全局驱动。
+（历史阶段）2026-10-24 阅读页 SD 字库试点：`ReaderPage` 负责正文分页与交互，`UiManager` 传入现有共享字库并推进布局。仅打开词库后读取 `/Font/font-14.bin` 和可选 common 索引；当前字库实际行高 27px、正文每页 3 行。每次布局最多处理 16 个码点并按 4ms 让出，稳定页面不重复测宽；最多保留可见 8 行跨度，绘制缓存未命中仍可能读卡。退出先关闭字库与词条索引，不主动卸载共享 SD，保留后台音乐语义；音乐并发性能仍待实测。字库异常用内置提示、OK 重试，长按 Left 返回词库；首词短按 Left 同样返回，其他词短按 Left 上一词。缺字显示框，正文有明确裁剪。另修复本页实心翻页箭头在旋转坐标下消失的问题，使用逻辑坐标线段，不修改全局驱动。
 
-验证命令 `powershell -NoProfile -ExecutionPolicy Bypass -File tools/reader_font_preview/build.ps1`。生产词库服务/字库/页面/ST7305 真实帧缓冲运行，有/无 PSRAM 各通过 20 组正文像素核对及独立分页、切词/翻页往返、箭头、校验/排版取消、排版中切词、异常重试、绘制失败清除部分文字、释放与退出后无读卡。输出 `tmp/reader-sd-font/`，见 [阅读试点工具](../tools/reader_font_preview/README.md) 与 [SD 字库试点及实机步骤](SD_BITMAP_FONTS.md#阅读页试点2026-10-24)。完整 `pio run -e esp32s3` 通过：RAM 97,800 bytes（29.8%，+56），Flash 3,906,851 bytes（53.2%，-80）；固件 3,907,344 bytes，共享动态外部缓存仍为 125,792 bytes，完整内置字库未裁减。未烧录；实际首次等待、字体清晰度、按键响应、SD/音乐交接及后台播放仍待验收。布局与调度细节属于页面/UI 层，硬件引脚、总线与显示提交时序未改。
+验证命令 `powershell -NoProfile -ExecutionPolicy Bypass -File tools/reader_font_preview/build.ps1`。生产词库服务/字库/页面/ST7305 真实帧缓冲运行，有/无 PSRAM 各通过 20 组正文像素核对及独立分页、切词/翻页往返、箭头、校验/排版取消、排版中切词、异常重试、绘制失败清除部分文字、释放与退出后无读卡。输出 `tmp/reader-sd-font/`，见 [阅读试点工具](../tools/reader_font_preview/README.md) 与 [SD 字库试点及实机步骤](SD_BITMAP_FONTS.md#阅读页试点2026-10-24)。本次完整 `pio run -e esp32s3` 已通过：RAM 99,920 bytes（30.5%），Flash 2,689,251 bytes（36.6%），固件 2,689,744 bytes；未烧录；实际首次等待、字体清晰度、按键响应、SD/音乐交接及后台播放仍待验收。布局与调度细节属于页面/UI 层，硬件引脚、总线与显示提交时序未改。
+
+（历史阶段）2026-10-24 SD 字体阶段 3、4、5：答案正文 20 号、历史与更新日志 14 号、阅读标题 24 号/音标 14 号；新增 `SdUiText` 可选绘制与受控外部文字适配，字体由 `UiManager` 按页管理。主 14 号保留 125,792-byte PSRAM 缓存，第二字号仅用内部小缓存；退出、重试重新挂载、音乐卸载、USB 交接、OTA 应用与休眠前有相应关闭路径。当前阶段已移除 `chinese_font_all` 和旧的裁剪工具，保留七段数字与 U8g2 拉丁/数字字体；固定中文随后已接入全局 SD 字形缓存，见下段当前实现。
+
+`tools/sd_font_migration/build.ps1` 使用实际 14/20/24 BIN，验证 268 条答案、历史焦点、标题/音标、日志分页/计时/回退、多字号预算、重试关闭第二句柄与释放；有/无 PSRAM 通过。原阅读、SD 字库、系统更新和 SD转USB 工具回归通过。帧缓冲预览 `tmp/sd-font-migration/sd-font-stages-3-5.png`；主机测试替代硬件，不覆盖完整 UI 管理器。完整固件编译通过：RAM 99,920 bytes（30.5%），Flash 2,689,251 bytes（36.6%），固件 2,689,744 bytes；ELF 未发现 `chinese_font_all`。尚未烧录/发布；按 [SD 字体阶段与实机验收](SD_BITMAP_FONTS.md#阶段-3452026-10-24) 继续物理检查。音乐专项阶段 2 仍未完成，歌曲名基础适配不能当作播放并发和性能已验收。
+
+2026-10-24 固定中文 SD 字库接入：`UiFontCache` 从 14 号 NBFT 提取 802 个固定码点，60,952 bytes PSRAM，64KiB 硬上限；`UiFontCodepoints.h` 只存码点，不含点阵。`UiManager` 在主菜单首帧后且音乐不忙时分步加载，离开主菜单取消未完成工作，每次回主菜单最多尝试一次。提取时临时复用 125,792-byte 索引/字形缓存及可选常用字索引；缓存就绪关闭字体文件并释放临时缓存，跨页面/USB/轻睡眠保留有效 UI 字形，完成后固定 UI 渲染无 SD 访问。加载期间暂缓自动休眠，完成或失败后重新开始正常的 20 秒计时；120 秒未完成则报错释放，底层单次阻塞另计。缺文件/坏 CRC/内存不足显示英文提示且不阻塞开机与导航。`SdUiText::FixedScope` 支持固定中文与内层内容作用域共存，纯 ASCII 像素/度量保留原样，字号规划沿用 14/20/24。阅读底栏上移并收窄不透明文字的擦除范围，避免碰到边框。硬件引脚、SD_MMC 1-bit 与 GPIO16 所有权规则不变。
+
+同日增加 `font-14.ui.bin` 快速路径：字体工具导出时为 14/20/24 各生成一份约几十 KB 的 NBFT v1 子集（固件当前只读 14 号，其余备用），头部记录固定码点总数用于识别过期文件；也可用 `python tools/font_builder/font_ui_subset.py --size 14` 单独重新生成。设备优先把子集顺序读入临时 PSRAM、一次 CRC 校验后解析为常驻字形缓存，不再对 2.15MB 全字库整读校验或随机查找。子集缺失、损坏、CRC 错误或码点名单过期时自动回退完整字库路径，兼容旧 SD 卡内容。当前构建 RAM 102,104 bytes（31.2%）、Flash 2,698,547 bytes（36.8%），固件 2,699,040 bytes；本次固件未烧录。
+
+固定文案变更执行 `python tools/ui_sd_font_preview/prepare_codepoints.py`，PlatformIO 构建前校验名单；重新导出字库时会自动生成各字号子集，也可执行 `python tools/font_builder/font_ui_subset.py --size 14` 单独更新。真实帧缓冲验证执行 `powershell -NoProfile -ExecutionPolicy Bypass -File tools/ui_sd_font_preview/build.ps1`，输出 `tmp/ui-sd-font/ui-sd-font-pages.png`。全部 802 缓存记录与独立 NBFT 一致，13 主菜单入口、USB 无读卡、弹窗/设置/蓝牙横竖屏、反白/裁剪、加载提示清除、内容多字号共存、异常/取消/重试和资源释放通过；内容页、阅读与系统更新回归通过。新增慢卡测试跨 20 秒及计时回绕完成，120 秒超时释放通过；字体子集路径 6 次读卡加载并与完整字库逐字节核对，子集缺失时自动回退完整字库。工具不运行完整管理器，USB/休眠顺序另审查，实际 SD 耗时、物理显示与音频并发仍待设备验证。当前字库动态 PSRAM 合计峰值 186,744 bytes，不计音频等其他模块。ELF 无 `chinese_font_all`，本轮字体子集固件未烧录/发布。编译资源及详细记录见 [当前 SD 字库及实机步骤](SD_BITMAP_FONTS.md)，工具见 [固定 UI 工具](../tools/ui_sd_font_preview/README.md)。
+
+菜单空白问题的实机排查确认 SD 样张中文正常、应用头与当时最新构建一致；旧实现约 20 秒自动休眠时只查询了约 170/802 个字形，取消加载后固定中文一直未启用。修复同时暂缓加载期休眠并减少提取读卡，加载完成后保留正常操作时间再自动休眠；已生成修复固件，效果需重新烧录验收。
 
 ## 17. 相关文档
 

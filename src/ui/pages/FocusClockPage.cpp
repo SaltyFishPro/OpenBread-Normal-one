@@ -79,7 +79,7 @@ void drawHeaderBand(DisplayMonoTft& display, int16_t yOffset, const char* leftTe
   canvas.drawFilledRectangle(0, yOffset, static_cast<int16_t>(width - 1),
                              static_cast<int16_t>(yOffset + kHeaderHeight - 1),
                              ST7305_COLOR_BLACK);
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setFontMode(0);
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setForegroundColor(ST7305_COLOR_WHITE);
@@ -105,7 +105,7 @@ void drawCardContent(DisplayMonoTft& display, uint8_t cardIndex, int16_t x, int1
   const FocusClockPage::Card& card = kCards[cardIndex];
   drawCardShell(canvas, x, y);
 
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setFontMode(0);
   text.setBackgroundColor(ST7305_COLOR_BLACK);
   text.setForegroundColor(ST7305_COLOR_WHITE);
@@ -121,7 +121,7 @@ void drawCardContent(DisplayMonoTft& display, uint8_t cardIndex, int16_t x, int1
   int16_t widths[3] = {0, 0, 0};
   int16_t positions[3] = {0, 0, 0};
   int16_t totalWidth = 0;
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   for (uint8_t index = 0; index < card.optionCount; ++index) {
     widths[index] = static_cast<int16_t>(text.getUTF8Width(card.options[index]) +
                                          kOptionPaddingX);
@@ -660,7 +660,7 @@ void FocusClockPage::drawTimer(DisplayMonoTft& display, int16_t yOffset, uint32_
   } else {
     snprintf(infoText, sizeof(infoText), "目标 %u分钟", targetMinutes);
   }
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   drawTextCentered(text, infoText, static_cast<int16_t>(width / 2),
                    static_cast<int16_t>(yOffset + kTimerInfoBaseline), ST7305_COLOR_BLACK,
                    ST7305_COLOR_WHITE);
@@ -696,7 +696,7 @@ void FocusClockPage::drawFinished(DisplayMonoTft& display, int16_t yOffset) cons
                          static_cast<int16_t>(yOffset + kTimerDigitTop), totalText,
                          kTimerDigitStyle);
 
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   drawTextCentered(text, "本次专注已完成", static_cast<int16_t>(width / 2),
                    static_cast<int16_t>(yOffset + kTimerInfoBaseline), ST7305_COLOR_BLACK,
                    ST7305_COLOR_WHITE);

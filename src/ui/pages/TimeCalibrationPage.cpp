@@ -20,7 +20,7 @@ void drawSelectionButton(DisplayMonoTft& display, int16_t x1, int16_t y1, int16_
   canvas.drawFilledRectangle(x1, y1, x2, y2, fill);
   canvas.drawRectangle(x1, y1, x2, y2, ST7305_COLOR_BLACK);
 
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setBackgroundColor(fill);
   text.setForegroundColor(fg);
   text.setFontMode(selected ? 0 : 1);
@@ -143,7 +143,7 @@ bool TimeCalibrationPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, 
   const int16_t infoY2 = static_cast<int16_t>(yOffset + 79);
   const int16_t infoY3 = static_cast<int16_t>(yOffset + 103);
 
-  text.setFont(chinese_font_all);
+  text.setFont(u8g2_font_7x14_tf);
   text.setForegroundColor(ST7305_COLOR_BLACK);
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setFontMode(1);
