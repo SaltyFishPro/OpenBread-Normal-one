@@ -104,7 +104,7 @@ This flow is server-pull based and does not require GitHub Actions deployment.
 当前设备协议以 `src/app/FirmwareInfo.h` 和 `src/services/OtaService.cpp` 为准：使用 `firmware_url`、`release_note`，并可选使用 `release_notes` 长日志；设备只接受匹配的 `product=openbread-normal-one`、`channel=stable` 和 HTTPS 固件地址。`docs/OTA.md` 中早期示例的 `bin_url` 不适用于当前设备。
 
 1. 读取 GitHub 最新正式 Release 与线上 `manifest.json`，选择更大的 build。同步修改 `FirmwareInfo.h` 的 `kVersion` 与 `kBuild`；仅改 Release 标题不能更新固件内的版本。
-2. 更新 `CHANGELOG.md`，执行 `pio run -e esp32s3` 与相关回归检查。OTA 附件必须来自 `.pio/build/esp32s3/firmware.bin`，不能使用带 bootloader / 分区表的合并烧录镜像；当前 OTA 应用分区上限为 7,340,032 bytes。
+2. 按 `CHANGELOG.md` 顶部规范更新用户更新日志（面向消费者、只记最终变化、不含验证状态），执行 `pio run -e esp32s3` 与相关回归检查。OTA 附件必须来自 `.pio/build/esp32s3/firmware.bin`，不能使用带 bootloader / 分区表的合并烧录镜像；当前 OTA 应用分区上限为 7,340,032 bytes。
 3. 将最终源码提交并推送，发布标签 `v<version>` 必须指向这次提交。先创建草稿 Release，再上传 `firmware-<version>.bin`，确认附件完整后发布为正式版，供服务器 `/releases/latest` 拉取。
 4. Release 正文第一行写简短更新摘要，服务器会将它保存为 `release_note`；后续单独写 `build: <整数>`，必须与 `FirmwareInfo.h` 一致。记录本地固件大小和 SHA256，发布后下载 GitHub 附件核对。
 5. 等待 1Panel 定时任务同步，访问 `https://ota.openbread.net/ota/openbread-normal-one/manifest.json`，核对产品、通道、版本、build、下载地址、大小与 SHA256。随后从清单指定的 HTTPS 地址完整下载固件，与本地和 GitHub 附件进行一致性核对；清单可访问不等于发布已同步。
