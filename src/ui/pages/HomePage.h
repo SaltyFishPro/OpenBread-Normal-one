@@ -42,7 +42,11 @@ public:
   };
 
   bool begin();
-  bool handleInput(bool upEdge, bool downEdge, bool okEdge, uint32_t nowMs);
+  bool handleInput(bool leftEdge, bool rightEdge, bool upEdge, bool downEdge, bool okEdge,
+                   uint32_t nowMs);
+  void setSubmenuLabels(const char* const* labels, uint8_t count);
+  uint8_t submenuCount() const { return submenuCount_; }
+  uint8_t submenuIndex() const { return submenuIndex_; }
   void update(uint32_t nowMs);
   void render(DisplayMonoTft& display, int16_t pageOffsetX, uint32_t nowMs);
   void renderTransition(DisplayMonoTft& display, int16_t backgroundOffsetX,
@@ -61,6 +65,8 @@ public:
   Rect menuColumnBounds(const DisplayMonoTft& display) const;
   void renderTimeCardOnly(DisplayMonoTft& display, uint32_t nowMs);
   void renderMenuIconsOnly(DisplayMonoTft& display, uint32_t nowMs);
+  void renderSleepClock(DisplayMonoTft& display, uint32_t nowMs, int16_t revealX = 0) const;
+  void renderSleepTransition(DisplayMonoTft& display, uint32_t nowMs, uint8_t progress) const;
   // 本帧是否直接回填了静态图层（未重建），用于判断能否只推送菜单列。
   bool frameUsedStaticLayer() const;
   bool isAnimationActive(uint32_t nowMs) const;
@@ -71,14 +77,13 @@ public:
   static const IconBitmap::Anim& sdUsbIcon();
   void setClockData(const ClockData& data);
   bool setBatteryData(const BatteryData& data);
-  void invalidateTextLayer() { staticLayerValid_ = false; }
+  void invalidateTextLayer() {}
   bool setFontStatus(FontStatus status);
 
 private:
-  enum class SlideState : uint8_t { Idle, Sliding };
+  enum class SlideState : uint8_t { Idle, SlidingCategory, SlidingSubmenu };
 
   const char* menuLabel(uint8_t idx) const;
-  int16_t currentMenuOffset(uint32_t nowMs) const;
   void beginSlide(int8_t direction, uint32_t nowMs);
   bool isInteractiveAnimationWindow(uint32_t nowMs) const;
   uint32_t animationRenderTime(uint32_t nowMs) const;
@@ -91,22 +96,23 @@ private:
                      int16_t menuOffsetY, int16_t menuUpExtraOffsetX,
                      int16_t menuFocusExtraOffsetX, int16_t menuDownExtraOffsetX,
                      uint32_t animNowMs, bool iconsOnly);
+  int16_t currentCategoryOffset(uint32_t nowMs) const;
+  int16_t currentSubmenuOffset(uint32_t nowMs) const;
 
   SlideState slideState_ = SlideState::Idle;
   uint8_t focusIndex_ = 0;
   uint8_t targetIndex_ = 0;
+  uint8_t submenuIndex_ = 0;
+  const char* submenuLabels_[16] = {nullptr};
+  uint8_t submenuCount_ = 0;
 
   int16_t animFromOffsetY_ = 0;
   int16_t animToOffsetY_ = 0;
+  int16_t animFromOffsetX_ = 0;
+  int16_t animToOffsetX_ = 0;
   uint32_t animStartMs_ = 0;
 
   uint16_t lastFocusFrame_ = 0;
-  uint16_t lastBackgroundFrame_ = 0;
-  uint16_t lastUncalibratedFrame_ = 0;
-  // 静态图层：背景 + 时间卡片 + 日期卡片。整帧快照，静止时直接回填。
-  static constexpr size_t kStaticLayerBytes = 384U * 168U / 8U;
-  uint8_t staticLayer_[kStaticLayerBytes] = {0};
-  bool staticLayerValid_ = false;
   bool frameUsedStaticLayer_ = false;
   uint8_t lastRenderedFocusIndex_ = 0xFF;
   int16_t lastRenderedMenuOffsetY_ = 0;
@@ -115,6 +121,7 @@ private:
   ClockData clockData_;
   BatteryData batteryData_;
   FontStatus fontStatus_ = FontStatus::Ready;
+  int16_t activeRenderOffsetX_ = 0;
 
   static constexpr uint8_t kMenuCount = 13;
   static constexpr uint32_t kIdleAnimationTimeoutMs = 4000;

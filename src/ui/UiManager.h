@@ -112,6 +112,7 @@ private:
   void renderComputerStatusFrame();
   void startSectionFocusAnimation(uint8_t toIndex, uint32_t nowMs);
   void syncHomeClockFromTimeService();
+  void syncHomeSubmenu();
   void refreshHomeBattery(uint32_t nowMs);
   void refreshSdStatus();
   bool isSectionAnimationActive(uint32_t nowMs) const;

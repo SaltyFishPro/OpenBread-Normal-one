@@ -21,77 +21,21 @@
 #include "../assets/main_menu/api_stats.h"
 #include "../assets/main_menu/computer_status.h"
 #include "../assets/main_menu/sd_usb.h"
-#include "../assets/ui/uncalibrated_bread.h"
-#include "../assets/ui/UI_background.h"
 #include "../assets/ui/battery_levels.h"
 
 namespace {
-constexpr int16_t kWheelFrameWidth = 190;
-constexpr int16_t kWheelFrameRightMargin = 8;
-constexpr int16_t kWheelItemSpacing = 56;
-constexpr int16_t kWheelItemInsetX = 10;
-constexpr int16_t kWheelTextGap = 14;
-constexpr int16_t kWheelFramePaddingY = 8;
+constexpr int16_t kXmbFocusCenterX = 48;
+constexpr int16_t kXmbCategoryStep = 70;
+constexpr int16_t kXmbRailTop = 29;
+constexpr int16_t kXmbRailRuleY = 87;
+constexpr int16_t kXmbItemsTop = 91;
+constexpr int16_t kXmbItemBaseline = 112;
+constexpr int16_t kXmbItemStep = 25;
+constexpr int16_t kXmbIndexX = 24;
+constexpr int16_t kXmbTextX = 56;
+constexpr int16_t kXmbWaveBaseY = 143;
 constexpr int16_t kMenuClipTop = 10;
-constexpr int16_t kMenuClipBottom = 160;
-constexpr int16_t kMenuLabelHeight = 13;
-struct CardRect {
-  int16_t x1;
-  int16_t y1;
-  int16_t x2;
-  int16_t y2;
-};
-
-struct TimeCardStyle {
-  CardRect rect;
-  Segment7Font::Style digitStyle;
-  int16_t minTextInset;
-};
-
-struct DateCardStyle {
-  CardRect rect;
-  int16_t outerInset;
-  int16_t chipTopOffset;
-  int16_t chipHeight;
-  int16_t weekChipLeftInset;
-  int16_t weekChipWidth;
-  int16_t monthChipRightInset;
-  int16_t monthChipWidth;
-  int16_t chipTextInsetX;
-  int16_t chipTextBaselineInset;
-  Segment7Font::Style dayStyle;
-  int16_t dayTopOffset;
-  int16_t yearGapFromDay;
-  int16_t yearRightInset;
-  int16_t yearBaselineOffset;
-};
-
-constexpr TimeCardStyle kTimeCardStyle = {
-    {15, 15, 140, 60},
-    {24, 40, 4, 2, 6, ST7305_COLOR_WHITE},
-    2};
-
-constexpr DateCardStyle kDateCardStyle = {
-    {15, 85, 140, 140},
-    3,
-    8,
-    15,
-    8,
-    44,
-    8,
-    40,
-    8,
-    4,
-    {14, 24, 3, 2, 4, ST7305_COLOR_WHITE},
-    28,
-    4,
-    6,
-    -2};
-
-constexpr int16_t kBatteryIconX = 10;
-constexpr int16_t kBatteryIconY = 144;
-constexpr int16_t kBatteryTextX = 58;
-constexpr int16_t kBatteryTextBaselineY = 159;
+constexpr int16_t kMenuClipBottom = 167;
 
 const IconBitmap::Anim kBatteryLevels = {
     reinterpret_cast<const uint8_t*>(&battery_levels_frames[0][0]),
@@ -134,24 +78,6 @@ const IconBitmap::Anim kMenuIcons[] = {
      SD_USB_FRAME_WIDTH, SD_USB_FRAME_HEIGHT, SD_USB_FRAME_DELAY, SD_USB_FRAME_COUNT},
 };
 
-const IconBitmap::Anim kHomeBackground = {
-    reinterpret_cast<const uint8_t*>(&ui_background_frames[0][0]),
-    UI_BACKGROUND_FRAME_BYTES,
-    UI_BACKGROUND_FRAME_WIDTH,
-    UI_BACKGROUND_FRAME_HEIGHT,
-    UI_BACKGROUND_FRAME_DELAY,
-    UI_BACKGROUND_FRAME_COUNT};
-
-const IconBitmap::Anim kUncalibratedBread = {
-    reinterpret_cast<const uint8_t*>(&uncalibrated_bread_frames[0][0]),
-    UNCALIBRATED_BREAD_FRAME_BYTES,
-    UNCALIBRATED_BREAD_FRAME_WIDTH,
-    UNCALIBRATED_BREAD_FRAME_HEIGHT,
-    UNCALIBRATED_BREAD_FRAME_DELAY,
-    UNCALIBRATED_BREAD_FRAME_COUNT};
-
-constexpr int16_t kUncalibratedBreadScale = 2;
-
 const char* const kMenuNamesZh[] = {"设置", "音乐", "阅读", "专注时钟", "无线功能", "游戏",
                                    "闹钟", "课程表", "Api统计板", "答案之书", "今日抽签",
                                    "电脑状态看板", "SD卡转USB"};
@@ -161,188 +87,67 @@ static_assert(HomePage::kSdUsbMenuIndex + 1U ==
                   sizeof(kMenuIcons) / sizeof(kMenuIcons[0]),
               "SD USB must match the last main menu slot");
 
-void drawHomeTimePreview(ST7305_2p9_BW_DisplayDriver& canvas, uint32_t nowMs, int16_t xOffset,
-                         const HomePage::ClockData& clockData) {
-  const int16_t boxX1 = static_cast<int16_t>(kTimeCardStyle.rect.x1 + xOffset);
-  const int16_t boxY1 = kTimeCardStyle.rect.y1;
-  const int16_t boxX2 = static_cast<int16_t>(kTimeCardStyle.rect.x2 + xOffset);
-  const int16_t boxY2 = kTimeCardStyle.rect.y2;
-  DrawUtils::drawClippedRect(canvas, boxX1, boxY1, boxX2, boxY2, ST7305_COLOR_BLACK);
-  DrawUtils::drawClippedFilledRect(canvas, static_cast<int16_t>(boxX1 + 1),
-                                   static_cast<int16_t>(boxY1 + 1),
-                                   static_cast<int16_t>(boxX2 - 1),
-                                   static_cast<int16_t>(boxY2 - 1), ST7305_COLOR_BLACK);
-
-  if (!clockData.valid) {
-    if (boxX1 >= 0 && boxY1 >= 0 && boxX2 < canvas.getDisplayWidth() &&
-        boxY2 < canvas.getDisplayHeight()) {
-      const int16_t imageW = static_cast<int16_t>(UNCALIBRATED_BREAD_FRAME_WIDTH *
-                                                   kUncalibratedBreadScale);
-      const int16_t imageH = static_cast<int16_t>(UNCALIBRATED_BREAD_FRAME_HEIGHT *
-                                                   kUncalibratedBreadScale);
-      const int16_t breadX = static_cast<int16_t>(boxX1 + (boxX2 - boxX1 + 1 - imageW) / 2);
-      const int16_t breadY = static_cast<int16_t>(boxY1 + (boxY2 - boxY1 + 1 - imageH) / 2);
-      const uint16_t frame = IconBitmap::frameAt(kUncalibratedBread, nowMs);
-      IconBitmap::drawFrame(canvas, kUncalibratedBread, frame, breadX, breadY, imageW,
-                            imageH, true, boxY1, boxY2);
-    }
-    return;
-  }
-
-  const uint8_t hour = clockData.hour;
-  const uint8_t minute = clockData.minute;
-
-  char hhmm[6];
-  if (clockData.valid) {
-    snprintf(hhmm, sizeof(hhmm), "%02u:%02u", static_cast<unsigned>(hour),
-             static_cast<unsigned>(minute));
-  } else {
-    snprintf(hhmm, sizeof(hhmm), "--:--");
-  }
-
-  const Segment7Font::Style& style = kTimeCardStyle.digitStyle;
-
-  const int16_t textW = Segment7Font::measureText(hhmm, style);
-  const int16_t boxW = static_cast<int16_t>(boxX2 - boxX1 + 1);
-  const int16_t boxH = static_cast<int16_t>(boxY2 - boxY1 + 1);
-  int16_t textX = static_cast<int16_t>(boxX1 + (boxW - textW) / 2);
-  int16_t textY = static_cast<int16_t>(boxY1 + (boxH - style.digitHeight) / 2);
-  if (textX < boxX1 + kTimeCardStyle.minTextInset) {
-    textX = static_cast<int16_t>(boxX1 + kTimeCardStyle.minTextInset);
-  }
-  if (textY < boxY1 + kTimeCardStyle.minTextInset) {
-    textY = static_cast<int16_t>(boxY1 + kTimeCardStyle.minTextInset);
-  }
-
-  Segment7Font::drawText(canvas, textX, textY, hhmm, style);
-}
-
-void drawHomeDatePreview(ST7305_2p9_BW_DisplayDriver& canvas, U8G2_FOR_ST73XX& text,
-                         uint32_t nowMs, int16_t xOffset,
-                         const HomePage::ClockData& clockData) {
-  static const char* const kWeekdayAbbr[7] = {"SUN", "MON", "TUE", "WED",
-                                               "THU", "FRI", "SAT"};
-  static const char* const kMonthAbbr[12] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN",
-                                             "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
-
-  const int16_t boxX1 = static_cast<int16_t>(kDateCardStyle.rect.x1 + xOffset);
-  const int16_t boxY1 = kDateCardStyle.rect.y1;
-  const int16_t boxX2 = static_cast<int16_t>(kDateCardStyle.rect.x2 + xOffset);
-  const int16_t boxY2 = kDateCardStyle.rect.y2;
-
-  DrawUtils::drawClippedRect(canvas, boxX1, boxY1, boxX2, boxY2, ST7305_COLOR_BLACK);
-  DrawUtils::drawClippedFilledRect(canvas, static_cast<int16_t>(boxX1 + 1),
-                                   static_cast<int16_t>(boxY1 + 1),
-                                   static_cast<int16_t>(boxX2 - 1),
-                                   static_cast<int16_t>(boxY2 - 1), ST7305_COLOR_BLACK);
-  DrawUtils::drawClippedPseudoRoundOutline(
-      canvas, static_cast<int16_t>(boxX1 + kDateCardStyle.outerInset),
-      static_cast<int16_t>(boxY1 + kDateCardStyle.outerInset),
-      static_cast<int16_t>(boxX2 - kDateCardStyle.outerInset),
-      static_cast<int16_t>(boxY2 - kDateCardStyle.outerInset), ST7305_COLOR_WHITE,
-      ST7305_COLOR_BLACK);
-
-  uint16_t year = 0;
-  uint8_t month = 1;
-  uint8_t day = 1;
-  uint8_t weekday = 0;
-  if (clockData.valid) {
-    year = clockData.year;
-    month = clockData.month;
-    day = clockData.day;
-    weekday = clockData.weekday;
-  }
-
-  text.setBackgroundColor(ST7305_COLOR_BLACK);
+void drawHomeStatus(ST7305_2p9_BW_DisplayDriver& canvas, U8G2_FOR_ST73XX& text,
+                    int16_t xOffset, const HomePage::ClockData& clockData,
+                    const HomePage::BatteryData& batteryData) {
+  const int16_t width = static_cast<int16_t>(canvas.getDisplayWidth());
+  text.setFont(u8g2_font_7x14_tf);
+  text.setFontMode(1);
   text.setForegroundColor(ST7305_COLOR_WHITE);
-  text.setFontMode(1);
-  text.setFont(u8g2_font_6x12_mf);
+  text.setBackgroundColor(ST7305_COLOR_BLACK);
 
+  char timeText[6];
+  snprintf(timeText, sizeof(timeText), "%02u:%02u",
+           static_cast<unsigned>(clockData.valid ? clockData.hour : 0U),
+           static_cast<unsigned>(clockData.valid ? clockData.minute : 0U));
   if (!clockData.valid) {
-    text.setFont(u8g2_font_7x14_tf);
-    const char* placeholder = "时间需校准";
-    const int16_t textX = TextUtils::centeredTextXInBox(
-        text, placeholder, boxX1, static_cast<int16_t>(boxX2 - boxX1 + 1));
-    const int16_t textY = static_cast<int16_t>(boxY1 + ((boxY2 - boxY1 + 1) / 2) + 5);
-    text.drawUTF8(textX, textY, placeholder);
-    text.setBackgroundColor(ST7305_COLOR_WHITE);
-    text.setForegroundColor(ST7305_COLOR_BLACK);
-    text.setFontMode(1);
-    return;
+    snprintf(timeText, sizeof(timeText), "--:--");
   }
+  const int16_t timeX = static_cast<int16_t>(
+      xOffset + width / 2 - text.getUTF8Width(timeText) / 2);
+  text.drawUTF8(timeX, 17, timeText);
 
-  const int16_t chipTop = static_cast<int16_t>(boxY1 + kDateCardStyle.chipTopOffset);
-  const int16_t chipBottom = static_cast<int16_t>(chipTop + kDateCardStyle.chipHeight);
-
-  const int16_t weekChipX1 = static_cast<int16_t>(boxX1 + kDateCardStyle.weekChipLeftInset);
-  const int16_t weekChipX2 = static_cast<int16_t>(weekChipX1 + kDateCardStyle.weekChipWidth);
-  DrawUtils::drawClippedPseudoRoundOutline(canvas, weekChipX1, chipTop, weekChipX2, chipBottom,
-                                ST7305_COLOR_WHITE, ST7305_COLOR_BLACK);
-  text.drawUTF8(static_cast<int16_t>(weekChipX1 + kDateCardStyle.chipTextInsetX),
-                static_cast<int16_t>(chipBottom - kDateCardStyle.chipTextBaselineInset),
-                weekday < 7U ? kWeekdayAbbr[weekday] : "---");
-
-  const int16_t monthChipX2 =
-      static_cast<int16_t>(boxX2 - kDateCardStyle.monthChipRightInset);
-  const int16_t monthChipX1 =
-      static_cast<int16_t>(monthChipX2 - kDateCardStyle.monthChipWidth);
-  DrawUtils::drawClippedPseudoRoundOutline(canvas, monthChipX1, chipTop, monthChipX2, chipBottom,
-                                ST7305_COLOR_WHITE, ST7305_COLOR_BLACK);
-  text.drawUTF8(static_cast<int16_t>(monthChipX1 + kDateCardStyle.chipTextInsetX),
-                static_cast<int16_t>(chipBottom - kDateCardStyle.chipTextBaselineInset),
-                (month >= 1U && month <= 12U) ? kMonthAbbr[month - 1U] : "---");
-
-  char dayText[3];
-  snprintf(dayText, sizeof(dayText), "%02u", static_cast<unsigned>(day));
-  const Segment7Font::Style& dayStyle = kDateCardStyle.dayStyle;
-  const int16_t dayW = Segment7Font::measureText(dayText, dayStyle);
-  const int16_t dayX = static_cast<int16_t>(boxX1 + ((boxX2 - boxX1 + 1) - dayW) / 2);
-  const int16_t dayY = static_cast<int16_t>(boxY1 + kDateCardStyle.dayTopOffset);
-  Segment7Font::drawText(canvas, dayX, dayY, dayText, dayStyle);
-
-  char yearText[8];
-  snprintf(yearText, sizeof(yearText), "%04u", static_cast<unsigned>(year));
-  text.setFont(u8g2_font_6x12_mf);
-  const int16_t yearW = text.getUTF8Width(yearText);
-  int16_t yearX = static_cast<int16_t>(dayX + dayW + kDateCardStyle.yearGapFromDay);
-  const int16_t yearMaxX =
-      static_cast<int16_t>(boxX2 - kDateCardStyle.yearRightInset - yearW);
-  if (yearX > yearMaxX) {
-    yearX = yearMaxX;
+  static const char* const kWeekdayNames[7] = {"周日", "周一", "周二", "周三",
+                                                "周四", "周五", "周六"};
+  char dateText[32];
+  if (clockData.valid && clockData.month >= 1U && clockData.month <= 12U &&
+      clockData.weekday < 7U) {
+    snprintf(dateText, sizeof(dateText), "%u月%u日 %s",
+             static_cast<unsigned>(clockData.month), static_cast<unsigned>(clockData.day),
+             kWeekdayNames[clockData.weekday]);
+  } else {
+    snprintf(dateText, sizeof(dateText), "时间未校准");
   }
-  const int16_t yearY = static_cast<int16_t>(dayY + dayStyle.digitHeight +
-                                             kDateCardStyle.yearBaselineOffset);
-  text.drawUTF8(yearX, yearY, yearText);
+  const int16_t dateWidth = text.getUTF8Width(dateText);
+  text.drawUTF8(static_cast<int16_t>(xOffset + width - 12 - dateWidth), 17, dateText);
 
-  // Restore default menu text style to avoid leaking date-card text state.
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.setFontMode(1);
-}
-
-void drawHomeBatteryPreview(ST7305_2p9_BW_DisplayDriver& canvas, U8G2_FOR_ST73XX& text,
-                            const HomePage::BatteryData& batteryData) {
   const uint8_t percent = batteryData.percent > 100U ? 100U : batteryData.percent;
   const uint16_t level = batteryData.valid
                              ? static_cast<uint16_t>(percent >= 75U ? 3U : percent / 25U)
                              : 0U;
-  IconBitmap::drawFrame(canvas, kBatteryLevels, level, kBatteryIconX, kBatteryIconY,
-                        BATTERY_LEVELS_FRAME_WIDTH, BATTERY_LEVELS_FRAME_HEIGHT, false,
-                        kBatteryIconY,
-                        kBatteryIconY + BATTERY_LEVELS_FRAME_HEIGHT - 1);
-
-  char percentText[5];
-  if (batteryData.valid) {
-    snprintf(percentText, sizeof(percentText), "%u%%", static_cast<unsigned>(percent));
-  } else {
-    snprintf(percentText, sizeof(percentText), "--%%");
-  }
-  text.setFont(u8g2_font_6x12_mf);
-  text.setFontMode(1);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.drawUTF8(kBatteryTextX, kBatteryTextBaselineY, percentText);
+  const IconBitmap::Anim& battery = kBatteryLevels;
+  const uint16_t frame = battery.frameCount == 0U ? 0U : level % battery.frameCount;
+  IconBitmap::drawFrame(canvas, battery, frame, static_cast<int16_t>(xOffset + 12), 7,
+                        BATTERY_LEVELS_FRAME_WIDTH, BATTERY_LEVELS_FRAME_HEIGHT, true, 0, 24);
+  char batteryText[6];
+  snprintf(batteryText, sizeof(batteryText), batteryData.valid ? "%u%%" : "--%%",
+           static_cast<unsigned>(percent));
+  text.drawUTF8(static_cast<int16_t>(xOffset + 34), 17, batteryText);
 }
+
+void drawWave(ST7305_2p9_BW_DisplayDriver& canvas, int16_t xOffset) {
+  for (int16_t x = -16; x < 400; x += 2) {
+    const int16_t y = static_cast<int16_t>(kXmbWaveBaseY + ((x + 16) * (x + 16)) / 1200);
+    if (y >= 0 && y < canvas.getDisplayHeight()) {
+      canvas.drawFastHLine(static_cast<int16_t>(x + xOffset), y, 1, ST7305_COLOR_WHITE);
+      if (y + 8 < canvas.getDisplayHeight()) {
+        canvas.drawFastHLine(static_cast<int16_t>(x + xOffset), static_cast<int16_t>(y + 8), 1,
+                             ST7305_COLOR_WHITE);
+      }
+    }
+  }
+}
+
 }  // namespace
 
 bool HomePage::begin() {
@@ -350,82 +155,112 @@ bool HomePage::begin() {
                 "Main menu count must match icon resources");
   focusIndex_ = 0;
   targetIndex_ = 0;
+  submenuIndex_ = 0;
+  submenuCount_ = 0;
   slideState_ = SlideState::Idle;
   animFromOffsetY_ = 0;
   animToOffsetY_ = 0;
+  animFromOffsetX_ = 0;
+  animToOffsetX_ = 0;
   animStartMs_ = millis();
   lastFocusFrame_ = 0;
-  lastBackgroundFrame_ = 0;
-  lastUncalibratedFrame_ = 0;
   lastInteractionMs_ = animStartMs_;
   animationTimeMs_ = animStartMs_;
   return true;
 }
 
-bool HomePage::handleInput(bool upEdge, bool downEdge, bool okEdge, uint32_t nowMs) {
+void HomePage::setSubmenuLabels(const char* const* labels, uint8_t count) {
+  const uint8_t safeCount = count > 16U ? 16U : count;
+  submenuCount_ = safeCount;
+  for (uint8_t i = 0; i < safeCount; ++i) submenuLabels_[i] = labels[i];
+  for (uint8_t i = safeCount; i < 16U; ++i) submenuLabels_[i] = nullptr;
+  if (submenuCount_ == 0U) submenuIndex_ = 0;
+  else if (submenuIndex_ >= submenuCount_) submenuIndex_ = static_cast<uint8_t>(submenuCount_ - 1U);
+}
+
+bool HomePage::handleInput(bool leftEdge, bool rightEdge, bool upEdge, bool downEdge,
+                           bool okEdge, uint32_t nowMs) {
+  if (slideState_ == SlideState::SlidingCategory) {
+    focusIndex_ = targetIndex_;
+    slideState_ = SlideState::Idle;
+    animFromOffsetX_ = 0;
+    animToOffsetX_ = 0;
+  }
   if (okEdge && slideState_ == SlideState::Idle) {
     lastInteractionMs_ = nowMs;
     animationTimeMs_ = nowMs;
     return true;
   }
 
-  int8_t direction = 0;
-  if (upEdge) {
-    direction = -1;
-  } else if (downEdge) {
-    direction = 1;
+  if (leftEdge || rightEdge) {
+    const int8_t direction = leftEdge ? -1 : 1;
+    lastInteractionMs_ = nowMs;
+    animationTimeMs_ = nowMs;
+    beginSlide(direction, nowMs);
+    return false;
   }
 
-  if (direction == 0) {
+  int8_t submenuDirection = 0;
+  if (upEdge) submenuDirection = -1;
+  else if (downEdge) submenuDirection = 1;
+  if (submenuDirection == 0 || submenuCount_ == 0U) {
     return false;
   }
 
   lastInteractionMs_ = nowMs;
   animationTimeMs_ = nowMs;
-
-  if (slideState_ == SlideState::Sliding) {
-    focusIndex_ = targetIndex_;
-    slideState_ = SlideState::Idle;
-    animFromOffsetY_ = 0;
-    animToOffsetY_ = 0;
-  }
-
-  beginSlide(direction, nowMs);
+  const int16_t next = static_cast<int16_t>(submenuIndex_) + submenuDirection;
+  if (next < 0 || next >= submenuCount_) return false;
+  submenuIndex_ = static_cast<uint8_t>(next);
+  animFromOffsetY_ = 0;
+  animToOffsetY_ = static_cast<int16_t>(-submenuDirection * kXmbItemStep);
+  animStartMs_ = nowMs;
+  slideState_ = SlideState::SlidingSubmenu;
   return false;
 }
 
 void HomePage::beginSlide(int8_t direction, uint32_t nowMs) {
   targetIndex_ = static_cast<uint8_t>((focusIndex_ + kMenuCount + direction) % kMenuCount);
+  animFromOffsetX_ = 0;
+  animToOffsetX_ = static_cast<int16_t>(-direction * kXmbCategoryStep);
   animFromOffsetY_ = 0;
-  animToOffsetY_ = static_cast<int16_t>(-direction * kWheelItemSpacing);
+  animToOffsetY_ = 0;
+  submenuIndex_ = 0;
   animStartMs_ = nowMs;
-  slideState_ = SlideState::Sliding;
+  slideState_ = SlideState::SlidingCategory;
 }
 
 void HomePage::update(uint32_t nowMs) {
-  if (slideState_ == SlideState::Sliding || isInteractiveAnimationWindow(nowMs)) {
+  if (slideState_ != SlideState::Idle || isInteractiveAnimationWindow(nowMs)) {
     animationTimeMs_ = nowMs;
   }
 
-  if (slideState_ != SlideState::Sliding) {
+  if (slideState_ == SlideState::Idle) {
     return;
   }
 
   if (nowMs - animStartMs_ >= ThemeMono::kSlideDurationMs) {
-    focusIndex_ = targetIndex_;
+    if (slideState_ == SlideState::SlidingCategory) focusIndex_ = targetIndex_;
     slideState_ = SlideState::Idle;
+    animFromOffsetX_ = 0;
+    animToOffsetX_ = 0;
     animFromOffsetY_ = 0;
     animToOffsetY_ = 0;
   }
 }
 
-bool HomePage::isSliding() const { return slideState_ == SlideState::Sliding; }
+bool HomePage::isSliding() const { return slideState_ != SlideState::Idle; }
 
-int16_t HomePage::currentMenuOffset(uint32_t nowMs) const {
-  if (slideState_ != SlideState::Sliding) {
-    return 0;
-  }
+int16_t HomePage::currentCategoryOffset(uint32_t nowMs) const {
+  if (slideState_ != SlideState::SlidingCategory) return 0;
+  const float t = static_cast<float>(nowMs - animStartMs_) /
+                  static_cast<float>(ThemeMono::kSlideDurationMs);
+  const float clamped = t > 1.0f ? 1.0f : t;
+  return AnimMath::easeOutCubicInt16(animFromOffsetX_, animToOffsetX_, clamped);
+}
 
+int16_t HomePage::currentSubmenuOffset(uint32_t nowMs) const {
+  if (slideState_ != SlideState::SlidingSubmenu) return 0;
   const float t = static_cast<float>(nowMs - animStartMs_) /
                   static_cast<float>(ThemeMono::kSlideDurationMs);
   const float clamped = t > 1.0f ? 1.0f : t;
@@ -433,10 +268,8 @@ int16_t HomePage::currentMenuOffset(uint32_t nowMs) const {
 }
 
 bool HomePage::hasUncalibratedBreadTick(uint32_t nowMs) const {
-  if (clockData_.valid) {
-    return false;
-  }
-  return IconBitmap::frameAt(kUncalibratedBread, nowMs) != lastUncalibratedFrame_;
+  (void)nowMs;
+  return false;
 }
 
 bool HomePage::hasMenuAnimationTick(uint32_t nowMs) const {
@@ -446,18 +279,14 @@ bool HomePage::hasMenuAnimationTick(uint32_t nowMs) const {
 
   const uint32_t animNowMs = animationRenderTime(nowMs);
   const IconBitmap::Anim& anim = kMenuIcons[focusIndex_];
-  if (anim.frameCount == 0 || anim.frameDelayMs == 0) {
-    const uint16_t bgFrame = IconBitmap::frameAt(kHomeBackground, animNowMs);
-    return bgFrame != lastBackgroundFrame_;
-  }
+  if (anim.frameCount == 0 || anim.frameDelayMs == 0) return false;
 
   const uint16_t frame = IconBitmap::frameAt(anim, animNowMs);
   if (frame != lastFocusFrame_) {
     return true;
   }
 
-  const uint16_t bgFrame = IconBitmap::frameAt(kHomeBackground, animNowMs);
-  return bgFrame != lastBackgroundFrame_;
+  return false;
 }
 
 bool HomePage::hasAnimationTick(uint32_t nowMs) const {
@@ -483,62 +312,40 @@ bool HomePage::isBreadOnlyAnimationTick(uint32_t nowMs) const {
 }
 
 HomePage::Rect HomePage::timeCardBounds() const {
-  return {kTimeCardStyle.rect.x1, kTimeCardStyle.rect.y1, kTimeCardStyle.rect.x2,
-          kTimeCardStyle.rect.y2};
+  return {0, 0, 383, 167};
 }
 
 void HomePage::renderTimeCardOnly(DisplayMonoTft& display, uint32_t nowMs) {
-  drawHomeTimePreview(display.canvas(), nowMs, 0, clockData_);
-  lastUncalibratedFrame_ = IconBitmap::frameAt(kUncalibratedBread, nowMs);
-  // 卡片已在帧缓冲里被改写，静态图层需要重建。
-  staticLayerValid_ = false;
+  render(display, 0, nowMs);
   frameUsedStaticLayer_ = false;
 }
 
-bool HomePage::isMenuIconsOnlyAnimationTick(uint32_t nowMs) const {
-  if (slideState_ != SlideState::Idle) {
-    return false;
-  }
-  if (!menuLayoutMatchesLastFullRender(nowMs)) {
-    return false;
-  }
-  // 小面包帧同时到期时退回整屏重绘，避免两条局部路径互相覆盖。
-  if (hasUncalibratedBreadTick(nowMs)) {
-    return false;
-  }
-  return hasMenuAnimationTick(nowMs);
+bool HomePage::isMenuIconsOnlyAnimationTick(uint32_t) const {
+  return false;
 }
 
 bool HomePage::menuLayoutMatchesLastFullRender(uint32_t nowMs) const {
   return focusIndex_ == lastRenderedFocusIndex_ &&
-         currentMenuOffset(nowMs) == lastRenderedMenuOffsetY_;
+         currentCategoryOffset(nowMs) == lastRenderedMenuOffsetY_;
 }
 
 HomePage::Rect HomePage::menuIconBounds(const DisplayMonoTft& display) const {
-  const int16_t iconX = static_cast<int16_t>(
-      display.width() - kWheelFrameWidth - kWheelFrameRightMargin + kWheelItemInsetX);
-  return {iconX, kMenuClipTop, static_cast<int16_t>(iconX + ThemeMono::kIconFocusSize - 1),
-          kMenuClipBottom};
+  return {0, 24, static_cast<int16_t>(display.width() - 1), 90};
 }
 
 HomePage::Rect HomePage::menuColumnBounds(const DisplayMonoTft& display) const {
-  const int16_t frameBaseX =
-      static_cast<int16_t>(display.width() - kWheelFrameWidth - kWheelFrameRightMargin);
-  return {frameBaseX, kMenuClipTop, static_cast<int16_t>(display.width() - 1), kMenuClipBottom};
+  return {0, 0, static_cast<int16_t>(display.width() - 1),
+          static_cast<int16_t>(display.height() - 1)};
 }
 
 bool HomePage::frameUsedStaticLayer() const { return frameUsedStaticLayer_; }
 
 void HomePage::renderMenuIconsOnly(DisplayMonoTft& display, uint32_t nowMs) {
-  const int16_t width = static_cast<int16_t>(display.width());
-  const int16_t height = static_cast<int16_t>(display.height());
-  const int16_t frameBaseX =
-      static_cast<int16_t>(width - kWheelFrameWidth - kWheelFrameRightMargin);
-  drawMenuWheel(display, frameBaseX, static_cast<int16_t>(height / 2), 0, 0, 0, 0, nowMs, true);
+  render(display, 0, nowMs);
 }
 
 bool HomePage::isAnimationActive(uint32_t nowMs) const {
-  return slideState_ == SlideState::Sliding || isInteractiveAnimationWindow(nowMs);
+  return slideState_ != SlideState::Idle || isInteractiveAnimationWindow(nowMs);
 }
 
 uint8_t HomePage::focusIndex() const { return focusIndex_; }
@@ -559,26 +366,14 @@ const IconBitmap::Anim& HomePage::sdUsbIcon() {
 }
 
 void HomePage::setClockData(const ClockData& data) {
-  const bool displayChanged =
-      data.valid != clockData_.valid || data.hour != clockData_.hour ||
-      data.minute != clockData_.minute || data.day != clockData_.day ||
-      data.weekday != clockData_.weekday || data.month != clockData_.month ||
-      data.year != clockData_.year;
   clockData_ = data;
-  if (displayChanged) {
-    // 卡片内容变化，静态图层需要重建。
-    staticLayerValid_ = false;
-  }
 }
 
 bool HomePage::setBatteryData(const BatteryData& data) {
   const uint8_t percent = data.percent > 100U ? 100U : data.percent;
-  if (batteryData_.valid == data.valid && batteryData_.percent == percent) {
-    return false;
-  }
+  if (batteryData_.valid == data.valid && batteryData_.percent == percent) return false;
   batteryData_ = data;
   batteryData_.percent = percent;
-  staticLayerValid_ = false;
   return true;
 }
 
@@ -594,152 +389,135 @@ bool HomePage::setFontStatus(FontStatus status) {
 }
 
 void HomePage::renderTransition(DisplayMonoTft& display, int16_t backgroundOffsetX,
-                                int16_t menuBaseOffsetX, int16_t menuUpExtraOffsetX,
-                                int16_t menuFocusExtraOffsetX,
-                                int16_t menuDownExtraOffsetX, uint32_t nowMs) {
+                                int16_t, int16_t, int16_t, int16_t, uint32_t nowMs) {
+  activeRenderOffsetX_ = backgroundOffsetX;
+  auto& canvas = display.canvas();
+  const int16_t width = static_cast<int16_t>(display.width());
+  const int16_t height = static_cast<int16_t>(display.height());
+  canvas.drawFilledRectangle(0, 0, width - 1, height - 1, ST7305_COLOR_BLACK);
+  drawWave(canvas, backgroundOffsetX);
+  drawHomeStatus(canvas, display.text(), backgroundOffsetX, clockData_, batteryData_);
+  drawMenuWheel(display, 0, static_cast<int16_t>(height / 2), 0, 0, 0, 0, nowMs, false);
+  lastRenderedFocusIndex_ = focusIndex_;
+  lastRenderedMenuOffsetY_ = currentCategoryOffset(nowMs);
+  frameUsedStaticLayer_ = false;
+}
+
+void HomePage::drawMenuWheel(DisplayMonoTft& display, int16_t, int16_t, int16_t, int16_t,
+                             int16_t, int16_t, uint32_t animNowMs, bool) {
+  auto& canvas = display.canvas();
+  auto& text = display.text();
+  text.setFont(u8g2_font_7x14_tf);
+  text.setBackgroundColor(ST7305_COLOR_BLACK);
+  text.setFontMode(1);
+  text.setForegroundColor(ST7305_COLOR_WHITE);
+
+  const int16_t categoryOffset = static_cast<int16_t>(
+      activeRenderOffsetX_ + currentCategoryOffset(animNowMs));
+  for (uint8_t offset = 0; offset <= 4U; ++offset) {
+    const uint8_t index = static_cast<uint8_t>((focusIndex_ + offset) % kMenuCount);
+    const bool focus = offset == 0U;
+    const int16_t iconSize = focus ? static_cast<int16_t>(ThemeMono::kIconFocusSize)
+                                   : static_cast<int16_t>(ThemeMono::kIconSideSize);
+    const int16_t centerX = static_cast<int16_t>(kXmbFocusCenterX +
+                                                 offset * kXmbCategoryStep + categoryOffset);
+    const int16_t iconX = static_cast<int16_t>(centerX - iconSize / 2);
+    const int16_t iconY = static_cast<int16_t>(kXmbRailTop + (focus ? 0 : 5));
+    const uint16_t frame = IconBitmap::frameAt(kMenuIcons[index], animNowMs);
+    if (focus) lastFocusFrame_ = frame;
+    IconBitmap::drawFrame(canvas, kMenuIcons[index], frame, iconX, iconY, iconSize, iconSize,
+                          true, kXmbRailTop, kXmbRailRuleY - 2);
+    if (focus) {
+      const char* label = menuLabel(index);
+      const int16_t labelX = static_cast<int16_t>(centerX - text.getUTF8Width(label) / 2);
+      text.drawUTF8(labelX, 83, label);
+      canvas.drawFastHLine(static_cast<int16_t>(centerX - 10), kXmbRailRuleY, 20,
+                           ST7305_COLOR_WHITE);
+    }
+  }
+
+  canvas.drawFastHLine(static_cast<int16_t>(14 + activeRenderOffsetX_), kXmbRailRuleY,
+                       356, ST7305_COLOR_WHITE);
+  if (submenuCount_ == 0U) return;
+
+  const int16_t submenuOffset = currentSubmenuOffset(animNowMs);
+  for (int8_t offset = -2; offset <= 1; ++offset) {
+    const int16_t candidate = static_cast<int16_t>(submenuIndex_) + offset;
+    if (candidate < 0 || candidate >= submenuCount_) continue;
+    const int16_t baseline = static_cast<int16_t>(
+        kXmbItemBaseline + offset * kXmbItemStep + submenuOffset);
+    if (baseline < kXmbItemsTop - 14 || baseline > display.height() + 14) continue;
+    char indexText[3];
+    snprintf(indexText, sizeof(indexText), "%02u", static_cast<unsigned>(candidate + 1));
+    text.drawUTF8(static_cast<int16_t>(kXmbIndexX + activeRenderOffsetX_), baseline, indexText);
+    text.drawUTF8(static_cast<int16_t>(kXmbTextX + activeRenderOffsetX_), baseline,
+                  submenuLabels_[candidate]);
+  }
+}
+
+void HomePage::renderSleepClock(DisplayMonoTft& display, uint32_t, int16_t) const {
   auto& canvas = display.canvas();
   auto& text = display.text();
   const int16_t width = static_cast<int16_t>(display.width());
   const int16_t height = static_cast<int16_t>(display.height());
-  const int16_t menuOffsetY = currentMenuOffset(nowMs);
-  const int16_t frameBaseX = static_cast<int16_t>(
-      menuBaseOffsetX + width - kWheelFrameWidth - kWheelFrameRightMargin);
-  lastRenderedFocusIndex_ = focusIndex_;
-  lastRenderedMenuOffsetY_ = menuOffsetY;
-  const int16_t centerY = static_cast<int16_t>(height / 2);
-  const bool transitionVisualActive =
-      (backgroundOffsetX != menuBaseOffsetX) || (menuUpExtraOffsetX != 0) ||
-      (menuFocusExtraOffsetX != 0) || (menuDownExtraOffsetX != 0);
-  const uint32_t animNowMs = (slideState_ == SlideState::Sliding || transitionVisualActive)
-                                 ? nowMs
-                                 : animationRenderTime(nowMs);
+  canvas.drawFilledRectangle(0, 0, width - 1, height - 1, ST7305_COLOR_BLACK);
 
-  const uint16_t bgFrame = IconBitmap::frameAt(kHomeBackground, animNowMs);
-  lastBackgroundFrame_ = bgFrame;
+  constexpr int16_t x = 256;
+  DrawUtils::drawClippedPseudoRoundOutline(canvas, x + 8, 16, x + 119, 59,
+                                           ST7305_COLOR_WHITE, ST7305_COLOR_BLACK);
+  char timeText[6];
+  snprintf(timeText, sizeof(timeText), clockData_.valid ? "%02u:%02u" : "--:--",
+           static_cast<unsigned>(clockData_.hour), static_cast<unsigned>(clockData_.minute));
+  const Segment7Font::Style timeStyle = {24, 40, 4, 2, 4, ST7305_COLOR_WHITE};
+  const int16_t timeX = static_cast<int16_t>(x + 64 -
+      Segment7Font::measureText(timeText, timeStyle) / 2);
+  Segment7Font::drawText(canvas, timeX, 28, timeText, timeStyle);
 
-  // 静止直出时整帧回填静态图层（背景 + 时间/日期卡片），避免每帧重画整屏背景；
-  // 有横向偏移（过渡动画）时背景位置在变，必须实时绘制。
-  // 时间未校准时分面包每 220ms 换帧、卡片一直在变，也不能复用缓存。
-  const bool canUseStaticLayer =
-      (backgroundOffsetX == 0) && (menuBaseOffsetX == 0) && clockData_.valid;
-  if (canUseStaticLayer && staticLayerValid_) {
-    display.restoreFrame(staticLayer_);
-    frameUsedStaticLayer_ = true;
-  } else {
-    IconBitmap::drawFrame(canvas, kHomeBackground, bgFrame, backgroundOffsetX, 0, width,
-                          height, false, 0, static_cast<int16_t>(height - 1));
-    drawHomeTimePreview(canvas, nowMs, backgroundOffsetX, clockData_);
-    if (!clockData_.valid && backgroundOffsetX == 0) {
-      lastUncalibratedFrame_ = IconBitmap::frameAt(kUncalibratedBread, nowMs);
-    }
-    drawHomeDatePreview(canvas, text, nowMs, backgroundOffsetX, clockData_);
-    if (fontStatus_ != FontStatus::Ready) {
-      const int16_t left = backgroundOffsetX + 15;
-      DrawUtils::drawClippedFilledRect(canvas, left, 65, left + 125, 81, ST7305_COLOR_WHITE);
-      text.setFont(u8g2_font_6x12_mf);
-      text.setFontMode(1);
-      text.setForegroundColor(ST7305_COLOR_BLACK);
-      text.drawUTF8(left, 78, fontStatus_ == FontStatus::Loading ? "SD font loading" : "SD font unavailable");
-    }
-    if (backgroundOffsetX == 0 && menuBaseOffsetX == 0) {
-      drawHomeBatteryPreview(canvas, text, batteryData_);
-    }
-    frameUsedStaticLayer_ = false;
-    if (canUseStaticLayer && display.frameBufferBytes() == kStaticLayerBytes) {
-      display.captureFrame(staticLayer_);
-      staticLayerValid_ = true;
-    }
-  }
+  DrawUtils::drawClippedPseudoRoundOutline(canvas, x + 8, 72, x + 119, 135,
+                                           ST7305_COLOR_WHITE, ST7305_COLOR_BLACK);
+  char dayText[3];
+  snprintf(dayText, sizeof(dayText), "%02u", static_cast<unsigned>(clockData_.day));
+  const Segment7Font::Style dayStyle = {24, 40, 4, 2, 4, ST7305_COLOR_WHITE};
+  Segment7Font::drawText(canvas, static_cast<int16_t>(x + 18), 84, dayText, dayStyle);
 
-  drawMenuWheel(display, frameBaseX, centerY, menuOffsetY, menuUpExtraOffsetX,
-                menuFocusExtraOffsetX, menuDownExtraOffsetX, animNowMs, false);
+  text.setFont(u8g2_font_7x14_tf);
+  text.setFontMode(1);
+  text.setForegroundColor(ST7305_COLOR_WHITE);
+  text.setBackgroundColor(ST7305_COLOR_BLACK);
+  static const char* const weekdayNames[7] = {"周日", "周一", "周二", "周三",
+                                               "周四", "周五", "周六"};
+  const char* weekday = clockData_.valid && clockData_.weekday < 7U
+                            ? weekdayNames[clockData_.weekday] : "--";
+  DrawUtils::drawClippedFilledRect(canvas, x + 73, 84, x + 111, 106, ST7305_COLOR_WHITE);
+  text.setForegroundColor(ST7305_COLOR_BLACK);
+  text.drawUTF8(static_cast<int16_t>(x + 78), 100, weekday);
+  text.setForegroundColor(ST7305_COLOR_WHITE);
+  char yearText[8];
+  snprintf(yearText, sizeof(yearText), "%04u", static_cast<unsigned>(clockData_.year));
+  text.drawUTF8(static_cast<int16_t>(x + 18), 126, yearText);
+  char monthText[8];
+  snprintf(monthText, sizeof(monthText), "%u月", static_cast<unsigned>(clockData_.month));
+  text.drawUTF8(static_cast<int16_t>(x + 78), 126, monthText);
+
+  const uint8_t percent = batteryData_.percent > 100U ? 100U : batteryData_.percent;
+  const uint16_t level = batteryData_.valid
+                             ? static_cast<uint16_t>(percent >= 75U ? 3U : percent / 25U) : 0U;
+  IconBitmap::drawFrame(canvas, kBatteryLevels, level % kBatteryLevels.frameCount,
+                        static_cast<int16_t>(x + 16), 146,
+                        BATTERY_LEVELS_FRAME_WIDTH, BATTERY_LEVELS_FRAME_HEIGHT, true, 140, 167);
+  char batteryText[6];
+  snprintf(batteryText, sizeof(batteryText), batteryData_.valid ? "%u%%" : "--%%",
+           static_cast<unsigned>(percent));
+  text.setForegroundColor(ST7305_COLOR_WHITE);
+  text.drawUTF8(static_cast<int16_t>(x + 40), 159, batteryText);
 }
 
-void HomePage::drawMenuWheel(DisplayMonoTft& display, int16_t frameBaseX, int16_t centerY,
-                             int16_t menuOffsetY, int16_t menuUpExtraOffsetX,
-                             int16_t menuFocusExtraOffsetX, int16_t menuDownExtraOffsetX,
-                             uint32_t animNowMs, bool iconsOnly) {
-  auto& canvas = display.canvas();
-  auto& text = display.text();
-
-  if (!iconsOnly) {
-    text.setFont(u8g2_font_7x14_tf);
-    text.setBackgroundColor(ST7305_COLOR_WHITE);
-    text.setFontMode(1);
-    text.setForegroundColor(ST7305_COLOR_BLACK);
-  }
-
-  for (uint8_t i = 0; i < kMenuCount; ++i) {
-    int8_t delta = static_cast<int8_t>(i) - static_cast<int8_t>(focusIndex_);
-    if (delta > 2) {
-      delta -= kMenuCount;
-    } else if (delta < -2) {
-      delta += kMenuCount;
-    }
-
-    const bool isFocus = (delta == 0);
-    const IconBitmap::Anim& anim = kMenuIcons[i];
-
-    int16_t iconSize = isFocus ? static_cast<int16_t>(ThemeMono::kIconFocusSize)
-                               : static_cast<int16_t>(ThemeMono::kIconSideSize);
-    const int16_t rowCenterY =
-        static_cast<int16_t>(centerY + delta * kWheelItemSpacing + menuOffsetY);
-    const int16_t rowTop = static_cast<int16_t>(rowCenterY - iconSize / 2);
-    const int16_t rowBottom = static_cast<int16_t>(rowTop + iconSize - 1);
-    if (rowBottom < kMenuClipTop || rowTop > kMenuClipBottom) {
-      continue;
-    }
-
-    int16_t rowOffsetX = 0;
-    if (delta == -1) {
-      rowOffsetX = menuUpExtraOffsetX;
-    } else if (delta == 0) {
-      rowOffsetX = menuFocusExtraOffsetX;
-    } else if (delta == 1) {
-      rowOffsetX = menuDownExtraOffsetX;
-    }
-
-    const int16_t frameX = static_cast<int16_t>(frameBaseX + rowOffsetX);
-
-    if (!iconsOnly && isFocus) {
-      int16_t focusTop = static_cast<int16_t>(rowCenterY - (iconSize / 2 + kWheelFramePaddingY));
-      int16_t focusBottom =
-          static_cast<int16_t>(rowCenterY + (iconSize / 2 + kWheelFramePaddingY));
-      if (focusTop < kMenuClipTop) {
-        focusTop = kMenuClipTop;
-      }
-      if (focusBottom > kMenuClipBottom) {
-        focusBottom = kMenuClipBottom;
-      }
-      canvas.drawRectangle(frameX, focusTop, frameX + kWheelFrameWidth, focusBottom,
-                           ST7305_COLOR_BLACK);
-    }
-
-    const uint16_t frame = IconBitmap::frameAt(anim, animNowMs);
-    if (isFocus) {
-      lastFocusFrame_ = frame;
-    }
-
-    const int16_t iconX = static_cast<int16_t>(frameX + kWheelItemInsetX);
-    IconBitmap::drawFrame(canvas, anim, frame, iconX, rowTop, iconSize, iconSize, false,
-                          kMenuClipTop, kMenuClipBottom);
-
-    if (iconsOnly) {
-      continue;
-    }
-
-    const char* label = menuLabel(i);
-    const int16_t textBlockX = static_cast<int16_t>(iconX + iconSize + kWheelTextGap);
-    const int16_t textBlockW =
-        static_cast<int16_t>(frameX + kWheelFrameWidth - textBlockX - kWheelItemInsetX);
-    int16_t labelX = TextUtils::centeredTextXInBox(text, label, textBlockX, textBlockW);
-    if (labelX < textBlockX) {
-      labelX = textBlockX;
-    }
-    const int16_t labelY = static_cast<int16_t>(rowCenterY + 6);
-    if (labelY >= kMenuClipTop + kMenuLabelHeight && labelY <= kMenuClipBottom) {
-      text.drawUTF8(labelX, labelY, label);
-    }
+void HomePage::renderSleepTransition(DisplayMonoTft& display, uint32_t nowMs,
+                                      uint8_t progress) const {
+  renderSleepClock(display, nowMs);
+  if (progress < 100U) {
+    const int16_t lineX = static_cast<int16_t>(progress * display.width() / 100U);
+    display.canvas().drawFastVLine(lineX, 12, display.height() - 24, ST7305_COLOR_WHITE);
   }
 }
 

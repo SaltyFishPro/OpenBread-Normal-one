@@ -33,6 +33,8 @@ namespace {
 #endif
 
 constexpr uint32_t kAutoSleepTimeoutMs = 20000;
+constexpr uint32_t kSleepTransitionMs = 720;
+constexpr uint32_t kSleepTransitionFrameMs = 32;
 constexpr uint32_t kBatteryRefreshIntervalMs = 10000;
 
 constexpr uint32_t kSectionTransitionMs = 600;
@@ -428,6 +430,7 @@ void UiManager::tick() {
     needsRedraw_ = true;
   }
   const InputEdges edges = pollInputEdges();
+  if (state_ == UiState::Home) syncHomeSubmenu();
   updateState(edges, nowMs);
   syncUiFont();
   syncContentFonts();
@@ -524,11 +527,13 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
 
   switch (state_) {
     case UiState::Home: {
+      syncHomeSubmenu();
       const bool enterSection =
-          homePage_.handleInput(edges.up, edges.down, edges.ok, nowMs);
+          homePage_.handleInput(edges.left, edges.right, edges.up, edges.down, edges.ok, nowMs);
       homePage_.update(nowMs);
+      syncHomeSubmenu();
       if (enterSection) {
-        sectionFocusIndex_ = 0;
+        sectionFocusIndex_ = homePage_.submenuIndex();
         sectionAnimFromIndex_ = 0;
         sectionAnimToIndex_ = 0;
         sectionAnimStartMs_ = nowMs;
@@ -538,7 +543,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         }
         state_ = isDirectDetailHomeIndex(homePage_.focusIndex())
                      ? UiState::ToDirectDetailTransition
-                     : UiState::ToSectionTransition;
+                     : UiState::ToDetailTransition;
         transitionStartMs_ = nowMs;
         needsRedraw_ = true;
       }
@@ -759,7 +764,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
           setRemotePagePortrait(false);
           state_ = isDirectDetailHomeIndex(homePage_.focusIndex())
                        ? UiState::ToHomeFromDirectDetailTransition
-                       : UiState::ToSectionFromDetailTransition;
+                       : UiState::ToHomeTransition;
           transitionStartMs_ = nowMs;
           needsRedraw_ = true;
         }
@@ -805,7 +810,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
           setRemotePagePortrait(false);
           state_ = isDirectDetailHomeIndex(homePage_.focusIndex())
                        ? UiState::ToHomeFromDirectDetailTransition
-                       : UiState::ToSectionFromDetailTransition;
+                       : UiState::ToHomeTransition;
           transitionStartMs_ = nowMs;
           needsRedraw_ = true;
         }
@@ -1968,6 +1973,18 @@ void UiManager::syncHomeClockFromTimeService() {
   homePage_.setClockData(clock);
 }
 
+void UiManager::syncHomeSubmenu() {
+  if (isDirectDetailHomeIndex(homePage_.focusIndex())) {
+    homePage_.setSubmenuLabels(nullptr, 0);
+    return;
+  }
+  const SectionContent content = sectionContentFor(homePage_.focusIndex(), settingsPage_);
+  const uint8_t count = content.itemCount > 16U ? 16U : content.itemCount;
+  const char* labels[16] = {nullptr};
+  for (uint8_t i = 0; i < count; ++i) labels[i] = content.items[i].labelZh;
+  homePage_.setSubmenuLabels(labels, count);
+}
+
 void UiManager::refreshHomeBattery(uint32_t nowMs) {
   if (!powerDiagnosticService_.refresh()) {
     const bool displayChanged = homePage_.setBatteryData({0, false});
@@ -2045,6 +2062,17 @@ void UiManager::enterSleep(uint32_t nowMs) {
     LogI("SLEEP", "rtc minute interrupt unavailable; time refresh wake disabled");
   }
 
+  // XMB 浅睡过渡：先完成一次扫描线切换，再关闭外设并进入 Light Sleep。
+  for (uint32_t elapsed = 0; elapsed <= kSleepTransitionMs;
+       elapsed += kSleepTransitionFrameMs) {
+    const uint8_t progress = static_cast<uint8_t>(
+        (elapsed * 100U) / (kSleepTransitionMs == 0U ? 1U : kSleepTransitionMs));
+    display_.clear();
+    homePage_.renderSleepTransition(display_, nowMs, progress);
+    display_.presentSynced();
+    if (elapsed < kSleepTransitionMs) delay(kSleepTransitionFrameMs);
+  }
+
   display_.prepareForSleepKeepDisplay();
   peripheralPower_.setSensorEnabled(false);
   uiFontAttempted_ = false;
@@ -2093,7 +2121,9 @@ void UiManager::enterSleep(uint32_t nowMs) {
       timeService_.tick(wakeNowMs);
       syncHomeClockFromTimeService();
       needsRedraw_ = true;
-      render(wakeNowMs);
+      display_.clear();
+      homePage_.renderSleepClock(display_, wakeNowMs);
+      display_.present();
       lastRenderMs_ = wakeNowMs;
       needsRedraw_ = false;
       (void)rtcDriver_.clearTimerFlag();
@@ -2122,6 +2152,16 @@ void UiManager::enterSleep(uint32_t nowMs) {
   resetButtonDebounceState();
   timeService_.tick(exitNowMs);
   syncHomeClockFromTimeService();
+  for (int32_t elapsed = static_cast<int32_t>(kSleepTransitionMs);
+       elapsed >= 0; elapsed -= static_cast<int32_t>(kSleepTransitionFrameMs)) {
+    const uint8_t progress = static_cast<uint8_t>(
+        (static_cast<uint32_t>(elapsed) * 100U) /
+        (kSleepTransitionMs == 0U ? 1U : kSleepTransitionMs));
+    display_.clear();
+    homePage_.renderSleepTransition(display_, exitNowMs, progress);
+    display_.presentSynced();
+    if (elapsed > 0) delay(kSleepTransitionFrameMs);
+  }
   lastActivityMs_ = exitNowMs;
   lastRenderMs_ = exitNowMs;
   needsRedraw_ = true;
