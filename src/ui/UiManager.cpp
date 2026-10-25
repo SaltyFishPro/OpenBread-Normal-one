@@ -5,25 +5,14 @@
 #include "../bsp/BoardConfig.h"
 #include "../bsp/CpuClock.h"
 #include <driver/gpio.h>
+#include <esp_heap_caps.h>
 #include <esp_sleep.h>
 #include <nvs_flash.h>
 #include "../log/Log.h"
-#include "IconBitmap.h"
 #include "AnimMath.h"
-#include "DrawUtils.h"
 #include "ThemeMono.h"
-#include "TextUtils.h"
 #include "SdUiText.h"
 #include "../services/SdCardService.h"
-#include "assets/games/icons8-airplanewars.h"
-#include "assets/games/icons8-tapthewoodenfish.h"
-#include "assets/submenu/bluetoothconnet.h"
-#include "assets/submenu/likemusic.h"
-#include "assets/submenu/musiclist.h"
-#include "assets/submenu/remote.h"
-#include "assets/submenu/teleprompter.h"
-#include "assets/submenu/vocabularybook.h"
-#include "assets/main_menu/icons8-clock.h"
 
 namespace {
 // 局部刷新：音乐导航栏/列表动画只把脏区域推送到屏幕，降低 SPI 传输量。
@@ -34,33 +23,12 @@ namespace {
 
 constexpr uint32_t kAutoSleepTimeoutMs = 20000;
 constexpr uint32_t kSleepTransitionMs = 720;
-constexpr uint32_t kSleepTransitionFrameMs = 32;
+constexpr uint32_t kSleepTransitionFrameMs = 16;
 constexpr uint32_t kBatteryRefreshIntervalMs = 10000;
 
-constexpr uint32_t kSectionTransitionMs = 600;
-constexpr uint32_t kForwardBgEndMs = 90;
-constexpr uint32_t kForwardMenuStartMs = 70;
-constexpr uint32_t kForwardMenuEndMs = 500;
-constexpr uint32_t kForwardSectionStartMs = 540;
-
-constexpr uint32_t kBackSectionEndMs = 200;
-constexpr uint32_t kBackMenuStartMs = 180;
-constexpr uint32_t kBackMenuEndMs = 340;
-constexpr uint32_t kBackBgStartMs = 300;
 constexpr uint32_t kDetailTransitionMs = 420;
-constexpr uint32_t kDetailForwardIconEndMs = 120;
-constexpr uint32_t kDetailForwardRowsStartMs = 80;
-constexpr uint32_t kDetailForwardRowsEndMs = 320;
-constexpr uint32_t kDetailForwardDetailStartMs = 220;
-constexpr uint32_t kDetailBackDetailEndMs = 200;
-constexpr uint32_t kDetailBackRowsStartMs = 180;
-constexpr uint32_t kDetailBackRowsEndMs = 340;
-constexpr uint32_t kDetailBackIconStartMs = 300;
 constexpr uint32_t kButtonDebounceMs = 25;
 constexpr uint32_t kButtonLongPressMs = 650;
-constexpr uint32_t kSectionFocusSlideMs = 170;
-constexpr uint8_t kSectionPageSize = 5;
-constexpr uint8_t kMaxSectionItemsForAnim = 8;
 constexpr uint32_t kHighFrameIntervalMs = 16;
 constexpr uint32_t kTransitionFrameIntervalMs = 32;
 // 空闲时仍按输入采样周期轮询；射频/自检等需要协作式高频服务的子系统用 1ms。
@@ -68,193 +36,29 @@ constexpr uint32_t kActivePollMs = 1;
 // 满屏渲染后保持满速的时长，避免降频状态下执行整帧绘制。
 constexpr uint32_t kCpuBoostHoldMs = 500;
 
-using SectionItem = SettingsPage::MenuItem;
-
-struct SectionContent {
-  const SectionItem* items;
-  uint8_t itemCount;
+struct SubmenuContent {
+  const char* const* labels;
+  uint8_t count;
 };
 
-const SectionItem kMusicItems[] = {
-    {"音乐列表",
-     {reinterpret_cast<const uint8_t*>(&musiclist_frames[0][0]), MUSICLIST_FRAME_BYTES,
-      MUSICLIST_FRAME_WIDTH, MUSICLIST_FRAME_HEIGHT, MUSICLIST_FRAME_DELAY, MUSICLIST_FRAME_COUNT}},
-    {"收藏歌曲",
-     {reinterpret_cast<const uint8_t*>(&likemusic_frames[0][0]), LIKEMUSIC_FRAME_BYTES,
-      LIKEMUSIC_FRAME_WIDTH, LIKEMUSIC_FRAME_HEIGHT, LIKEMUSIC_FRAME_DELAY, LIKEMUSIC_FRAME_COUNT}},
-};
+const char* const kMusicItems[] = {"音乐列表", "收藏歌曲"};
+const char* const kReaderItems[] = {"单词阅读", "提词器"};
+const char* const kWirelessItems[] = {"蓝牙连接", "蓝牙拍照", "翻页器"};
+const char* const kGamesItems[] = {"敲木鱼", "飞机世界大战"};
 
-const SectionItem kReaderItems[] = {
-    {"单词阅读",
-     {reinterpret_cast<const uint8_t*>(&vocabularybook_frames[0][0]),
-      VOCABULARYBOOK_FRAME_BYTES, VOCABULARYBOOK_FRAME_WIDTH, VOCABULARYBOOK_FRAME_HEIGHT,
-      VOCABULARYBOOK_FRAME_DELAY, VOCABULARYBOOK_FRAME_COUNT}},
-    {"提词器",
-     {reinterpret_cast<const uint8_t*>(&teleprompter_frames[0][0]),
-      TELEPROMPTER_FRAME_BYTES, TELEPROMPTER_FRAME_WIDTH, TELEPROMPTER_FRAME_HEIGHT,
-      TELEPROMPTER_FRAME_DELAY, TELEPROMPTER_FRAME_COUNT}},
-};
-
-const SectionItem kFocusClockItems[] = {
-    {"专注时钟",
-     {reinterpret_cast<const uint8_t*>(&clock_frames[0][0]), CLOCK_FRAME_BYTES,
-      CLOCK_FRAME_WIDTH, CLOCK_FRAME_HEIGHT, CLOCK_FRAME_DELAY, CLOCK_FRAME_COUNT}},
-};
-
-const SectionItem kWirelessItems[] = {
-    {"蓝牙连接",
-     {reinterpret_cast<const uint8_t*>(&bluetoothconnet_frames[0][0]),
-      BLUETOOTHCONNET_FRAME_BYTES, BLUETOOTHCONNET_FRAME_WIDTH, BLUETOOTHCONNET_FRAME_HEIGHT,
-      BLUETOOTHCONNET_FRAME_DELAY, BLUETOOTHCONNET_FRAME_COUNT}},
-    {"蓝牙拍照",
-     {reinterpret_cast<const uint8_t*>(&remote_frames[0][0]), REMOTE_FRAME_BYTES,
-      REMOTE_FRAME_WIDTH, REMOTE_FRAME_HEIGHT, REMOTE_FRAME_DELAY, REMOTE_FRAME_COUNT}},
-    {"翻页器",
-     {reinterpret_cast<const uint8_t*>(&remote_frames[0][0]), REMOTE_FRAME_BYTES,
-      REMOTE_FRAME_WIDTH, REMOTE_FRAME_HEIGHT, REMOTE_FRAME_DELAY, REMOTE_FRAME_COUNT}},
-};
-
-const SectionItem kGamesItems[] = {
-    {"敲木鱼",
-     {reinterpret_cast<const uint8_t*>(&icons8_tapthewoodenfish_frames[0][0]),
-      ICONS8_TAPTHEWOODENFISH_FRAME_BYTES, ICONS8_TAPTHEWOODENFISH_FRAME_WIDTH,
-      ICONS8_TAPTHEWOODENFISH_FRAME_HEIGHT, ICONS8_TAPTHEWOODENFISH_FRAME_DELAY,
-      ICONS8_TAPTHEWOODENFISH_FRAME_COUNT}},
-    {"飞机世界大战",
-     {reinterpret_cast<const uint8_t*>(&icons8_airplanewars_frames[0][0]),
-      ICONS8_AIRPLANEWARS_FRAME_BYTES, ICONS8_AIRPLANEWARS_FRAME_WIDTH,
-      ICONS8_AIRPLANEWARS_FRAME_HEIGHT, ICONS8_AIRPLANEWARS_FRAME_DELAY,
-      ICONS8_AIRPLANEWARS_FRAME_COUNT}},
-};
-
-const SectionContent kSectionContents[] = {
+const SubmenuContent kSubmenus[] = {
     {kMusicItems, static_cast<uint8_t>(sizeof(kMusicItems) / sizeof(kMusicItems[0]))},
     {kReaderItems, static_cast<uint8_t>(sizeof(kReaderItems) / sizeof(kReaderItems[0]))},
-    {kFocusClockItems, static_cast<uint8_t>(sizeof(kFocusClockItems) / sizeof(kFocusClockItems[0]))},
+    {nullptr, 0},
     {kWirelessItems, static_cast<uint8_t>(sizeof(kWirelessItems) / sizeof(kWirelessItems[0]))},
     {kGamesItems, static_cast<uint8_t>(sizeof(kGamesItems) / sizeof(kGamesItems[0]))},
 };
 
-// 主菜单里直接进入详情页、跳过单条目二级目录的入口。
-bool isDirectDetailHomeIndex(uint8_t homeFocus) {
-  return homeFocus == FocusClockPage::kHomeIndex || homeFocus == HomePage::kAlarmMenuIndex ||
-         homeFocus == HomePage::kCalendarMenuIndex || homeFocus == HomePage::kApiStatsMenuIndex ||
-         homeFocus == HomePage::kAnswersBookMenuIndex ||
-         homeFocus == HomePage::kTodayDrawMenuIndex ||
-         homeFocus == HomePage::kComputerStatusMenuIndex ||
-         homeFocus == HomePage::kSdUsbMenuIndex;
-}
-
-SectionContent sectionContentFor(uint8_t homeFocus, const SettingsPage& settingsPage) {
-  if (homeFocus == SettingsPage::kHomeIndex) {
-    return {settingsPage.menuItems(), settingsPage.menuItemCount()};
-  }
-
-  const size_t count = sizeof(kSectionContents) / sizeof(kSectionContents[0]);
-  // 主菜单索引 1..count 依次对应各二级目录；直接进详情页的入口（专注时钟、闹钟）
-  // 没有二级目录，返回空内容。
-  if (homeFocus == 0U || static_cast<size_t>(homeFocus) > count) {
+SubmenuContent submenuContentFor(uint8_t homeFocus) {
+  if (homeFocus == 0U || homeFocus > sizeof(kSubmenus) / sizeof(kSubmenus[0]))
     return {nullptr, 0};
-  }
-  return kSectionContents[static_cast<size_t>(homeFocus) - 1U];
+  return kSubmenus[homeFocus - 1U];
 }
-
-uint8_t sectionPageCount(uint8_t itemCount) {
-  if (itemCount == 0) {
-    return 1;
-  }
-  return static_cast<uint8_t>((itemCount + kSectionPageSize - 1) / kSectionPageSize);
-}
-
-uint8_t sectionPageStart(uint8_t itemCount, uint8_t selectedIndex) {
-  if (itemCount == 0) {
-    return 0;
-  }
-  const uint8_t selected = static_cast<uint8_t>(selectedIndex % itemCount);
-  return static_cast<uint8_t>((selected / kSectionPageSize) * kSectionPageSize);
-}
-
-uint8_t sectionVisibleCount(uint8_t itemCount, uint8_t pageStart) {
-  if (itemCount == 0 || pageStart >= itemCount) {
-    return 0;
-  }
-  const uint8_t left = static_cast<uint8_t>(itemCount - pageStart);
-  return left > kSectionPageSize ? kSectionPageSize : left;
-}
-
-struct SectionListLayout {
-  int16_t listX;
-  int16_t listStartBaseline;
-  int16_t rowStep;
-  int16_t textHeight;
-  int16_t focusPadX;
-  int16_t focusPadY;
-  int16_t focusRadius;
-  int16_t boxMaxRight;
-  int16_t iconX;
-  int16_t iconY;
-  int16_t iconSize;
-};
-
-struct SectionRowLayout {
-  int16_t baselineY;
-  int16_t boxLeft;
-  int16_t boxTop;
-  int16_t boxRight;
-  int16_t boxBottom;
-};
-
-SectionListLayout makeSectionListLayout(int16_t xOffset, int16_t yOffset, int16_t width,
-                                        int16_t height) {
-  SectionListLayout layout;
-  layout.iconSize = static_cast<int16_t>(height - 18);
-  if (layout.iconSize > 150) {
-    layout.iconSize = 150;
-  }
-  if (layout.iconSize < 96) {
-    layout.iconSize = static_cast<int16_t>(height - 12);
-  }
-  layout.iconX = static_cast<int16_t>(xOffset + width - layout.iconSize - 8);
-  layout.iconY = static_cast<int16_t>(yOffset + (height - layout.iconSize) / 2);
-
-  layout.listX = static_cast<int16_t>(xOffset + 14);
-  layout.listStartBaseline = static_cast<int16_t>(yOffset + 34);
-  layout.rowStep = 26;
-  layout.textHeight = 14;
-  layout.focusPadX = 10;
-  layout.focusPadY = 5;
-  layout.focusRadius = 8;
-  layout.boxMaxRight = static_cast<int16_t>(layout.iconX - 10);
-  return layout;
-}
-
-SectionRowLayout makeSectionRowLayout(const SectionListLayout& layout, int16_t labelW,
-                                      uint8_t rowIndex) {
-  SectionRowLayout row;
-  row.baselineY = static_cast<int16_t>(layout.listStartBaseline + layout.rowStep * rowIndex);
-  row.boxTop = static_cast<int16_t>(row.baselineY - layout.textHeight - layout.focusPadY);
-  row.boxBottom = static_cast<int16_t>(row.baselineY + layout.focusPadY);
-  row.boxLeft = static_cast<int16_t>(layout.listX - layout.focusPadX);
-  row.boxRight = static_cast<int16_t>(layout.listX + labelW + layout.focusPadX - 1);
-  if (row.boxRight > layout.boxMaxRight) {
-    row.boxRight = layout.boxMaxRight;
-  }
-  return row;
-}
-
-void applySectionItemTextStyle(U8G2_FOR_ST73XX& text, bool selected) {
-  if (selected) {
-    text.setBackgroundColor(ST7305_COLOR_BLACK);
-    text.setFontMode(0);
-    text.setForegroundColor(ST7305_COLOR_WHITE);
-    return;
-  }
-
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setFontMode(1);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-}
-
 }  // namespace
 
 bool UiManager::begin() {
@@ -331,17 +135,9 @@ bool UiManager::begin() {
   leftLongReported_ = false;
   transitionStartMs_ = millis();
   sectionFocusIndex_ = 0;
-  sectionAnimFromIndex_ = 0;
-  sectionAnimToIndex_ = 0;
-  sectionAnimStartMs_ = transitionStartMs_;
-  lastSectionIconFrame_ = 0;
-  lastSectionInteractionMs_ = transitionStartMs_;
-  sectionAnimationTimeMs_ = transitionStartMs_;
   confirmState_ = PopupView::ConfirmState{};
   confirmAction_ = ConfirmAction::None;
-  confirmOverSection_ = false;
   lastRenderMs_ = 0;
-  sectionAnimActive_ = false;
   needsRedraw_ = true;
   return true;
 }
@@ -455,8 +251,8 @@ void UiManager::tick() {
   if (popupResult != PopupView::Result::None) {
     if (popupResult == PopupView::Result::Confirmed) {
       performConfirmAction(popupNowMs);
-    } else if (confirmOverSection_ && state_ == UiState::Popup) {
-      state_ = UiState::Section;
+    } else if (state_ == UiState::Popup) {
+      state_ = UiState::Home;
     }
     needsRedraw_ = true;
   }
@@ -528,23 +324,32 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
   switch (state_) {
     case UiState::Home: {
       syncHomeSubmenu();
-      const bool enterSection =
+      const bool enterDetail =
           homePage_.handleInput(edges.left, edges.right, edges.up, edges.down, edges.ok, nowMs);
       homePage_.update(nowMs);
       syncHomeSubmenu();
-      if (enterSection) {
+      if (enterDetail) {
         sectionFocusIndex_ = homePage_.submenuIndex();
-        sectionAnimFromIndex_ = 0;
-        sectionAnimToIndex_ = 0;
-        sectionAnimStartMs_ = nowMs;
-        sectionAnimActive_ = false;
-        if (homePage_.focusIndex() == HomePage::kComputerStatusMenuIndex) {
-          computerStatusPage_.prepareEnter();
+        const SettingsPage::ConfirmKind kind =
+            settingsPage_.popupForSelection(homePage_.focusIndex(), sectionFocusIndex_);
+        if (kind != SettingsPage::ConfirmKind::None) {
+          openConfirm(settingsPage_.confirmTitle(kind),
+                      settingsPage_.confirmPrimaryLabel(kind),
+                      settingsPage_.confirmDangerLabel(kind),
+                      kind == SettingsPage::ConfirmKind::FactoryReset
+                          ? ConfirmAction::FactoryReset : ConfirmAction::Restart,
+                      nowMs);
+          state_ = UiState::Popup;
+        } else {
+          detailPageIndex_ = 0;
+          musicPage_.resetState(homePage_.focusIndex(), sectionFocusIndex_);
+          if (settingsPage_.isOtaSelection(homePage_.focusIndex(), sectionFocusIndex_))
+            systemUpdatePage_.prepareEnter();
+          if (homePage_.focusIndex() == HomePage::kComputerStatusMenuIndex)
+            computerStatusPage_.prepareEnter();
+          state_ = UiState::ToDetailTransition;
+          transitionStartMs_ = nowMs;
         }
-        state_ = isDirectDetailHomeIndex(homePage_.focusIndex())
-                     ? UiState::ToDirectDetailTransition
-                     : UiState::ToDetailTransition;
-        transitionStartMs_ = nowMs;
         needsRedraw_ = true;
       }
       if (isSleepAllowed() && (nowMs - lastActivityMs_) >= kAutoSleepTimeoutMs) {
@@ -554,19 +359,19 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
       break;
     }
 
-    case UiState::ToSectionTransition: {
-      if (nowMs - transitionStartMs_ >= kSectionTransitionMs) {
-        state_ = UiState::Section;
-        needsRedraw_ = true;
-      }
-      break;
-    }
-
-    case UiState::ToDirectDetailTransition: {
+    case UiState::ToDetailTransition: {
       if (nowMs - transitionStartMs_ >= kDetailTransitionMs) {
-        // 专注时钟是直接从主界面进入的详情页，进入时回到卡片选择界面。
         focusClockPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_);
         answersBookPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_);
+        if (settingsPage_.isAboutDeviceSelection(homePage_.focusIndex(), sectionFocusIndex_))
+          refreshSdStatus();
+        if (settingsPage_.isDeviceSelfTestSelection(homePage_.focusIndex(), sectionFocusIndex_))
+          deviceSelfTestPage_.reset();
+        musicPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_, musicService_,
+                                     sdCardService_);
+        readerPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_, sdBitmapFont_);
+        setRemotePagePortrait(remotePage_.isPortraitSelection(homePage_.focusIndex(),
+                                                              sectionFocusIndex_));
         if (homePage_.focusIndex() == HomePage::kComputerStatusMenuIndex) {
           computerStatusFrameVisible_ = false;
           computerStatusPage_.begin(nowMs);
@@ -586,103 +391,8 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
     }
 
     case UiState::ToHomeTransition: {
-      if (nowMs - transitionStartMs_ >= kSectionTransitionMs) {
-        state_ = UiState::Home;
-        needsRedraw_ = true;
-      }
-      break;
-    }
-
-    case UiState::ToHomeFromDirectDetailTransition: {
       if (nowMs - transitionStartMs_ >= kDetailTransitionMs) {
         state_ = UiState::Home;
-        needsRedraw_ = true;
-      }
-      break;
-    }
-
-    case UiState::ToDetailTransition: {
-      if (nowMs - transitionStartMs_ >= kDetailTransitionMs) {
-        if (settingsPage_.isAboutDeviceSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
-          refreshSdStatus();
-        }
-        if (settingsPage_.isDeviceSelfTestSelection(homePage_.focusIndex(),
-                                                    sectionFocusIndex_)) {
-          deviceSelfTestPage_.reset();
-        }
-        musicPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_, musicService_,
-                                     sdCardService_);
-        readerPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_, sdBitmapFont_);
-        setRemotePagePortrait(remotePage_.isPortraitSelection(homePage_.focusIndex(),
-                                                              sectionFocusIndex_));
-        state_ = UiState::Detail;
-        needsRedraw_ = true;
-      }
-      break;
-    }
-
-    case UiState::ToSectionFromDetailTransition: {
-      if (nowMs - transitionStartMs_ >= kDetailTransitionMs) {
-        setRemotePagePortrait(false);
-        state_ = UiState::Section;
-        needsRedraw_ = true;
-      }
-      break;
-    }
-
-    case UiState::Section: {
-      const SectionContent content = sectionContentFor(homePage_.focusIndex(), settingsPage_);
-      if (sectionAnimActive_ || isSectionAnimationActive(nowMs)) {
-        sectionAnimationTimeMs_ = nowMs;
-      }
-      if (sectionAnimActive_ && nowMs - sectionAnimStartMs_ >= kSectionFocusSlideMs) {
-        sectionAnimActive_ = false;
-        needsRedraw_ = true;
-      }
-
-      if (content.itemCount > 0 && edges.up) {
-        lastSectionInteractionMs_ = nowMs;
-        const uint8_t next = (sectionFocusIndex_ == 0)
-                                 ? static_cast<uint8_t>(content.itemCount - 1)
-                                 : static_cast<uint8_t>(sectionFocusIndex_ - 1);
-        startSectionFocusAnimation(next, nowMs);
-        needsRedraw_ = true;
-      } else if (content.itemCount > 0 && edges.down) {
-        lastSectionInteractionMs_ = nowMs;
-        const uint8_t next =
-            static_cast<uint8_t>((sectionFocusIndex_ + 1) % content.itemCount);
-        startSectionFocusAnimation(next, nowMs);
-        needsRedraw_ = true;
-      } else if (edges.left) {
-        lastSectionInteractionMs_ = nowMs;
-        sectionAnimActive_ = false;
-        remotePage_.handleSectionExit(homePage_.focusIndex(), bluetoothService_);
-        state_ = UiState::ToHomeTransition;
-        transitionStartMs_ = nowMs;
-        needsRedraw_ = true;
-      } else if (edges.ok) {
-        lastSectionInteractionMs_ = nowMs;
-        sectionAnimActive_ = false;
-        const SettingsPage::ConfirmKind kind =
-            settingsPage_.popupForSelection(homePage_.focusIndex(), sectionFocusIndex_);
-        if (kind != SettingsPage::ConfirmKind::None) {
-          openConfirm(settingsPage_.confirmTitle(kind),
-                      settingsPage_.confirmPrimaryLabel(kind),
-                      settingsPage_.confirmDangerLabel(kind),
-                      kind == SettingsPage::ConfirmKind::FactoryReset
-                          ? ConfirmAction::FactoryReset
-                          : ConfirmAction::Restart,
-                      true, nowMs);
-          state_ = UiState::Popup;
-        } else {
-          detailPageIndex_ = 0;
-          musicPage_.resetState(homePage_.focusIndex(), sectionFocusIndex_);
-          if (settingsPage_.isOtaSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
-            systemUpdatePage_.prepareEnter();
-          }
-          state_ = UiState::ToDetailTransition;
-          transitionStartMs_ = nowMs;
-        }
         needsRedraw_ = true;
       }
       break;
@@ -716,7 +426,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
                     detailConfirm == SettingsPage::ConfirmKind::OtaApply
                         ? ConfirmAction::OtaApply
                         : ConfirmAction::WifiStart,
-                    false, nowMs);
+                    nowMs);
         needsRedraw_ = true;
         break;
       }
@@ -762,9 +472,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
           settingsPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                           wifiProvisionService_, otaService_, timeService_);
           setRemotePagePortrait(false);
-          state_ = isDirectDetailHomeIndex(homePage_.focusIndex())
-                       ? UiState::ToHomeFromDirectDetailTransition
-                       : UiState::ToHomeTransition;
+          state_ = UiState::ToHomeTransition;
           transitionStartMs_ = nowMs;
           needsRedraw_ = true;
         }
@@ -808,9 +516,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
           settingsPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                           wifiProvisionService_, otaService_, timeService_);
           setRemotePagePortrait(false);
-          state_ = isDirectDetailHomeIndex(homePage_.focusIndex())
-                       ? UiState::ToHomeFromDirectDetailTransition
-                       : UiState::ToHomeTransition;
+          state_ = UiState::ToHomeTransition;
           transitionStartMs_ = nowMs;
           needsRedraw_ = true;
         }
@@ -899,38 +605,11 @@ bool UiManager::shouldRedraw(uint32_t nowMs) const {
     }
   }
 
-  if (state_ == UiState::ToSectionTransition) {
-    return true;
-  }
-  if (state_ == UiState::ToDirectDetailTransition) {
-    return true;
-  }
   if (state_ == UiState::ToHomeTransition) {
-    return true;
-  }
-  if (state_ == UiState::ToHomeFromDirectDetailTransition) {
     return true;
   }
   if (state_ == UiState::ToDetailTransition) {
     return true;
-  }
-  if (state_ == UiState::ToSectionFromDetailTransition) {
-    return true;
-  }
-  if (state_ == UiState::Section) {
-    if (sectionAnimActive_) {
-      return true;
-    }
-
-    const SectionContent content = sectionContentFor(homePage_.focusIndex(), settingsPage_);
-    if (content.itemCount > 0 && isSectionAnimationActive(nowMs)) {
-      const uint8_t selected = static_cast<uint8_t>(sectionFocusIndex_ % content.itemCount);
-      const uint16_t frame =
-          IconBitmap::frameAt(content.items[selected].icon, sectionAnimationRenderTime(nowMs));
-      if (frame != lastSectionIconFrame_) {
-        return true;
-      }
-    }
   }
   if (state_ == UiState::Detail &&
       musicPage_.needsAnimationFrame(homePage_.focusIndex(), sectionFocusIndex_, nowMs)) {
@@ -966,11 +645,7 @@ uint32_t UiManager::targetFrameIntervalMs(uint32_t nowMs) const {
     return kHighFrameIntervalMs;
   }
   if (systemUpdatePage_.needsAnimationFrame()) return kTransitionFrameIntervalMs;
-  if (state_ == UiState::ToSectionTransition ||
-      state_ == UiState::ToDirectDetailTransition || state_ == UiState::ToHomeTransition ||
-      state_ == UiState::ToHomeFromDirectDetailTransition ||
-      state_ == UiState::ToDetailTransition ||
-      state_ == UiState::ToSectionFromDetailTransition) {
+  if (state_ == UiState::ToHomeTransition || state_ == UiState::ToDetailTransition) {
     return kTransitionFrameIntervalMs;
   }
 
@@ -978,9 +653,6 @@ uint32_t UiManager::targetFrameIntervalMs(uint32_t nowMs) const {
     return kHighFrameIntervalMs;
   }
 
-  if (state_ == UiState::Section && sectionAnimActive_) {
-    return kHighFrameIntervalMs;
-  }
 
   if (state_ == UiState::Detail &&
       musicPage_.isMusicListSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
@@ -1196,280 +868,26 @@ void UiManager::render(uint32_t nowMs) {
     // The host frame was rendered above.
   } else if (state_ == UiState::Home) {
     homePage_.render(display_, 0, nowMs);
-  } else if (state_ == UiState::ToSectionTransition) {
-    const uint32_t elapsedRaw = nowMs - transitionStartMs_;
-    const uint32_t elapsed =
-        elapsedRaw > kSectionTransitionMs ? kSectionTransitionMs : elapsedRaw;
-    const int16_t width = static_cast<int16_t>(display_.width());
-    const int16_t height = static_cast<int16_t>(display_.height());
-    int16_t backgroundOffsetX = static_cast<int16_t>(-width);
-    if (elapsed < kForwardBgEndMs) {
-      const float t = static_cast<float>(elapsed) /
-                      static_cast<float>(kForwardBgEndMs == 0 ? 1 : kForwardBgEndMs);
-      backgroundOffsetX = easeInCubic(0, static_cast<int16_t>(-width), t);
-    }
-
-    const uint32_t menuWindow = kForwardMenuEndMs - kForwardMenuStartMs;
-    const uint32_t menuStep = menuWindow / 3U;
-    const uint32_t menuStartUp = kForwardMenuStartMs;
-    const uint32_t menuStartFocus = kForwardMenuStartMs + menuStep;
-    const uint32_t menuStartDown = kForwardMenuStartMs + (menuStep * 2U);
-    const uint32_t menuDur = menuStep;
-
-    int16_t menuUpOffsetX = static_cast<int16_t>(-width);
-    int16_t menuFocusOffsetX = static_cast<int16_t>(-width);
-    int16_t menuDownOffsetX = static_cast<int16_t>(-width);
-
-    auto forwardMenuOffset = [&](uint32_t startMs) -> int16_t {
-      if (elapsed <= startMs) {
-        return 0;
-      }
-      const uint32_t endMs = startMs + menuDur;
-      if (elapsed >= endMs) {
-        return static_cast<int16_t>(-width);
-      }
-      const float t = static_cast<float>(elapsed - startMs) /
-                      static_cast<float>(menuDur == 0 ? 1 : menuDur);
-      return easeInCubic(0, static_cast<int16_t>(-width), t);
-    };
-
-    menuUpOffsetX = forwardMenuOffset(menuStartUp);
-    menuFocusOffsetX = forwardMenuOffset(menuStartFocus);
-    menuDownOffsetX = forwardMenuOffset(menuStartDown);
-
-    int16_t sectionOffsetY = height;
-    if (elapsed >= kForwardSectionStartMs) {
-      const uint32_t moveDuration = kSectionTransitionMs - kForwardSectionStartMs;
-      const float t = static_cast<float>(elapsed - kForwardSectionStartMs) /
-                      static_cast<float>(moveDuration == 0 ? 1 : moveDuration);
-      sectionOffsetY = easeOutCubic(height, 0, t);
-    }
-
-    homePage_.renderTransition(display_, backgroundOffsetX, 0, menuUpOffsetX,
-                               menuFocusOffsetX, menuDownOffsetX, nowMs);
-    renderSection(0, sectionOffsetY, nowMs);
-  } else if (state_ == UiState::ToDirectDetailTransition) {
-    const uint32_t elapsedRaw = nowMs - transitionStartMs_;
-    const uint32_t elapsed =
-        elapsedRaw > kDetailTransitionMs ? kDetailTransitionMs : elapsedRaw;
-    const int16_t width = static_cast<int16_t>(display_.width());
-    const int16_t height = static_cast<int16_t>(display_.height());
-
-    int16_t homeOffsetX = static_cast<int16_t>(-width);
-    if (elapsed < kDetailForwardIconEndMs) {
-      const float t = static_cast<float>(elapsed) /
-                      static_cast<float>(kDetailForwardIconEndMs == 0 ? 1
-                                                                      : kDetailForwardIconEndMs);
-      homeOffsetX = easeInCubic(0, static_cast<int16_t>(-width), t);
-    }
-
-    int16_t detailOffsetY = height;
-    if (elapsed >= kDetailForwardDetailStartMs) {
-      const uint32_t moveDuration = kDetailTransitionMs - kDetailForwardDetailStartMs;
-      const float t = static_cast<float>(elapsed - kDetailForwardDetailStartMs) /
-                      static_cast<float>(moveDuration == 0 ? 1 : moveDuration);
-      detailOffsetY = easeOutCubic(height, 0, t);
-    }
-
-    homePage_.renderTransition(display_, homeOffsetX, homeOffsetX, 0, 0, 0, nowMs);
-    renderDetail(detailOffsetY);
-  } else if (state_ == UiState::ToHomeTransition) {
-    const uint32_t elapsedRaw = nowMs - transitionStartMs_;
-    const uint32_t elapsed =
-        elapsedRaw > kSectionTransitionMs ? kSectionTransitionMs : elapsedRaw;
-    const int16_t width = static_cast<int16_t>(display_.width());
-    const int16_t height = static_cast<int16_t>(display_.height());
-    int16_t sectionOffsetY = height;
-    if (elapsed < kBackSectionEndMs) {
-      const float t = static_cast<float>(elapsed) /
-                      static_cast<float>(kBackSectionEndMs == 0 ? 1 : kBackSectionEndMs);
-      sectionOffsetY = easeInCubic(0, height, t);
-    }
-
-    const uint32_t menuWindow = kBackMenuEndMs - kBackMenuStartMs;
-    const uint32_t menuStep = menuWindow / 3U;
-    const uint32_t menuStartDown = kBackMenuStartMs;
-    const uint32_t menuStartFocus = kBackMenuStartMs + menuStep;
-    const uint32_t menuStartUp = kBackMenuStartMs + (menuStep * 2U);
-    const uint32_t menuDur = menuStep;
-
-    int16_t menuUpOffsetX = static_cast<int16_t>(-width);
-    int16_t menuFocusOffsetX = static_cast<int16_t>(-width);
-    int16_t menuDownOffsetX = static_cast<int16_t>(-width);
-
-    auto backwardMenuOffset = [&](uint32_t startMs) -> int16_t {
-      if (elapsed <= startMs) {
-        return static_cast<int16_t>(-width);
-      }
-      const uint32_t endMs = startMs + menuDur;
-      if (elapsed >= endMs) {
-        return 0;
-      }
-      const float t = static_cast<float>(elapsed - startMs) /
-                      static_cast<float>(menuDur == 0 ? 1 : menuDur);
-      return easeOutCubic(static_cast<int16_t>(-width), 0, t);
-    };
-
-    menuDownOffsetX = backwardMenuOffset(menuStartDown);
-    menuFocusOffsetX = backwardMenuOffset(menuStartFocus);
-    menuUpOffsetX = backwardMenuOffset(menuStartUp);
-
-    int16_t backgroundOffsetX = static_cast<int16_t>(-width);
-    if (elapsed >= kBackBgStartMs) {
-      const uint32_t moveDuration = kSectionTransitionMs - kBackBgStartMs;
-      const float t = static_cast<float>(elapsed - kBackBgStartMs) /
-                      static_cast<float>(moveDuration == 0 ? 1 : moveDuration);
-      backgroundOffsetX = easeOutCubic(static_cast<int16_t>(-width), 0, t);
-    }
-
-    homePage_.renderTransition(display_, backgroundOffsetX, 0, menuUpOffsetX,
-                               menuFocusOffsetX, menuDownOffsetX, nowMs);
-    renderSection(0, sectionOffsetY, nowMs);
-  } else if (state_ == UiState::ToHomeFromDirectDetailTransition) {
-    const uint32_t elapsedRaw = nowMs - transitionStartMs_;
-    const uint32_t elapsed =
-        elapsedRaw > kDetailTransitionMs ? kDetailTransitionMs : elapsedRaw;
-    const int16_t width = static_cast<int16_t>(display_.width());
-    const int16_t height = static_cast<int16_t>(display_.height());
-
-    int16_t detailOffsetY = height;
-    if (elapsed < kDetailBackDetailEndMs) {
-      const float t = static_cast<float>(elapsed) /
-                      static_cast<float>(kDetailBackDetailEndMs == 0 ? 1
-                                                                      : kDetailBackDetailEndMs);
-      detailOffsetY = easeInCubic(0, height, t);
-    }
-
-    int16_t homeOffsetX = static_cast<int16_t>(-width);
-    if (elapsed >= kDetailBackIconStartMs) {
-      const uint32_t moveDuration = kDetailTransitionMs - kDetailBackIconStartMs;
-      const float t = static_cast<float>(elapsed - kDetailBackIconStartMs) /
-                      static_cast<float>(moveDuration == 0 ? 1 : moveDuration);
-      homeOffsetX = easeOutCubic(static_cast<int16_t>(-width), 0, t);
-    }
-
-    renderDetail(detailOffsetY);
-    homePage_.renderTransition(display_, homeOffsetX, homeOffsetX, 0, 0, 0, nowMs);
   } else if (state_ == UiState::ToDetailTransition) {
     const uint32_t elapsedRaw = nowMs - transitionStartMs_;
     const uint32_t elapsed =
         elapsedRaw > kDetailTransitionMs ? kDetailTransitionMs : elapsedRaw;
-    const int16_t width = static_cast<int16_t>(display_.width());
     const int16_t height = static_cast<int16_t>(display_.height());
-
-    int16_t iconOffsetX = width;
-    if (elapsed < kDetailForwardIconEndMs) {
-      const float t = static_cast<float>(elapsed) /
-                      static_cast<float>(kDetailForwardIconEndMs == 0 ? 1
-                                                                      : kDetailForwardIconEndMs);
-      iconOffsetX = easeInCubic(0, width, t);
-    }
-
-    const SectionContent content = sectionContentFor(homePage_.focusIndex(), settingsPage_);
-    const uint8_t selected =
-        content.itemCount == 0 ? 0 : static_cast<uint8_t>(sectionFocusIndex_ % content.itemCount);
-    const uint8_t pageStart = sectionPageStart(content.itemCount, selected);
-    const uint8_t rowCount = sectionVisibleCount(content.itemCount, pageStart);
-    int16_t rowOffsets[kMaxSectionItemsForAnim] = {0};
-    if (rowCount > 0) {
-      const uint32_t rowWindow = kDetailForwardRowsEndMs - kDetailForwardRowsStartMs;
-      uint32_t rowStep = rowWindow / rowCount;
-      if (rowStep == 0) {
-        rowStep = 1;
-      }
-      const uint32_t rowDur = rowStep;
-
-      for (uint8_t i = 0; i < rowCount; ++i) {
-        const uint32_t startMs = kDetailForwardRowsStartMs + rowStep * i;
-        if (elapsed <= startMs) {
-          rowOffsets[i] = 0;
-          continue;
-        }
-        const uint32_t endMs = startMs + rowDur;
-        if (elapsed >= endMs) {
-          rowOffsets[i] = width;
-          continue;
-        }
-        const float t = static_cast<float>(elapsed - startMs) /
-                        static_cast<float>(rowDur == 0 ? 1 : rowDur);
-        rowOffsets[i] = easeInCubic(0, width, t);
-      }
-    }
-    const uint8_t selectedRow = static_cast<uint8_t>(selected - pageStart);
-    const int16_t focusOffsetX = (selectedRow < rowCount) ? rowOffsets[selectedRow] : 0;
-
-    int16_t detailOffsetY = height;
-    if (elapsed >= kDetailForwardDetailStartMs) {
-      const uint32_t moveDuration = kDetailTransitionMs - kDetailForwardDetailStartMs;
-      const float t = static_cast<float>(elapsed - kDetailForwardDetailStartMs) /
-                      static_cast<float>(moveDuration == 0 ? 1 : moveDuration);
-      detailOffsetY = easeOutCubic(height, 0, t);
-    }
-
-    renderSection(0, 0, nowMs, iconOffsetX, rowOffsets, rowCount, focusOffsetX);
+    const float t = static_cast<float>(elapsed) / kDetailTransitionMs;
+    const int16_t detailOffsetY = easeOutCubic(height, 0, t);
+    homePage_.render(display_, 0, nowMs);
     renderDetail(detailOffsetY);
-  } else if (state_ == UiState::ToSectionFromDetailTransition) {
+  } else if (state_ == UiState::ToHomeTransition) {
     const uint32_t elapsedRaw = nowMs - transitionStartMs_;
     const uint32_t elapsed =
         elapsedRaw > kDetailTransitionMs ? kDetailTransitionMs : elapsedRaw;
-    const int16_t width = static_cast<int16_t>(display_.width());
     const int16_t height = static_cast<int16_t>(display_.height());
-
-    int16_t detailOffsetY = height;
-    if (elapsed < kDetailBackDetailEndMs) {
-      const float t = static_cast<float>(elapsed) /
-                      static_cast<float>(kDetailBackDetailEndMs == 0 ? 1 : kDetailBackDetailEndMs);
-      detailOffsetY = easeInCubic(0, height, t);
-    }
-
-    const SectionContent content = sectionContentFor(homePage_.focusIndex(), settingsPage_);
-    const uint8_t selected =
-        content.itemCount == 0 ? 0 : static_cast<uint8_t>(sectionFocusIndex_ % content.itemCount);
-    const uint8_t pageStart = sectionPageStart(content.itemCount, selected);
-    const uint8_t rowCount = sectionVisibleCount(content.itemCount, pageStart);
-    int16_t rowOffsets[kMaxSectionItemsForAnim] = {0};
-    if (rowCount > 0) {
-      const uint32_t rowWindow = kDetailBackRowsEndMs - kDetailBackRowsStartMs;
-      uint32_t rowStep = rowWindow / rowCount;
-      if (rowStep == 0) {
-        rowStep = 1;
-      }
-      const uint32_t rowDur = rowStep;
-
-      for (uint8_t i = 0; i < rowCount; ++i) {
-        const uint32_t order = static_cast<uint32_t>(rowCount - 1U - i);
-        const uint32_t startMs = kDetailBackRowsStartMs + rowStep * order;
-        if (elapsed <= startMs) {
-          rowOffsets[i] = width;
-          continue;
-        }
-        const uint32_t endMs = startMs + rowDur;
-        if (elapsed >= endMs) {
-          rowOffsets[i] = 0;
-          continue;
-        }
-        const float t = static_cast<float>(elapsed - startMs) /
-                        static_cast<float>(rowDur == 0 ? 1 : rowDur);
-        rowOffsets[i] = easeOutCubic(width, 0, t);
-      }
-    }
-    const uint8_t selectedRow = static_cast<uint8_t>(selected - pageStart);
-    const int16_t focusOffsetX = (selectedRow < rowCount) ? rowOffsets[selectedRow] : 0;
-
-    int16_t iconOffsetX = width;
-    if (elapsed >= kDetailBackIconStartMs) {
-      const uint32_t moveDuration = kDetailTransitionMs - kDetailBackIconStartMs;
-      const float t = static_cast<float>(elapsed - kDetailBackIconStartMs) /
-                      static_cast<float>(moveDuration == 0 ? 1 : moveDuration);
-      iconOffsetX = easeOutCubic(width, 0, t);
-    }
-
-    renderSection(0, 0, nowMs, iconOffsetX, rowOffsets, rowCount, focusOffsetX);
+    const float t = static_cast<float>(elapsed) / kDetailTransitionMs;
+    const int16_t detailOffsetY = easeInCubic(0, height, t);
+    homePage_.render(display_, 0, nowMs);
     renderDetail(detailOffsetY);
-  } else if (state_ == UiState::Section) {
-    renderSection(0, 0, nowMs);
   } else if (state_ == UiState::Popup) {
-    renderSection(0, 0, nowMs);
+    homePage_.render(display_, 0, nowMs);
     renderPopup(nowMs);
   } else {
     renderDetail();
@@ -1477,12 +895,7 @@ void UiManager::render(uint32_t nowMs) {
 
   if (renderer_.hasDirty()) {
     const bool transitionFrame =
-        state_ == UiState::ToSectionTransition ||
-        state_ == UiState::ToDirectDetailTransition ||
-        state_ == UiState::ToHomeTransition ||
-        state_ == UiState::ToHomeFromDirectDetailTransition ||
-        state_ == UiState::ToDetailTransition ||
-        state_ == UiState::ToSectionFromDetailTransition;
+        state_ == UiState::ToHomeTransition || state_ == UiState::ToDetailTransition;
 #if OB_PARTIAL_REFRESH_ENABLED
     // 滑动中只有菜单列在变；静态图层是整帧回填的，其余区域与屏幕内容一致，
     // 因此只需把菜单列推给面板。
@@ -1502,31 +915,6 @@ void UiManager::render(uint32_t nowMs) {
     }
 #endif
   }
-}
-
-void UiManager::startSectionFocusAnimation(uint8_t toIndex, uint32_t nowMs) {
-  const SectionContent content = sectionContentFor(homePage_.focusIndex(), settingsPage_);
-  if (content.itemCount == 0) {
-    sectionAnimActive_ = false;
-    sectionFocusIndex_ = 0;
-    return;
-  }
-
-  if (sectionAnimActive_) {
-    sectionFocusIndex_ = sectionAnimToIndex_;
-  }
-
-  const uint8_t normalizedFrom = static_cast<uint8_t>(sectionFocusIndex_ % content.itemCount);
-  const uint8_t normalizedTo = static_cast<uint8_t>(toIndex % content.itemCount);
-  const uint8_t fromPage = sectionPageStart(content.itemCount, normalizedFrom);
-  const uint8_t toPage = sectionPageStart(content.itemCount, normalizedTo);
-
-  sectionAnimFromIndex_ = normalizedFrom;
-  sectionAnimToIndex_ = normalizedTo;
-  sectionFocusIndex_ = normalizedTo;
-  sectionAnimStartMs_ = nowMs;
-  sectionAnimActive_ =
-      (sectionAnimFromIndex_ != sectionAnimToIndex_) && (fromPage == toPage);
 }
 
 bool UiManager::isComputerStatusDetail() const {
@@ -1558,181 +946,12 @@ void UiManager::renderComputerStatusFrame() {
   }
 }
 
-void UiManager::renderSection(int16_t xOffset, int16_t yOffset, uint32_t nowMs,
-                              int16_t iconExtraOffsetX, const int16_t* rowExtraOffsets,
-                              uint8_t rowExtraCount, int16_t focusBoxExtraOffsetX) {
-  auto& canvas = display_.canvas();
-  auto& text = display_.text();
-  const int16_t width = static_cast<int16_t>(display_.width());
-  const int16_t height = static_cast<int16_t>(display_.height());
-  const uint8_t focus = homePage_.focusIndex();
-  const SectionContent content = sectionContentFor(focus, settingsPage_);
-  const uint8_t itemCount = content.itemCount;
-  const SectionListLayout layout = makeSectionListLayout(xOffset, yOffset, width, height);
-
-  text.setFont(u8g2_font_7x14_tf);
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setFontMode(1);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-
-  if (itemCount == 0) {
-    return;
-  }
-
-  const uint8_t selected = static_cast<uint8_t>(sectionFocusIndex_ % itemCount);
-  const uint8_t pageStart = sectionPageStart(itemCount, selected);
-  const uint8_t visibleCount = sectionVisibleCount(itemCount, pageStart);
-  const uint8_t selectedRow = static_cast<uint8_t>(selected - pageStart);
-  const uint8_t fromIndex = static_cast<uint8_t>(sectionAnimFromIndex_ % itemCount);
-  const uint8_t toIndex = static_cast<uint8_t>(sectionAnimToIndex_ % itemCount);
-  const uint8_t fromRow = sectionAnimActive_ ? static_cast<uint8_t>(fromIndex - pageStart)
-                                             : selectedRow;
-  const uint8_t toRow = sectionAnimActive_ ? static_cast<uint8_t>(toIndex - pageStart)
-                                           : selectedRow;
-
-  const int16_t fromLabelW =
-      text.getUTF8Width(content.items[fromIndex].labelZh);
-  const int16_t toLabelW =
-      text.getUTF8Width(content.items[toIndex].labelZh);
-  const SectionRowLayout fromLayout = makeSectionRowLayout(layout, fromLabelW, fromRow);
-  const SectionRowLayout toLayout = makeSectionRowLayout(layout, toLabelW, toRow);
-
-  int16_t boxLeft = toLayout.boxLeft;
-  int16_t boxTop = toLayout.boxTop;
-  int16_t boxRight = toLayout.boxRight;
-  int16_t boxBottom = toLayout.boxBottom;
-  float sectionAnimT = 1.0f;
-
-  if (sectionAnimActive_) {
-    const uint32_t elapsed = nowMs - sectionAnimStartMs_;
-    sectionAnimT = elapsed >= kSectionFocusSlideMs
-                       ? 1.0f
-                       : static_cast<float>(elapsed) /
-                             static_cast<float>(kSectionFocusSlideMs == 0 ? 1
-                                                                          : kSectionFocusSlideMs);
-    boxLeft = easeOutCubic(fromLayout.boxLeft, toLayout.boxLeft, sectionAnimT);
-    boxTop = easeOutCubic(fromLayout.boxTop, toLayout.boxTop, sectionAnimT);
-    boxRight = easeOutCubic(fromLayout.boxRight, toLayout.boxRight, sectionAnimT);
-    boxBottom = easeOutCubic(fromLayout.boxBottom, toLayout.boxBottom, sectionAnimT);
-  }
-
-  boxLeft = static_cast<int16_t>(boxLeft + focusBoxExtraOffsetX);
-  boxRight = static_cast<int16_t>(boxRight + focusBoxExtraOffsetX);
-
-  DrawUtils::fillRoundRect(canvas, boxLeft, boxTop, boxRight, boxBottom, layout.focusRadius,
-                           ST7305_COLOR_BLACK);
-
-  for (uint8_t row = 0; row < visibleCount; ++row) {
-    const uint8_t itemIndex = static_cast<uint8_t>(pageStart + row);
-    const char* label = content.items[itemIndex].labelZh;
-    const int16_t labelW = text.getUTF8Width(label);
-    const SectionRowLayout rowLayout = makeSectionRowLayout(layout, labelW, row);
-    const bool isSelected = (itemIndex == selected);
-    int16_t rowExtraOffsetX = 0;
-    if (rowExtraOffsets != nullptr && row < rowExtraCount) {
-      rowExtraOffsetX = rowExtraOffsets[row];
-    }
-
-    applySectionItemTextStyle(text, isSelected);
-    text.drawUTF8(static_cast<int16_t>(layout.listX + rowExtraOffsetX), rowLayout.baselineY,
-                  label);
-  }
-
-  const uint8_t pages = sectionPageCount(itemCount);
-  const uint8_t currentPage = static_cast<uint8_t>(pageStart / kSectionPageSize);
-  const int16_t progressX = static_cast<int16_t>(layout.iconX - 14);
-  const int16_t progressY = static_cast<int16_t>(yOffset + 18);
-  const int16_t progressW = 4;
-  const int16_t progressH = static_cast<int16_t>(height - 36);
-  canvas.drawRectangle(progressX, progressY, static_cast<int16_t>(progressX + progressW - 1),
-                       static_cast<int16_t>(progressY + progressH - 1), ST7305_COLOR_BLACK);
-  int16_t thumbH = progressH;
-  if (itemCount > 0) {
-    thumbH = static_cast<int16_t>(progressH / itemCount);
-  }
-  if (thumbH < 4) {
-    thumbH = 4;
-  }
-  if (thumbH > progressH) {
-    thumbH = progressH;
-  }
-  int16_t thumbY = progressY;
-  if (itemCount > 0 && progressH > thumbH) {
-    const int16_t travel = static_cast<int16_t>(progressH - thumbH);
-    const uint8_t positionCount = itemCount > 1U ? static_cast<uint8_t>(itemCount - 1U) : 1U;
-    thumbY = static_cast<int16_t>(
-        progressY + (static_cast<int32_t>(travel) * selected) / positionCount);
-  }
-  canvas.drawFilledRectangle(progressX, thumbY, static_cast<int16_t>(progressX + progressW - 1),
-                             static_cast<int16_t>(thumbY + thumbH - 1), ST7305_COLOR_BLACK);
-
-  char pageText[8];
-  snprintf(pageText, sizeof(pageText), "%u/%u", static_cast<unsigned>(currentPage + 1),
-           static_cast<unsigned>(pages));
-  const int16_t pageBaselineY = static_cast<int16_t>(yOffset + height - 8);
-  const int16_t pageCenterX = static_cast<int16_t>((layout.listX + progressX - 1) / 2);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.drawUTF8(TextUtils::centeredTextX(text, pageText, pageCenterX), pageBaselineY, pageText);
-
-  const SectionItem& selectedItem = content.items[selected];
-  const bool sectionTransitionActive =
-      (xOffset != 0) || (yOffset != 0) || (iconExtraOffsetX != 0) ||
-      (rowExtraOffsets != nullptr) || (focusBoxExtraOffsetX != 0);
-  const uint32_t iconNowMs =
-      (sectionAnimActive_ || sectionTransitionActive) ? nowMs : sectionAnimationRenderTime(nowMs);
-  const uint16_t iconFrame = IconBitmap::frameAt(selectedItem.icon, iconNowMs);
-  lastSectionIconFrame_ = iconFrame;
-  const int16_t iconBaseX = static_cast<int16_t>(layout.iconX + iconExtraOffsetX);
-  int16_t iconDrawX = iconBaseX;
-  if (sectionAnimActive_) {
-    const int16_t iconStartX = static_cast<int16_t>(iconBaseX + layout.iconSize + 16);
-    iconDrawX = easeOutCubic(iconStartX, iconBaseX, sectionAnimT);
-  }
-
-  const int16_t iconPad = 4;
-  int16_t borderX1 = static_cast<int16_t>(iconDrawX - iconPad);
-  int16_t borderY1 = static_cast<int16_t>(layout.iconY - iconPad);
-  int16_t borderX2 =
-      static_cast<int16_t>(iconDrawX + layout.iconSize + iconPad - 1);
-  int16_t borderY2 =
-      static_cast<int16_t>(layout.iconY + layout.iconSize + iconPad - 1);
-  const int16_t areaX1 = xOffset;
-  const int16_t areaY1 = yOffset;
-  const int16_t areaX2 = static_cast<int16_t>(xOffset + width - 1);
-  const int16_t areaY2 = static_cast<int16_t>(yOffset + height - 1);
-  if (!(borderX2 < areaX1 || borderY2 < areaY1 || borderX1 > areaX2 || borderY1 > areaY2)) {
-    if (borderX1 < areaX1) borderX1 = areaX1;
-    if (borderY1 < areaY1) borderY1 = areaY1;
-    if (borderX2 > areaX2) borderX2 = areaX2;
-    if (borderY2 > areaY2) borderY2 = areaY2;
-    canvas.drawRectangle(static_cast<uint>(borderX1), static_cast<uint>(borderY1),
-                         static_cast<uint>(borderX2), static_cast<uint>(borderY2),
-                         ST7305_COLOR_BLACK);
-  }
-  IconBitmap::drawFrame(
-      canvas, selectedItem.icon, iconFrame, iconDrawX, layout.iconY, layout.iconSize,
-      layout.iconSize, false, yOffset, static_cast<int16_t>(yOffset + height - 1));
-
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setFontMode(1);
-}
-
-bool UiManager::isSectionAnimationActive(uint32_t nowMs) const {
-  return (nowMs - lastSectionInteractionMs_) < kSectionIdleAnimationTimeoutMs;
-}
-
-uint32_t UiManager::sectionAnimationRenderTime(uint32_t nowMs) const {
-  return isSectionAnimationActive(nowMs) ? nowMs : sectionAnimationTimeMs_;
-}
-
 void UiManager::openConfirm(const char* title, const char* primaryLabel, const char* dangerLabel,
-                            ConfirmAction action, bool overSection, uint32_t nowMs) {
+                            ConfirmAction action, uint32_t nowMs) {
   confirmTitle_ = title;
   confirmPrimaryLabel_ = primaryLabel;
   confirmDangerLabel_ = dangerLabel;
   confirmAction_ = action;
-  confirmOverSection_ = overSection;
   PopupView::open(confirmState_, nowMs);
 }
 
@@ -1771,7 +990,7 @@ void UiManager::performFactoryReset() {
 
 void UiManager::renderPopup(uint32_t nowMs) {
   PopupView::drawConfirm(display_, 0, confirmState_, confirmTitle_, confirmPrimaryLabel_,
-                         confirmDangerLabel_, nowMs);
+                         confirmDangerLabel_, nowMs, true);
 }
 
 void UiManager::setRemotePagePortrait(bool enabled) {
@@ -1899,10 +1118,9 @@ void UiManager::syncUiFont() {
 
 void UiManager::syncContentFonts() {
   // Keep outgoing typography through its exit animation. Start I/O only after entry.
-  if (state_ != UiState::Detail && state_ != UiState::Popup &&
-      state_ != UiState::Home && state_ != UiState::Section) return;
+  if (state_ != UiState::Detail && state_ != UiState::Home) return;
   ContentFontUse next = ContentFontUse::None;
-  if (state_ == UiState::Detail || (state_ == UiState::Popup && !confirmOverSection_)) {
+  if (state_ == UiState::Detail) {
     const uint8_t home = homePage_.focusIndex();
     if (answersBookPage_.isSelection(home, sectionFocusIndex_)) next = ContentFontUse::Answers;
     else if (readerPage_.isStaticWordDetail(home, sectionFocusIndex_)) next = ContentFontUse::Reader;
@@ -1974,15 +1192,14 @@ void UiManager::syncHomeClockFromTimeService() {
 }
 
 void UiManager::syncHomeSubmenu() {
-  if (isDirectDetailHomeIndex(homePage_.focusIndex())) {
-    homePage_.setSubmenuLabels(nullptr, 0);
+  if (homePage_.focusIndex() == SettingsPage::kHomeIndex) {
+    const uint8_t count = settingsPage_.menuItemCount();
+    const uint8_t boundedCount = count > 16U ? 16U : count;
+    homePage_.setSubmenuLabels(settingsPage_.menuLabels(), boundedCount);
     return;
   }
-  const SectionContent content = sectionContentFor(homePage_.focusIndex(), settingsPage_);
-  const uint8_t count = content.itemCount > 16U ? 16U : content.itemCount;
-  const char* labels[16] = {nullptr};
-  for (uint8_t i = 0; i < count; ++i) labels[i] = content.items[i].labelZh;
-  homePage_.setSubmenuLabels(labels, count);
+  const SubmenuContent content = submenuContentFor(homePage_.focusIndex());
+  homePage_.setSubmenuLabels(content.labels, content.count);
 }
 
 void UiManager::refreshHomeBattery(uint32_t nowMs) {
@@ -2050,6 +1267,87 @@ void UiManager::resetButtonDebounceState() {
 void UiManager::enterSleep(uint32_t nowMs) {
   const uint32_t idleMs = nowMs - lastActivityMs_;
   LogI("SLEEP", "enter home auto-sleep idle=%lums", static_cast<unsigned long>(idleMs));
+  SdUiText::FixedScope fixedText(display_, uiFont_);
+
+  const size_t frameBytes = display_.frameBufferBytes();
+  auto* homeFrame = static_cast<uint8_t*>(
+      heap_caps_malloc(frameBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (homeFrame != nullptr) {
+    display_.captureFrame(homeFrame);
+  } else {
+    LogW("SLEEP", "XMB transition snapshot unavailable bytes=%u; use direct clock switch",
+         static_cast<unsigned>(frameBytes));
+  }
+  const auto animateClock = [&](bool entering, uint32_t clockNowMs) {
+    if (homeFrame == nullptr) {
+      display_.clear();
+      if (entering) homePage_.renderSleepClock(display_, clockNowMs);
+      else homePage_.render(display_, 0, clockNowMs);
+      display_.presentSynced();
+      return;
+    }
+    auto* sleepFrame = static_cast<uint8_t*>(
+        heap_caps_malloc(frameBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (sleepFrame != nullptr) {
+      display_.clear();
+      homePage_.renderSleepClock(display_, clockNowMs);
+      display_.captureFrame(sleepFrame);
+    } else {
+      LogW("SLEEP", "clock frame cache unavailable bytes=%u; render clock every frame",
+           static_cast<unsigned>(frameBytes));
+    }
+    const uint32_t startedMs = millis();
+    uint16_t lastProgress = 0xFFFFU;
+    uint32_t frameCount = 0;
+    uint32_t renderTotalUs = 0;
+    uint32_t renderMaxUs = 0;
+    uint32_t presentTotalUs = 0;
+    uint32_t presentMaxUs = 0;
+    uint32_t teWaitTotalUs = 0;
+    uint32_t teWaitMaxUs = 0;
+    for (;;) {
+      const uint32_t elapsedMs = millis() - startedMs;
+      const uint16_t eased = AnimMath::fixedEaseInOut(
+          AnimMath::fixedClampProgress(elapsedMs, kSleepTransitionMs));
+      const uint16_t progress = entering
+          ? eased
+          : static_cast<uint16_t>(AnimMath::kFixedScale - eased);
+      if (progress != lastProgress) {
+        const uint32_t renderStartedUs = micros();
+        homePage_.renderSleepTransition(display_, clockNowMs, progress, homeFrame, sleepFrame);
+        const uint32_t renderUs = micros() - renderStartedUs;
+        display_.presentSynced();
+        const uint32_t presentUs = display_.lastPresentUs();
+        const uint32_t teWaitUs = display_.lastTeWaitUs();
+        ++frameCount;
+        renderTotalUs += renderUs;
+        renderMaxUs = renderUs > renderMaxUs ? renderUs : renderMaxUs;
+        presentTotalUs += presentUs;
+        presentMaxUs = presentUs > presentMaxUs ? presentUs : presentMaxUs;
+        teWaitTotalUs += teWaitUs;
+        teWaitMaxUs = teWaitUs > teWaitMaxUs ? teWaitUs : teWaitMaxUs;
+        lastProgress = progress;
+      }
+      if (elapsedMs >= kSleepTransitionMs) break;
+      const uint32_t nextElapsed =
+          (elapsedMs / kSleepTransitionFrameMs + 1U) * kSleepTransitionFrameMs;
+      const int32_t waitMs = static_cast<int32_t>(startedMs + nextElapsed - millis());
+      if (waitMs > 0) delay(static_cast<uint32_t>(waitMs));
+    }
+    const uint32_t elapsedUs = (millis() - startedMs) * 1000U;
+    LogI("SLEEP", "XMB transition=%s frames=%lu elapsed_ms=%lu render_avg_us=%lu render_max_us=%lu "
+                  "te_wait_avg_us=%lu te_wait_max_us=%lu present_avg_us=%lu present_max_us=%lu te=%s",
+         entering ? "enter" : "wake", static_cast<unsigned long>(frameCount),
+         static_cast<unsigned long>(elapsedUs / 1000U),
+         static_cast<unsigned long>(frameCount == 0U ? 0U : renderTotalUs / frameCount),
+         static_cast<unsigned long>(renderMaxUs),
+         static_cast<unsigned long>(frameCount == 0U ? 0U : teWaitTotalUs / frameCount),
+         static_cast<unsigned long>(teWaitMaxUs),
+         static_cast<unsigned long>(frameCount == 0U ? 0U : presentTotalUs / frameCount),
+         static_cast<unsigned long>(presentMaxUs),
+         display_.teSyncAvailable() ? "available" : "unavailable");
+    if (sleepFrame != nullptr) heap_caps_free(sleepFrame);
+  };
 
   const bool rtcWakeReady = rtcDriver_.setMinuteInterruptEnabled(true);
   if (rtcWakeReady) {
@@ -2062,15 +1360,10 @@ void UiManager::enterSleep(uint32_t nowMs) {
     LogI("SLEEP", "rtc minute interrupt unavailable; time refresh wake disabled");
   }
 
-  // XMB 浅睡过渡：先完成一次扫描线切换，再关闭外设并进入 Light Sleep。
-  for (uint32_t elapsed = 0; elapsed <= kSleepTransitionMs;
-       elapsed += kSleepTransitionFrameMs) {
-    const uint8_t progress = static_cast<uint8_t>(
-        (elapsed * 100U) / (kSleepTransitionMs == 0U ? 1U : kSleepTransitionMs));
-    display_.clear();
-    homePage_.renderSleepTransition(display_, nowMs, progress);
-    display_.presentSynced();
-    if (elapsed < kSleepTransitionMs) delay(kSleepTransitionFrameMs);
+  animateClock(true, nowMs);
+  if (homeFrame != nullptr) {
+    heap_caps_free(homeFrame);
+    homeFrame = nullptr;
   }
 
   display_.prepareForSleepKeepDisplay();
@@ -2091,7 +1384,6 @@ void UiManager::enterSleep(uint32_t nowMs) {
     if (rtcWakeReady) {
       gpio_wakeup_enable(static_cast<gpio_num_t>(BoardConfig::kPinPcfInt),
                          GPIO_INTR_LOW_LEVEL);
-      (void)rtcDriver_.clearTimerFlag();
     }
     esp_sleep_enable_gpio_wakeup();
 
@@ -2126,7 +1418,11 @@ void UiManager::enterSleep(uint32_t nowMs) {
       display_.present();
       lastRenderMs_ = wakeNowMs;
       needsRedraw_ = false;
-      (void)rtcDriver_.clearTimerFlag();
+      if (!rtcDriver_.clearTimerFlag()) {
+        LogW("SLEEP", "rtc timer flag clear failed after minute wake; exit light sleep");
+        keepSleeping = false;
+        break;
+      }
       display_.prepareForSleepKeepDisplay();
       peripheralPower_.setSensorEnabled(false);
       LogI("SLEEP", "rtc minute wake at %lums; time refreshed, continue sleep",
@@ -2152,20 +1448,25 @@ void UiManager::enterSleep(uint32_t nowMs) {
   resetButtonDebounceState();
   timeService_.tick(exitNowMs);
   syncHomeClockFromTimeService();
-  for (int32_t elapsed = static_cast<int32_t>(kSleepTransitionMs);
-       elapsed >= 0; elapsed -= static_cast<int32_t>(kSleepTransitionFrameMs)) {
-    const uint8_t progress = static_cast<uint8_t>(
-        (static_cast<uint32_t>(elapsed) * 100U) /
-        (kSleepTransitionMs == 0U ? 1U : kSleepTransitionMs));
+  homePage_.resumeAnimation(exitNowMs);
+  homeFrame = static_cast<uint8_t*>(
+      heap_caps_malloc(frameBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (homeFrame != nullptr) {
     display_.clear();
-    homePage_.renderSleepTransition(display_, exitNowMs, progress);
-    display_.presentSynced();
-    if (elapsed > 0) delay(kSleepTransitionFrameMs);
+    homePage_.render(display_, 0, exitNowMs);
+    display_.captureFrame(homeFrame);
+  } else {
+    LogW("SLEEP", "XMB wake transition snapshot unavailable bytes=%u; restore home directly",
+         static_cast<unsigned>(frameBytes));
   }
-  lastActivityMs_ = exitNowMs;
-  lastRenderMs_ = exitNowMs;
+  animateClock(false, exitNowMs);
+  if (homeFrame != nullptr) heap_caps_free(homeFrame);
+  const uint32_t wakeFinishedMs = millis();
+  homePage_.resumeAnimation(wakeFinishedMs);
+  lastActivityMs_ = wakeFinishedMs;
+  lastRenderMs_ = wakeFinishedMs;
   needsRedraw_ = true;
-  LogI("SLEEP", "exit home auto-sleep at %lums", static_cast<unsigned long>(exitNowMs));
+  LogI("SLEEP", "exit home auto-sleep at %lums", static_cast<unsigned long>(wakeFinishedMs));
 }
 
 bool UiManager::isPressed(uint8_t pin) const { return digitalRead(pin) == LOW; }

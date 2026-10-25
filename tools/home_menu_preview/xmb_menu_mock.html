@@ -25,8 +25,6 @@
   .top-status .battery { font-size: 14px; line-height: 18px; }
   .top-status .clock { position: absolute; left: 50%; transform: translateX(-50%); font-family: Consolas, monospace; font-size: 14px; line-height: 18px; letter-spacing: 1px; }
   .top-status .date { font-size: 14px; line-height: 18px; }
-  .wave { position: absolute; z-index: 0; left: -36px; bottom: -30px; width: 456px; height: 82px; border: 1px solid rgba(255,255,255,.44); border-color: rgba(255,255,255,.44) transparent transparent; border-radius: 50%; transform: rotate(-4deg); }
-  .wave::after { content: ""; position: absolute; left: 8px; top: 11px; width: 438px; height: 70px; border: 1px solid rgba(255,255,255,.28); border-color: rgba(255,255,255,.28) transparent transparent; border-radius: 50%; }
   .xmb-axis { position: absolute; z-index: 1; inset: 0; transform: translate(var(--x), var(--y)); transition: transform .24s cubic-bezier(.2,.7,.3,1); }
   .category-rail { position: absolute; left: 0; top: 29px; width: 100%; height: 57px; display: flex; align-items: center; }
   .category-rail.category-enter-from-right { animation: categoryEnterFromRight .18s ease-out both; }
@@ -44,13 +42,14 @@
   .rail-rule { position: absolute; left: 14px; right: 14px; top: 87px; border-top: 1px solid rgba(255,255,255,.45); }
 
   .section-panel { position: absolute; left: 0; top: 91px; width: 384px; height: 77px; }
-  .item-list { position: absolute; left: 24px; top: 0; width: 348px; height: 77px; overflow: hidden; }
+  .item-focus { position: absolute; left: 17px; top: 8px; width: 190px; height: 23px; border: 1px solid #fff; border-radius: 12px; }
+  .item-list { position: absolute; left: 17px; top: 8px; width: 190px; height: 69px; overflow: hidden; }
   .item-list.item-enter-from-bottom { animation: itemEnterFromBottom .15s ease-out both; }
   .item-list.item-enter-from-top { animation: itemEnterFromTop .15s ease-out both; }
-  .item { position: absolute; left: 0; width: 348px; height: 28px; display: flex; align-items: center; gap: 9px;
-    padding: 0 8px; transition: transform .2s, opacity .2s; }
-  .item.focus { height: 28px; }
-  .item-index { width: 24px; flex: 0 0 24px; font-family: Consolas, monospace; font-size: 14px; line-height: 18px; text-align: right; opacity: .68; }
+  .item { position: absolute; left: 0; width: 190px; height: 23px; display: flex; align-items: center; gap: 8px;
+    padding: 0 7px; transition: transform .2s, opacity .2s; }
+  .item.focus { height: 23px; }
+  .item-index { width: 24px; flex: 0 0 24px; font-family: Consolas, monospace; font-size: 14px; line-height: 18px; text-align: left; opacity: .68; }
   .item.focus .item-index { opacity: 1; }
   .item-name { font-size: 14px; line-height: 20px; white-space: nowrap; opacity: .78; }
   .item.focus .item-name { font-size: 14px; line-height: 20px; opacity: 1; }
@@ -88,10 +87,10 @@
 <body>
 <div class="topbar"><button id="tab-xmb" class="active" type="button">XMB · 横纵交叉菜单</button>
   <button id="tab-focus" type="button">打开焦点舞台</button></div>
-<div class="stage"><div class="screen" id="screen"><div class="xmb-content" id="xmb-content"><div class="top-status"><span class="battery">▰ 87%</span><span class="clock">08:42</span><span class="date">10月25日 周日</span></div><div class="wave"></div><div class="xmb-axis" id="xmb-axis">
+<div class="stage"><div class="screen" id="screen"><div class="xmb-content" id="xmb-content"><div class="top-status"><span class="battery">▰ 87%</span><span class="clock">08:42</span><span class="date">10月25日 周日</span></div><div class="xmb-axis" id="xmb-axis">
   <div class="category-rail" id="category-rail"></div><div class="rail-rule"></div>
   <div class="section-panel" id="section-panel">
-    <div class="item-list" id="item-list"></div>
+    <div class="item-focus"></div><div class="item-list" id="item-list"></div>
     <div class="empty-items" id="empty-items" hidden>此分类暂无项目</div></div>
 </div></div>
 <div class="sleep-layer" id="sleep-layer" aria-hidden="true"><div class="sleep-clock-col">
@@ -242,8 +241,8 @@ function renderCategories(direction = "") {
 function renderItems(direction = "") {
   const items=selectedItems(); list.innerHTML=""; panel.hidden=items.length===0; empty.hidden=true;
   if (!items.length) return;
-  itemIndex=Math.max(0,Math.min(itemIndex,items.length-1)); for(let offset=-2;offset<=1;offset++){const i=itemIndex+offset;if(i<0||i>=items.length)continue;const node=document.createElement("div");
-    node.className="item"+(offset===0?" focus":""); node.style.transform=`translateY(${offset*25+19}px)`; node.innerHTML=`<span class="item-index">${String(i+1).padStart(2,"0")}</span><span class="item-name">${items[i]}</span>`; list.appendChild(node);}
+  itemIndex=Math.max(0,Math.min(itemIndex,items.length-1)); for(let offset=0;offset<3;offset++){const i=itemIndex+offset;if(i>=items.length)break;const node=document.createElement("div");
+    node.className="item"+(offset===0?" focus":""); node.style.transform=`translateY(${offset*22}px)`; node.innerHTML=`<span class="item-index">${String(i+1).padStart(2,"0")}</span><span class="item-name">${items[i]}</span>`; list.appendChild(node);}
   restartAnimation(list, direction === "down" ? "item-enter-from-bottom" : direction === "up" ? "item-enter-from-top" : "");
 }
 function render(direction = "") { renderCategories(direction); renderItems("category"); prepareIcon(); status.textContent=`${CATEGORIES[categoryIndex].name} · ${selectedItems()[itemIndex]||"空"}`; }

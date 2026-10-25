@@ -77,12 +77,22 @@ def main() -> None:
                         default=root / "src/services/UiFontCodepoints.h")
     parser.add_argument("--out", type=Path,
                         default=None)
+    parser.add_argument("--check", action="store_true",
+                        help="verify the exported subset and SD package match current UI codepoints")
     args = parser.parse_args()
     font_path = args.font or root / f"tools/font_builder/output/font-{args.size}.bin"
     out_path = args.out or root / f"tools/font_builder/output/font-{args.size}.ui.bin"
     data, missing = build_subset(font_path, args.codepoints)
-    out_path.write_bytes(data)
-    print(f"wrote {out_path}: {len(data)} bytes")
+    if args.check:
+        packaged = out_path.parent / "Font" / out_path.name
+        if not out_path.is_file() or out_path.read_bytes() != data:
+            raise SystemExit(f"stale UI subset: {out_path}; regenerate before copying to SD")
+        if packaged.is_file() and packaged.read_bytes() != data:
+            raise SystemExit(f"stale SD package: {packaged}; copy the regenerated subset")
+        print(f"checked {out_path}: {len(data)} bytes")
+    else:
+        out_path.write_bytes(data)
+        print(f"wrote {out_path}: {len(data)} bytes")
     if missing:
         print("missing in source font (box placeholder): " +
               ", ".join(f"U+{cp:04X}" for cp in missing))

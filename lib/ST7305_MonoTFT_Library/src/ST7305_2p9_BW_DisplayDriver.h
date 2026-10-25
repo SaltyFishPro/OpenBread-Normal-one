@@ -37,6 +37,8 @@ public:
     size_t frameBufferLength() const { return static_cast<size_t>(DISPLAY_BUFFER_LENGTH); }
     void copyFrameBufferTo(uint8_t* dst) const;
     void copyFrameBufferFrom(const uint8_t* src);
+    // Composite a saved logical frame to the right of a vertical reveal edge.
+    void blitFrameShiftedRight(const uint8_t* src, int16_t shiftX, int16_t revealX);
 
     void Initial_ST7305();
     void Low_Power_Mode();

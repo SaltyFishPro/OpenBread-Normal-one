@@ -57,7 +57,7 @@ void update(InfoState& state, uint32_t nowMs);
 // primaryLabel 在左（安全项），dangerLabel 在右（执行项）。
 void drawConfirm(DisplayMonoTft& display, int16_t yOffset, const ConfirmState& state,
                  const char* title, const char* primaryLabel, const char* dangerLabel,
-                 uint32_t nowMs);
+                 uint32_t nowMs, bool outline = false);
 
 // 提示型弹窗：标题 + 一行数值（音量这类不需要用户确认的信息）。
 void drawInfo(DisplayMonoTft& display, int16_t yOffset, const InfoState& state, const char* title,

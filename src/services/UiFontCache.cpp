@@ -115,7 +115,10 @@ void UiFontCache::tick() {
 }
 
 bool UiFontCache::beginSubset() {
-  if (!subsetFile_.open(kSubsetPath)) return false;
+  if (!subsetFile_.open(kSubsetPath)) {
+    LogI("FONT", "ui subset missing %s; fallback full font", kSubsetPath);
+    return false;
+  }
   uint8_t header[64];
   if (!subsetFile_.readAt(0, header, sizeof(header))) {
     subsetFile_.close();
@@ -137,7 +140,9 @@ bool UiFontCache::beginSubset() {
       expectedCount != kCount || indexOffset != 64U ||
       bitmapOffset != 64U + count * 24U || fileSize != subsetFile_.size() ||
       fileSize < bitmapOffset || fileSize - 64U > kSubsetMaxBytes) {
-    LogI("FONT", "ui subset header rejected; fallback full font");
+    LogI("FONT", "ui subset header rejected expected=%u file_expected=%lu glyphs=%lu; fallback full font",
+         static_cast<unsigned>(kCount), static_cast<unsigned long>(expectedCount),
+         static_cast<unsigned long>(count));
     subsetFile_.close();
     return false;
   }

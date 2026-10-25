@@ -46,13 +46,8 @@ public:
 private:
   enum class UiState : uint8_t {
     Home,
-    ToSectionTransition,
-    ToDirectDetailTransition,
     ToHomeTransition,
-    ToHomeFromDirectDetailTransition,
     ToDetailTransition,
-    ToSectionFromDetailTransition,
-    Section,
     Popup,
     Detail
   };
@@ -91,15 +86,10 @@ private:
   uint32_t nextIdleDelayMs(uint32_t nowMs) const;
   void updateCpuClock(uint32_t nowMs);
   void render(uint32_t nowMs);
-  void renderSection(int16_t xOffset, int16_t yOffset, uint32_t nowMs,
-                     int16_t iconExtraOffsetX = 0,
-                     const int16_t* rowExtraOffsets = nullptr,
-                     uint8_t rowExtraCount = 0,
-                     int16_t focusBoxExtraOffsetX = 0);
   void renderPopup(uint32_t nowMs);
   void setRemotePagePortrait(bool enabled);
   void openConfirm(const char* title, const char* primaryLabel, const char* dangerLabel,
-                   ConfirmAction action, bool overSection, uint32_t nowMs);
+                   ConfirmAction action, uint32_t nowMs);
   void performConfirmAction(uint32_t nowMs);
   void performFactoryReset();
   void initDeviceInfoCache();
@@ -110,13 +100,10 @@ private:
   void syncUiFont();
   bool isComputerStatusDetail() const;
   void renderComputerStatusFrame();
-  void startSectionFocusAnimation(uint8_t toIndex, uint32_t nowMs);
   void syncHomeClockFromTimeService();
   void syncHomeSubmenu();
   void refreshHomeBattery(uint32_t nowMs);
   void refreshSdStatus();
-  bool isSectionAnimationActive(uint32_t nowMs) const;
-  uint32_t sectionAnimationRenderTime(uint32_t nowMs) const;
   void enterSleep(uint32_t nowMs);
   bool isSleepAllowed() const;
   void resetButtonDebounceState();
@@ -165,16 +152,8 @@ private:
 
   uint32_t transitionStartMs_ = 0;
   uint8_t sectionFocusIndex_ = 0;
-  uint8_t sectionAnimFromIndex_ = 0;
-  uint8_t sectionAnimToIndex_ = 0;
-  uint32_t sectionAnimStartMs_ = 0;
-  uint16_t lastSectionIconFrame_ = 0;
-  uint32_t lastSectionInteractionMs_ = 0;
-  uint32_t sectionAnimationTimeMs_ = 0;
   PopupView::ConfirmState confirmState_;
   ConfirmAction confirmAction_ = ConfirmAction::None;
-  // 该弹窗是压在设置列表上（true）还是压在详情页上（false），决定取消后回到哪里。
-  bool confirmOverSection_ = false;
   const char* confirmTitle_ = "";
   const char* confirmPrimaryLabel_ = "";
   const char* confirmDangerLabel_ = "";
@@ -184,7 +163,6 @@ private:
   char sdStatusText_[48] = {0};
   uint32_t lastRenderMs_ = 0;
   uint32_t cpuBoostStartMs_ = 0;
-  bool sectionAnimActive_ = false;
   bool needsRedraw_ = true;
   bool leftLongReported_ = false;
   uint32_t lastActivityMs_ = 0;
@@ -199,5 +177,4 @@ private:
       {0, false, false, 0},
       {0, false, false, 0}};
 
-  static constexpr uint32_t kSectionIdleAnimationTimeoutMs = 4000;
 };

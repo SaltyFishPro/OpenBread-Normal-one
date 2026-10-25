@@ -13,6 +13,9 @@ public:
   void clear();
   void present();
   void presentSynced();
+  uint32_t lastTeWaitUs() const { return lastTeWaitUs_; }
+  uint32_t lastPresentUs() const { return lastPresentUs_; }
+  bool teSyncAvailable() const { return teState_ == TeState::Available; }
   void presentRegion(int16_t x1, int16_t y1, int16_t x2, int16_t y2);
   void prepareForSleepKeepDisplay();
   void prepareForSleep();
@@ -37,4 +40,7 @@ private:
   ST7305_2p9_BW_DisplayDriver display_;
   U8G2_FOR_ST73XX text_;
   TeState teState_ = TeState::Unknown;
+  uint32_t lastTeWaitUs_ = 0;
+  uint32_t lastPresentUs_ = 0;
+  bool teSyncAnnounced_ = false;
 };

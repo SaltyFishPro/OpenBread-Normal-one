@@ -48,6 +48,7 @@ public:
   uint8_t submenuCount() const { return submenuCount_; }
   uint8_t submenuIndex() const { return submenuIndex_; }
   void update(uint32_t nowMs);
+  void resumeAnimation(uint32_t nowMs);
   void render(DisplayMonoTft& display, int16_t pageOffsetX, uint32_t nowMs);
   void renderTransition(DisplayMonoTft& display, int16_t backgroundOffsetX,
                         int16_t menuBaseOffsetX, int16_t menuUpExtraOffsetX,
@@ -66,7 +67,9 @@ public:
   void renderTimeCardOnly(DisplayMonoTft& display, uint32_t nowMs);
   void renderMenuIconsOnly(DisplayMonoTft& display, uint32_t nowMs);
   void renderSleepClock(DisplayMonoTft& display, uint32_t nowMs, int16_t revealX = 0) const;
-  void renderSleepTransition(DisplayMonoTft& display, uint32_t nowMs, uint8_t progress) const;
+  void renderSleepTransition(DisplayMonoTft& display, uint32_t nowMs, uint16_t progress,
+                             const uint8_t* homeFrame,
+                             const uint8_t* sleepFrame = nullptr) const;
   // 本帧是否直接回填了静态图层（未重建），用于判断能否只推送菜单列。
   bool frameUsedStaticLayer() const;
   bool isAnimationActive(uint32_t nowMs) const;
@@ -89,7 +92,7 @@ private:
   uint32_t animationRenderTime(uint32_t nowMs) const;
   bool hasUncalibratedBreadTick(uint32_t nowMs) const;
   bool hasMenuAnimationTick(uint32_t nowMs) const;
-  // 轮盘布局（焦点索引 + 纵向偏移）是否与上一次整屏渲染一致。
+  // 焦点与两条轨道的位置是否与上一次整屏渲染一致。
   // 局部刷新只重画图标/时间卡片，布局一旦变化必须由整屏重绘更新焦点框与标签。
   bool menuLayoutMatchesLastFullRender(uint32_t nowMs) const;
   void drawMenuWheel(DisplayMonoTft& display, int16_t frameBaseX, int16_t centerY,
@@ -116,6 +119,7 @@ private:
   bool frameUsedStaticLayer_ = false;
   uint8_t lastRenderedFocusIndex_ = 0xFF;
   int16_t lastRenderedMenuOffsetY_ = 0;
+  int16_t lastRenderedSubmenuOffsetY_ = 0;
   uint32_t lastInteractionMs_ = 0;
   uint32_t animationTimeMs_ = 0;
   ClockData clockData_;

@@ -160,7 +160,7 @@ void update(InfoState& state, uint32_t nowMs) {
 
 void drawConfirm(DisplayMonoTft& display, int16_t yOffset, const ConfirmState& state,
                  const char* title, const char* primaryLabel, const char* dangerLabel,
-                 uint32_t nowMs) {
+                 uint32_t nowMs, bool outline) {
   const uint16_t shown = shownFixed(state.anim, nowMs);
   if (shown == 0) {
     return;
@@ -176,7 +176,12 @@ void drawConfirm(DisplayMonoTft& display, int16_t yOffset, const ConfirmState& s
   int16_t panelHeight = 0;
   animatedPanelBounds(kConfirmPanelWidth, kConfirmPanelHeight, displayWidth, displayHeight, yOffset,
                       shown, panelX, panelY, panelWidth, panelHeight);
-  drawPanel(display, panelX, panelY, panelWidth, panelHeight);
+  if (outline) {
+    DrawUtils::drawRoundRect(canvas, panelX, panelY, panelWidth, panelHeight, kPanelRadius,
+                             ST7305_COLOR_BLACK, ST7305_COLOR_WHITE);
+  } else {
+    drawPanel(display, panelX, panelY, panelWidth, panelHeight);
+  }
 
   // 内部元素随面板等比缩放、位置同步位移，文字保持最终字号（起始 85% 不会溢出）。
   const int16_t titleBaseline =

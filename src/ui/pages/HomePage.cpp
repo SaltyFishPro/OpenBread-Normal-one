@@ -21,29 +21,19 @@
 #include "../assets/main_menu/api_stats.h"
 #include "../assets/main_menu/computer_status.h"
 #include "../assets/main_menu/sd_usb.h"
-#include "../assets/ui/battery_levels.h"
 
 namespace {
 constexpr int16_t kXmbFocusCenterX = 48;
 constexpr int16_t kXmbCategoryStep = 70;
 constexpr int16_t kXmbRailTop = 29;
 constexpr int16_t kXmbRailRuleY = 87;
-constexpr int16_t kXmbItemsTop = 91;
-constexpr int16_t kXmbItemBaseline = 112;
-constexpr int16_t kXmbItemStep = 25;
+constexpr int16_t kXmbItemsTop = 98;
+constexpr int16_t kXmbItemBaseline = 114;
+constexpr int16_t kXmbItemStep = 22;
 constexpr int16_t kXmbIndexX = 24;
 constexpr int16_t kXmbTextX = 56;
-constexpr int16_t kXmbWaveBaseY = 143;
 constexpr int16_t kMenuClipTop = 10;
 constexpr int16_t kMenuClipBottom = 167;
-
-const IconBitmap::Anim kBatteryLevels = {
-    reinterpret_cast<const uint8_t*>(&battery_levels_frames[0][0]),
-    BATTERY_LEVELS_FRAME_BYTES,
-    BATTERY_LEVELS_FRAME_WIDTH,
-    BATTERY_LEVELS_FRAME_HEIGHT,
-    BATTERY_LEVELS_FRAME_DELAY,
-    BATTERY_LEVELS_FRAME_COUNT};
 
 const IconBitmap::Anim kMenuIcons[] = {
     {reinterpret_cast<const uint8_t*>(&setting_frames[0][0]), SETTING_FRAME_BYTES,
@@ -121,31 +111,16 @@ void drawHomeStatus(ST7305_2p9_BW_DisplayDriver& canvas, U8G2_FOR_ST73XX& text,
   const int16_t dateWidth = text.getUTF8Width(dateText);
   text.drawUTF8(static_cast<int16_t>(xOffset + width - 12 - dateWidth), 17, dateText);
 
+  // The XMB top status uses the compact filled marker from the HTML reference,
+  // leaving the 14-ui percentage aligned on the same baseline.
+  DrawUtils::drawClippedFilledRect(canvas, static_cast<int16_t>(xOffset + 12), 6,
+                                   static_cast<int16_t>(xOffset + 23), 17,
+                                   ST7305_COLOR_WHITE);
   const uint8_t percent = batteryData.percent > 100U ? 100U : batteryData.percent;
-  const uint16_t level = batteryData.valid
-                             ? static_cast<uint16_t>(percent >= 75U ? 3U : percent / 25U)
-                             : 0U;
-  const IconBitmap::Anim& battery = kBatteryLevels;
-  const uint16_t frame = battery.frameCount == 0U ? 0U : level % battery.frameCount;
-  IconBitmap::drawFrame(canvas, battery, frame, static_cast<int16_t>(xOffset + 12), 7,
-                        BATTERY_LEVELS_FRAME_WIDTH, BATTERY_LEVELS_FRAME_HEIGHT, true, 0, 24);
   char batteryText[6];
   snprintf(batteryText, sizeof(batteryText), batteryData.valid ? "%u%%" : "--%%",
            static_cast<unsigned>(percent));
-  text.drawUTF8(static_cast<int16_t>(xOffset + 34), 17, batteryText);
-}
-
-void drawWave(ST7305_2p9_BW_DisplayDriver& canvas, int16_t xOffset) {
-  for (int16_t x = -16; x < 400; x += 2) {
-    const int16_t y = static_cast<int16_t>(kXmbWaveBaseY + ((x + 16) * (x + 16)) / 1200);
-    if (y >= 0 && y < canvas.getDisplayHeight()) {
-      canvas.drawFastHLine(static_cast<int16_t>(x + xOffset), y, 1, ST7305_COLOR_WHITE);
-      if (y + 8 < canvas.getDisplayHeight()) {
-        canvas.drawFastHLine(static_cast<int16_t>(x + xOffset), static_cast<int16_t>(y + 8), 1,
-                             ST7305_COLOR_WHITE);
-      }
-    }
-  }
+  text.drawUTF8(static_cast<int16_t>(xOffset + 30), 17, batteryText);
 }
 
 }  // namespace
@@ -180,11 +155,14 @@ void HomePage::setSubmenuLabels(const char* const* labels, uint8_t count) {
 
 bool HomePage::handleInput(bool leftEdge, bool rightEdge, bool upEdge, bool downEdge,
                            bool okEdge, uint32_t nowMs) {
-  if (slideState_ == SlideState::SlidingCategory) {
-    focusIndex_ = targetIndex_;
+  if (slideState_ != SlideState::Idle &&
+      (leftEdge || rightEdge || upEdge || downEdge || okEdge)) {
+    if (slideState_ == SlideState::SlidingCategory) focusIndex_ = targetIndex_;
     slideState_ = SlideState::Idle;
     animFromOffsetX_ = 0;
     animToOffsetX_ = 0;
+    animFromOffsetY_ = 0;
+    animToOffsetY_ = 0;
   }
   if (okEdge && slideState_ == SlideState::Idle) {
     lastInteractionMs_ = nowMs;
@@ -247,6 +225,11 @@ void HomePage::update(uint32_t nowMs) {
     animFromOffsetY_ = 0;
     animToOffsetY_ = 0;
   }
+}
+
+void HomePage::resumeAnimation(uint32_t nowMs) {
+  lastInteractionMs_ = nowMs;
+  animationTimeMs_ = nowMs;
 }
 
 bool HomePage::isSliding() const { return slideState_ != SlideState::Idle; }
@@ -326,7 +309,8 @@ bool HomePage::isMenuIconsOnlyAnimationTick(uint32_t) const {
 
 bool HomePage::menuLayoutMatchesLastFullRender(uint32_t nowMs) const {
   return focusIndex_ == lastRenderedFocusIndex_ &&
-         currentCategoryOffset(nowMs) == lastRenderedMenuOffsetY_;
+         currentCategoryOffset(nowMs) == lastRenderedMenuOffsetY_ &&
+         currentSubmenuOffset(nowMs) == lastRenderedSubmenuOffsetY_;
 }
 
 HomePage::Rect HomePage::menuIconBounds(const DisplayMonoTft& display) const {
@@ -395,11 +379,27 @@ void HomePage::renderTransition(DisplayMonoTft& display, int16_t backgroundOffse
   const int16_t width = static_cast<int16_t>(display.width());
   const int16_t height = static_cast<int16_t>(display.height());
   canvas.drawFilledRectangle(0, 0, width - 1, height - 1, ST7305_COLOR_BLACK);
-  drawWave(canvas, backgroundOffsetX);
-  drawHomeStatus(canvas, display.text(), backgroundOffsetX, clockData_, batteryData_);
+  if (fontStatus_ != FontStatus::Ready) {
+    const int16_t left = static_cast<int16_t>(12 + backgroundOffsetX);
+    DrawUtils::drawClippedFilledRect(canvas, left, 146, static_cast<int16_t>(left + 176), 166,
+                                     ST7305_COLOR_WHITE);
+    auto& text = display.text();
+    text.setFont(u8g2_font_6x12_mf);
+    text.setFontMode(1);
+    text.setForegroundColor(ST7305_COLOR_BLACK);
+    text.setBackgroundColor(ST7305_COLOR_WHITE);
+    text.drawUTF8(static_cast<int16_t>(left + 4), 160,
+                  fontStatus_ == FontStatus::Loading ? "SD font loading" :
+                                                        "SD font unavailable");
+    text.setFont(u8g2_font_7x14_tf);
+    text.setForegroundColor(ST7305_COLOR_WHITE);
+    text.setBackgroundColor(ST7305_COLOR_BLACK);
+  }
   drawMenuWheel(display, 0, static_cast<int16_t>(height / 2), 0, 0, 0, 0, nowMs, false);
+  drawHomeStatus(canvas, display.text(), backgroundOffsetX, clockData_, batteryData_);
   lastRenderedFocusIndex_ = focusIndex_;
   lastRenderedMenuOffsetY_ = currentCategoryOffset(nowMs);
+  lastRenderedSubmenuOffsetY_ = currentSubmenuOffset(nowMs);
   frameUsedStaticLayer_ = false;
 }
 
@@ -412,47 +412,75 @@ void HomePage::drawMenuWheel(DisplayMonoTft& display, int16_t, int16_t, int16_t,
   text.setFontMode(1);
   text.setForegroundColor(ST7305_COLOR_WHITE);
 
-  const int16_t categoryOffset = static_cast<int16_t>(
-      activeRenderOffsetX_ + currentCategoryOffset(animNowMs));
-  for (uint8_t offset = 0; offset <= 4U; ++offset) {
-    const uint8_t index = static_cast<uint8_t>((focusIndex_ + offset) % kMenuCount);
-    const bool focus = offset == 0U;
-    const int16_t iconSize = focus ? static_cast<int16_t>(ThemeMono::kIconFocusSize)
-                                   : static_cast<int16_t>(ThemeMono::kIconSideSize);
+  if (submenuCount_ > 0U) {
+    const int16_t submenuOffset = currentSubmenuOffset(animNowMs);
+    const bool submenuSliding = slideState_ == SlideState::SlidingSubmenu;
+    const int16_t baseIndex = submenuSliding
+        ? static_cast<int16_t>(submenuIndex_ + animToOffsetY_ / kXmbItemStep)
+        : submenuIndex_;
+    DrawUtils::drawRoundRect(canvas, static_cast<int16_t>(17 + activeRenderOffsetX_), 99,
+                             190, 23, 11, ST7305_COLOR_BLACK, ST7305_COLOR_WHITE);
+    for (int8_t offset = submenuSliding ? -1 : 0;
+         offset <= (submenuSliding ? 3 : 2); ++offset) {
+      const int16_t candidate = baseIndex + offset;
+      if (candidate < 0 || candidate >= submenuCount_) continue;
+      const int16_t baseline = static_cast<int16_t>(
+          kXmbItemBaseline + offset * kXmbItemStep + submenuOffset);
+      if (baseline < kXmbItemsTop - 14 || baseline > display.height() + 14) continue;
+      char indexText[3];
+      snprintf(indexText, sizeof(indexText), "%02u", static_cast<unsigned>(candidate + 1));
+      text.drawUTF8(static_cast<int16_t>(kXmbIndexX + activeRenderOffsetX_), baseline, indexText);
+      text.drawUTF8(static_cast<int16_t>(kXmbTextX + activeRenderOffsetX_), baseline,
+                    submenuLabels_[candidate]);
+    }
+  }
+  DrawUtils::drawClippedFilledRect(canvas, 0, 0, static_cast<int16_t>(display.width() - 1),
+                                   kXmbItemsTop - 1, ST7305_COLOR_BLACK);
+
+  const int16_t slideOffset = currentCategoryOffset(animNowMs);
+  const int16_t categoryOffset = static_cast<int16_t>(activeRenderOffsetX_ + slideOffset);
+  const bool categorySliding = slideState_ == SlideState::SlidingCategory;
+  const int8_t direction = animToOffsetX_ < 0 ? 1 : -1;
+  const int8_t first = categorySliding && direction < 0 ? -1 : 0;
+  const int8_t last = categorySliding && direction > 0 ? 5 : 4;
+  const int16_t travel = categorySliding
+      ? static_cast<int16_t>(slideOffset < 0 ? -slideOffset : slideOffset) : 0;
+  for (int8_t offset = first; offset <= last; ++offset) {
+    const uint8_t index = static_cast<uint8_t>((focusIndex_ + kMenuCount + offset) % kMenuCount);
+    int16_t iconSize = ThemeMono::kIconSideSize;
+    if (offset == 0) {
+      iconSize = static_cast<int16_t>(ThemeMono::kIconFocusSize -
+          (categorySliding ? (ThemeMono::kIconFocusSize - ThemeMono::kIconSideSize) *
+                                 travel / kXmbCategoryStep : 0));
+    } else if (categorySliding && offset == direction) {
+      iconSize = static_cast<int16_t>(ThemeMono::kIconSideSize +
+          (ThemeMono::kIconFocusSize - ThemeMono::kIconSideSize) *
+              travel / kXmbCategoryStep);
+    }
     const int16_t centerX = static_cast<int16_t>(kXmbFocusCenterX +
                                                  offset * kXmbCategoryStep + categoryOffset);
     const int16_t iconX = static_cast<int16_t>(centerX - iconSize / 2);
-    const int16_t iconY = static_cast<int16_t>(kXmbRailTop + (focus ? 0 : 5));
+    const int16_t iconY = static_cast<int16_t>(
+        kXmbRailTop + (ThemeMono::kIconFocusSize - iconSize) / 2);
     const uint16_t frame = IconBitmap::frameAt(kMenuIcons[index], animNowMs);
+    const bool focus = categorySliding
+        ? (travel < kXmbCategoryStep / 2 ? offset == 0 : offset == direction)
+        : offset == 0;
     if (focus) lastFocusFrame_ = frame;
     IconBitmap::drawFrame(canvas, kMenuIcons[index], frame, iconX, iconY, iconSize, iconSize,
-                          true, kXmbRailTop, kXmbRailRuleY - 2);
+                          true, kXmbRailTop, kXmbRailRuleY - 2, !focus);
     if (focus) {
       const char* label = menuLabel(index);
       const int16_t labelX = static_cast<int16_t>(centerX - text.getUTF8Width(label) / 2);
       text.drawUTF8(labelX, 83, label);
-      canvas.drawFastHLine(static_cast<int16_t>(centerX - 10), kXmbRailRuleY, 20,
-                           ST7305_COLOR_WHITE);
+      DrawUtils::drawClippedFilledRect(canvas, static_cast<int16_t>(centerX - 10),
+                                       kXmbRailRuleY, static_cast<int16_t>(centerX + 9),
+                                       kXmbRailRuleY, ST7305_COLOR_WHITE);
     }
   }
 
   canvas.drawFastHLine(static_cast<int16_t>(14 + activeRenderOffsetX_), kXmbRailRuleY,
                        356, ST7305_COLOR_WHITE);
-  if (submenuCount_ == 0U) return;
-
-  const int16_t submenuOffset = currentSubmenuOffset(animNowMs);
-  for (int8_t offset = -2; offset <= 1; ++offset) {
-    const int16_t candidate = static_cast<int16_t>(submenuIndex_) + offset;
-    if (candidate < 0 || candidate >= submenuCount_) continue;
-    const int16_t baseline = static_cast<int16_t>(
-        kXmbItemBaseline + offset * kXmbItemStep + submenuOffset);
-    if (baseline < kXmbItemsTop - 14 || baseline > display.height() + 14) continue;
-    char indexText[3];
-    snprintf(indexText, sizeof(indexText), "%02u", static_cast<unsigned>(candidate + 1));
-    text.drawUTF8(static_cast<int16_t>(kXmbIndexX + activeRenderOffsetX_), baseline, indexText);
-    text.drawUTF8(static_cast<int16_t>(kXmbTextX + activeRenderOffsetX_), baseline,
-                  submenuLabels_[candidate]);
-  }
 }
 
 void HomePage::renderSleepClock(DisplayMonoTft& display, uint32_t, int16_t) const {
@@ -463,21 +491,23 @@ void HomePage::renderSleepClock(DisplayMonoTft& display, uint32_t, int16_t) cons
   canvas.drawFilledRectangle(0, 0, width - 1, height - 1, ST7305_COLOR_BLACK);
 
   constexpr int16_t x = 256;
-  DrawUtils::drawClippedPseudoRoundOutline(canvas, x + 8, 16, x + 119, 59,
-                                           ST7305_COLOR_WHITE, ST7305_COLOR_BLACK);
+  DrawUtils::fillRoundRect(canvas, x + 8, 16, x + 119, 59, 8, ST7305_COLOR_WHITE);
+  DrawUtils::fillRoundRect(canvas, x + 10, 18, x + 117, 57, 6, ST7305_COLOR_BLACK);
   char timeText[6];
   snprintf(timeText, sizeof(timeText), clockData_.valid ? "%02u:%02u" : "--:--",
            static_cast<unsigned>(clockData_.hour), static_cast<unsigned>(clockData_.minute));
-  const Segment7Font::Style timeStyle = {24, 40, 4, 2, 4, ST7305_COLOR_WHITE};
+  // Keep the sleep cards within the same visual scale as the HTML XMB
+  // reference: 28px tall numerals inside the 44px/64px cards.
+  const Segment7Font::Style timeStyle = {16, 28, 3, 2, 5, ST7305_COLOR_WHITE};
   const int16_t timeX = static_cast<int16_t>(x + 64 -
       Segment7Font::measureText(timeText, timeStyle) / 2);
-  Segment7Font::drawText(canvas, timeX, 28, timeText, timeStyle);
+  Segment7Font::drawText(canvas, timeX, 24, timeText, timeStyle);
 
-  DrawUtils::drawClippedPseudoRoundOutline(canvas, x + 8, 72, x + 119, 135,
-                                           ST7305_COLOR_WHITE, ST7305_COLOR_BLACK);
+  DrawUtils::fillRoundRect(canvas, x + 8, 72, x + 119, 135, 8, ST7305_COLOR_WHITE);
+  DrawUtils::fillRoundRect(canvas, x + 10, 74, x + 117, 133, 6, ST7305_COLOR_BLACK);
   char dayText[3];
   snprintf(dayText, sizeof(dayText), "%02u", static_cast<unsigned>(clockData_.day));
-  const Segment7Font::Style dayStyle = {24, 40, 4, 2, 4, ST7305_COLOR_WHITE};
+  const Segment7Font::Style dayStyle = {16, 28, 3, 2, 5, ST7305_COLOR_WHITE};
   Segment7Font::drawText(canvas, static_cast<int16_t>(x + 18), 84, dayText, dayStyle);
 
   text.setFont(u8g2_font_7x14_tf);
@@ -500,23 +530,49 @@ void HomePage::renderSleepClock(DisplayMonoTft& display, uint32_t, int16_t) cons
   text.drawUTF8(static_cast<int16_t>(x + 78), 126, monthText);
 
   const uint8_t percent = batteryData_.percent > 100U ? 100U : batteryData_.percent;
-  const uint16_t level = batteryData_.valid
-                             ? static_cast<uint16_t>(percent >= 75U ? 3U : percent / 25U) : 0U;
-  IconBitmap::drawFrame(canvas, kBatteryLevels, level % kBatteryLevels.frameCount,
-                        static_cast<int16_t>(x + 16), 146,
-                        BATTERY_LEVELS_FRAME_WIDTH, BATTERY_LEVELS_FRAME_HEIGHT, true, 140, 167);
+  const int16_t batteryX = static_cast<int16_t>(x + 16);
+  constexpr int16_t batteryY = 146;
+  DrawUtils::drawClippedRect(canvas, batteryX, batteryY, static_cast<int16_t>(batteryX + 23),
+                             batteryY + 11, ST7305_COLOR_WHITE);
+  DrawUtils::drawClippedFilledRect(canvas, static_cast<int16_t>(batteryX + 24), batteryY + 3,
+                                   static_cast<int16_t>(batteryX + 26), batteryY + 7,
+                                   ST7305_COLOR_WHITE);
+  const uint8_t fillWidth = batteryData_.valid
+                                ? static_cast<uint8_t>((static_cast<uint16_t>(percent) * 20U + 99U) / 100U)
+                                : 0U;
+  if (fillWidth > 0U) {
+    DrawUtils::drawClippedFilledRect(canvas, static_cast<int16_t>(batteryX + 2), batteryY + 2,
+                                     static_cast<int16_t>(batteryX + 1 + fillWidth), batteryY + 9,
+                                     ST7305_COLOR_WHITE);
+  }
   char batteryText[6];
   snprintf(batteryText, sizeof(batteryText), batteryData_.valid ? "%u%%" : "--%%",
            static_cast<unsigned>(percent));
   text.setForegroundColor(ST7305_COLOR_WHITE);
-  text.drawUTF8(static_cast<int16_t>(x + 40), 159, batteryText);
+  text.drawUTF8(static_cast<int16_t>(x + 48), 159, batteryText);
 }
 
 void HomePage::renderSleepTransition(DisplayMonoTft& display, uint32_t nowMs,
-                                      uint8_t progress) const {
-  renderSleepClock(display, nowMs);
-  if (progress < 100U) {
-    const int16_t lineX = static_cast<int16_t>(progress * display.width() / 100U);
+                                      uint16_t progress, const uint8_t* homeFrame,
+                                      const uint8_t* sleepFrame) const {
+  if (progress == 0U && homeFrame != nullptr) {
+    display.restoreFrame(homeFrame);
+    return;
+  }
+  if (sleepFrame != nullptr) {
+    display.restoreFrame(sleepFrame);
+  } else {
+    renderSleepClock(display, nowMs);
+  }
+  const uint16_t bounded = progress > AnimMath::kFixedScale ? AnimMath::kFixedScale : progress;
+  const int16_t lineX = static_cast<int16_t>(
+      (static_cast<uint32_t>(bounded) * display.width() + AnimMath::kFixedScale / 2U) /
+      AnimMath::kFixedScale);
+  const int16_t shiftX = static_cast<int16_t>(
+      (static_cast<uint32_t>(bounded) * 256U + AnimMath::kFixedScale / 2U) /
+      AnimMath::kFixedScale);
+  display.canvas().blitFrameShiftedRight(homeFrame, shiftX, lineX);
+  if (bounded > 0U && bounded < AnimMath::kFixedScale) {
     display.canvas().drawFastVLine(lineX, 12, display.height() - 24, ST7305_COLOR_WHITE);
   }
 }

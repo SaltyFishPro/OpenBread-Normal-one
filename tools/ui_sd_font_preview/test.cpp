@@ -110,6 +110,12 @@ void save(DisplayMonoTft& d, const std::string& name) {
   }
 }
 
+bool framePixel(const uint8_t* frame, DisplayMonoTft& display, int16_t x, int16_t y) {
+  int16_t px, py;
+  display.canvas().logicalToPhysical(x, y, px, py);
+  return (frame[(py / 2) * 42 + px / 4] & (1U << (7 - ((px % 4) * 2 + py % 2)))) != 0;
+}
+
 int main() {
  try {
   UiFontCache cache;
@@ -219,8 +225,111 @@ int main() {
     HomePage home; home.begin(); HomePage::ClockData clock;
     clock.valid=true;clock.hour=12;clock.minute=34;clock.year=2026;clock.month=10;clock.day=24;clock.weekday=6;
     home.setClockData(clock); home.setBatteryData({80,true});
+    static const char* const settingsItems[] = {"重启设备", "系统更新", "WiFi配网", "时间校准",
+                                                 "设备自检", "USB串口", "恢复默认设置", "关于设备", "关于作者"};
+    static const char* const musicItems[] = {"音乐列表", "收藏歌曲"};
+    static const char* const readerItems[] = {"单词阅读", "提词器"};
+    static const char* const focusItems[] = {"专注时钟"};
+    static const char* const wirelessItems[] = {"蓝牙连接", "蓝牙拍照", "翻页器"};
+    static const char* const gamesItems[] = {"敲木鱼", "飞机世界大战"};
+    HomePage motion; motion.begin(); motion.setClockData(clock);
+    motion.setBatteryData({80,true}); motion.setSubmenuLabels(settingsItems,9);
+    uint8_t motionStart[8064], motionMiddle[8064];
+    d.clear(); motion.render(d,0,2000); d.captureFrame(motionStart);
+    motion.handleInput(false,true,false,false,false,2000);
+    d.clear(); motion.render(d,0,2000); d.captureFrame(current);
+    check(!memcmp(motionStart,current,sizeof(current)),"category slide changed its start frame");
+    d.clear(); motion.render(d,0,2120); d.captureFrame(motionMiddle);
+    save(d,"home-category-slide");
+    check(motion.isSliding() && motion.focusIndex()==0,"category changed before slide end");
+    check(memcmp(motionStart,motionMiddle,sizeof(motionMiddle)),"category slide lacks middle frame");
+    motion.update(2241); motion.setSubmenuLabels(musicItems,2);
+    check(!motion.isSliding() && motion.focusIndex()==1,"category slide did not settle");
+    d.clear(); motion.render(d,0,3000); d.captureFrame(motionStart);
+    motion.handleInput(false,false,false,true,false,3000);
+    d.clear(); motion.render(d,0,3000); d.captureFrame(current);
+    check(!memcmp(motionStart,current,sizeof(current)),"submenu slide changed its start frame");
+    d.clear(); motion.render(d,0,3120); d.captureFrame(motionMiddle);
+    save(d,"home-submenu-slide");
+    check(motion.isSliding() && motion.submenuIndex()==1,"submenu target lost during slide");
+    check(memcmp(motionStart,motionMiddle,sizeof(motionMiddle)),"submenu slide lacks middle frame");
+    for (int16_t y=88;y<98;++y) for (int16_t x=24;x<240;++x)
+      check(framePixel(motionMiddle,d,x,y),"submenu text crossed category rule");
+    motion.update(3241);
+    check(!motion.isSliding() && motion.submenuIndex()==1,"submenu slide did not settle");
+    d.clear(); motion.render(d,0,3241); save(d,"home-submenu-settled");
+    motion.handleInput(false,false,true,false,false,4000);
+    d.clear(); motion.render(d,0,4120); d.captureFrame(motionMiddle);
+    check(motion.isSliding() && motion.submenuIndex()==0,"up slide lost its target");
+    motion.update(4241);
+    check(!motion.isSliding() && motion.submenuIndex()==0,"up slide did not settle");
+    motion.handleInput(true,false,false,false,false,5000);
+    d.clear(); motion.render(d,0,5120); d.captureFrame(motionMiddle);
+    check(motion.isSliding() && motion.focusIndex()==1,"left slide changed focus early");
+    motion.update(5241);
+    check(!motion.isSliding() && motion.focusIndex()==0,"left slide did not return to settings");
+    motion.setSubmenuLabels(settingsItems,9);
+    motion.handleInput(false,true,false,false,false,6000);
+    motion.handleInput(true,false,false,false,false,6060);
+    motion.update(6301);
+    check(motion.focusIndex()==0 && !motion.isSliding(),"rapid reverse lost category focus");
+    SettingsPage transitionSettings;
+    WifiProvisionService transitionWifi;
+    TimeService transitionTime;
+    const auto drawAboutTransition = [&](int16_t yOffset) {
+      d.clear(); motion.render(d,0,7000);
+      if (yOffset < d.height())
+        d.canvas().drawFilledRectangle(0,yOffset,d.width()-1,d.height()-1,ST7305_COLOR_WHITE);
+      transitionSettings.renderDetail(0,SettingsPage::kAboutDeviceItemIndex,0,yOffset,d,
+                                      "设备ID: 1234","Flash: 16MB","SD: ready",
+                                      transitionWifi,transitionTime);
+    };
+    d.clear(); motion.render(d,0,7000); d.captureFrame(motionStart);
+    drawAboutTransition(d.height()); d.captureFrame(current);
+    check(!memcmp(motionStart,current,sizeof(current)),"detail entry changed XMB start frame");
+    drawAboutTransition(d.height()/2); d.captureFrame(motionMiddle);
+    save(d,"home-detail-transition");
+    for (int16_t y=0;y<d.height()/2;++y) for (int16_t x=0;x<d.width();++x)
+      check(framePixel(motionStart,d,x,y)==framePixel(motionMiddle,d,x,y),
+            "detail entry exposed a different background");
+    check(memcmp(motionStart,motionMiddle,sizeof(motionMiddle)),"detail page did not enter");
+    drawAboutTransition(0); d.captureFrame(current);
+    check(memcmp(motionStart,current,sizeof(current)),"detail endpoint still shows XMB");
+    PopupView::ConfirmState homeConfirm;
+    PopupView::open(homeConfirm,7000);
+    d.clear(); motion.render(d,0,7200);
+    PopupView::drawConfirm(d,0,homeConfirm,"确定重启设备？","取消","重启",7200,true);
+    d.captureFrame(current); save(d,"home-confirm");
+    check(memcmp(motionStart,current,sizeof(current)),"XMB confirm popup not visible");
+    PopupView::handleInput(homeConfirm,true,false,false,false,false,7300);
+    check(PopupView::update(homeConfirm,7500)==PopupView::Result::Cancelled,
+          "XMB confirm cancel did not return");
+    check(motion.focusIndex()==0 && motion.submenuIndex()==0,
+          "XMB focus changed while showing confirmation");
+    check(transitionSettings.popupForSelection(0,0)==SettingsPage::ConfirmKind::Restart,
+          "XMB restart confirmation mapping lost");
+    for (uint8_t i=0;i<6;++i) {
+      const uint32_t stepMs=8000U+static_cast<uint32_t>(i)*300U;
+      motion.handleInput(false,false,false,true,false,stepMs);
+      motion.update(stepMs+250U);
+    }
+    check(motion.submenuIndex()==SettingsPage::kFactoryResetItemIndex &&
+          transitionSettings.popupForSelection(0,motion.submenuIndex())==
+              SettingsPage::ConfirmKind::FactoryReset,
+          "XMB factory reset confirmation mapping lost");
     for(unsigned i=0;i<13;++i) {
-      if(i) {home.handleInput(false,true,false,1000*i);home.update(1000*i+500);}
+      if(i) {home.handleInput(false,true,false,false,false,1000*i);home.update(1000*i+500);}
+      const char* const* labels = nullptr; uint8_t count = 0;
+      switch (i) {
+        case 0: labels = settingsItems; count = 9; break;
+        case 1: labels = musicItems; count = 2; break;
+        case 2: labels = readerItems; count = 2; break;
+        case 3: labels = focusItems; count = 1; break;
+        case 4: labels = wirelessItems; count = 3; break;
+        case 5: labels = gamesItems; count = 2; break;
+        default: break;
+      }
+      home.setSubmenuLabels(labels, count);
       d.clear();home.render(d,0,1000*i+500);save(d,"home-"+std::to_string(i));
       check(home.focusIndex()==i,"home navigation changed");
     }
@@ -236,6 +345,29 @@ int main() {
     d.clear();home.render(d,0,12500);d.captureFrame(current);
     check(!memcmp(original,current,sizeof(original)),"notice pixels remain after ready");
     check(!home.setFontStatus(HomePage::FontStatus::Ready),"unchanged status requests redraw");
+    uint8_t sleepFrame[8064];
+    d.clear(); home.renderSleepClock(d, 12000); d.captureFrame(sleepFrame); save(d, "home-sleep");
+    d.clear(); home.renderSleepTransition(d, 12000, 0, original, sleepFrame); d.captureFrame(current);
+    check(!memcmp(current, original, sizeof(original)), "sleep transition start differs from home");
+    for (uint16_t progress : {30U, 500U, 750U}) {
+      d.clear(); home.renderSleepTransition(d, 12000, progress, original, sleepFrame); d.captureFrame(current);
+      if (progress == 500U) save(d, "home-sleep-transition");
+      const int16_t lineX = static_cast<int16_t>(
+          (static_cast<uint32_t>(progress) * d.width() + 500U) / 1000U);
+      const int16_t shiftX = static_cast<int16_t>(
+          (static_cast<uint32_t>(progress) * 256U + 500U) / 1000U);
+      for (int16_t y = 0; y < d.height(); ++y) {
+        for (int16_t x = 0; x < d.width(); ++x) {
+          if (x < lineX) check(framePixel(current, d, x, y) == framePixel(sleepFrame, d, x, y),
+                               "sleep reveal differs from clock");
+          if (x > lineX) check(framePixel(current, d, x, y) ==
+                               framePixel(original, d, static_cast<int16_t>(x - shiftX), y),
+                               "home pixels did not shift with scan line");
+        }
+      }
+    }
+    d.clear(); home.renderSleepTransition(d, 12000, 1000, original, sleepFrame); d.captureFrame(current);
+    check(!memcmp(current, sleepFrame, sizeof(sleepFrame)), "sleep transition end differs from clock");
     SdUsbPage usb; d.clear();usb.render(d,0,HomePage::sdUsbIcon(),true);save(d,"usb");
     ComputerStatusPage computer; computer.begin(1000); d.clear();
     computer.render(d,0,HomePage::computerStatusIcon(),false,5000);save(d,"computer");

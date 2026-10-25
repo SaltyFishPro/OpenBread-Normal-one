@@ -47,6 +47,9 @@ bool DisplayMonoTft::begin() {
   display_.setRotation(BoardConfig::kDisplayRotation);
   pinMode(BoardConfig::kPinTftTe, INPUT);
   teState_ = TeState::Unknown;
+  lastTeWaitUs_ = 0;
+  lastPresentUs_ = 0;
+  teSyncAnnounced_ = false;
 
   text_.begin(display_);
   text_.setFontMode(1);
@@ -64,10 +67,13 @@ void DisplayMonoTft::clear() { display_.clearDisplay(); }
 void DisplayMonoTft::present() { display_.display(); }
 
 void DisplayMonoTft::presentSynced() {
+  lastTeWaitUs_ = 0;
+  const uint32_t presentStartUs = micros();
   if (teState_ != TeState::Unavailable) {
     (void)waitForTe();
   }
   display_.display();
+  lastPresentUs_ = micros() - presentStartUs;
 }
 
 bool DisplayMonoTft::waitForTe() {
@@ -77,9 +83,13 @@ bool DisplayMonoTft::waitForTe() {
     const int level = digitalRead(BoardConfig::kPinTftTe);
     if (previousLevel == LOW && level == HIGH) {
       if (teState_ == TeState::Unknown) {
-        LogD("DISPLAY", "TE pulse detected; transition sync active");
         teState_ = TeState::Available;
+        if (!teSyncAnnounced_) {
+          LogI("DISPLAY", "TE sync active gpio=%d", BoardConfig::kPinTftTe);
+          teSyncAnnounced_ = true;
+        }
       }
+      lastTeWaitUs_ = micros() - startUs;
       return true;
     }
     previousLevel = level;
@@ -88,6 +98,7 @@ bool DisplayMonoTft::waitForTe() {
 
   LogW("DISPLAY", "TE timeout on GPIO%d; check TE wiring and pulse, using unsynced refresh",
        BoardConfig::kPinTftTe);
+  lastTeWaitUs_ = micros() - startUs;
   teState_ = TeState::Unavailable;
   return false;
 }
@@ -142,6 +153,9 @@ void DisplayMonoTft::restoreAfterSleep() {
   display_.display_Inversion(false);
   pinMode(BoardConfig::kPinTftTe, INPUT);
   teState_ = TeState::Unknown;
+  lastTeWaitUs_ = 0;
+  lastPresentUs_ = 0;
+  teSyncAnnounced_ = false;
 }
 
 int DisplayMonoTft::width() const { return display_.getDisplayWidth(); }

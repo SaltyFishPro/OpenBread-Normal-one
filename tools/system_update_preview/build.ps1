@@ -20,7 +20,7 @@ try {
         'lib/ST7305_MonoTFT_Library/src/U8g2_for_ST73XX.cpp'
     )
     uv run --with ziglang==0.13.0 python -m ziglang c++ -std=c++17 -O1 `
-        -DOB_SD_FONT_LOG_ENABLED=0 -ffunction-sections -fdata-sections '-Wl,--gc-sections' `
+        -DOB_SD_FONT_LOG_ENABLED=0 -DOB_LOG_LEVEL=0 -ffunction-sections -fdata-sections '-Wl,--gc-sections' `
         -I tools/system_update_preview/stubs -I tools/reader_font_preview/stubs -I tools/sd_font_tests/stubs -I tools/answers_book_preview/stubs -I . `
         -I lib/ST7305_MonoTFT_Library/src @sources -o tmp/system-update-render/preview.exe
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

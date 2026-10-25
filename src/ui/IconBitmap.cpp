@@ -147,7 +147,7 @@ uint16_t frameAt(const Anim& anim, uint32_t nowMs) {
 
 void drawFrame(ST7305_2p9_BW_DisplayDriver& canvas, const Anim& anim, uint16_t frameIndex,
                int16_t dstX, int16_t dstY, int16_t dstW, int16_t dstH, bool invert,
-               int16_t clipTop, int16_t clipBottom) {
+               int16_t clipTop, int16_t clipBottom, bool ghost) {
   if (anim.frameCount == 0 || dstW <= 0 || dstH <= 0 || anim.frames == nullptr) {
     return;
   }
@@ -216,6 +216,17 @@ void drawFrame(ST7305_2p9_BW_DisplayDriver& canvas, const Anim& anim, uint16_t f
         const uint16_t byteIndex = static_cast<uint16_t>(sx >> 3);
         const uint8_t bitMask = static_cast<uint8_t>(0x80U >> (sx & 0x7U));
         const bool on = (rowSource[byteIndex] & bitMask) != 0;
+        // The XMB side categories are intentionally subdued in the HTML
+        // reference. The ST7305 is monochrome, so a stable checkerboard
+        // dither approximates the 55% opacity without introducing gray state.
+        if (ghost && on && (((dstX + dx + py) & 1) != 0)) {
+          colAccum += anim.frameWidth;
+          while (colAccum >= dstWidth) {
+            colAccum -= dstWidth;
+            ++sx;
+          }
+          continue;
+        }
         writeLogicalPixel(canvas, static_cast<int16_t>(dstX + dx), py, invert ? !on : on);
 
         colAccum += anim.frameWidth;

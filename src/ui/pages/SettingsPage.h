@@ -2,8 +2,6 @@
 
 #include <stdint.h>
 
-#include "../IconBitmap.h"
-
 class DisplayMonoTft;
 class SdBitmapFont;
 class WifiProvisionService;
@@ -12,12 +10,7 @@ class TimeService;
 
 class SettingsPage {
 public:
-  struct MenuItem {
-    const char* labelZh;
-    IconBitmap::Anim icon;
-  };
-
-  // 需要二次确认的操作：设置列表项与详情页动作共用同一套文案与弹窗。
+  // 需要二次确认的操作：XMB 设置选项与详情页动作共用同一套文案与弹窗。
   enum class ConfirmKind : uint8_t {
     None,
     Restart,
@@ -52,7 +45,7 @@ public:
                          OtaService& ota) const;
   bool handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus,
                         WifiProvisionService& wifi, OtaService& ota, TimeService& time) const;
-  const MenuItem* menuItems() const;
+  const char* const* menuLabels() const;
   uint8_t menuItemCount() const;
   bool renderDetail(uint8_t homeFocus, uint8_t sectionFocus, uint8_t detailPageIndex,
                     int16_t yOffset, DisplayMonoTft& display, const char* deviceIdText,

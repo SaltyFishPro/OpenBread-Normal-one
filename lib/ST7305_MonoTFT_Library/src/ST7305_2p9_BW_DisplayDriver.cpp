@@ -327,6 +327,50 @@ void ST7305_2p9_BW_DisplayDriver::copyFrameBufferFrom(const uint8_t* src) {
     memcpy(display_buffer, src, DISPLAY_BUFFER_LENGTH);
 }
 
+void ST7305_2p9_BW_DisplayDriver::blitFrameShiftedRight(const uint8_t* src,
+                                                        int16_t shiftX, int16_t revealX) {
+    if (src == nullptr || shiftX < 0) return;
+    const int16_t firstX = shiftX > revealX ? shiftX : revealX;
+    const int16_t width = getDisplayWidth();
+    if (firstX >= width) return;
+
+    if (getRotation() != 1) {
+        for (int16_t x = firstX < 0 ? 0 : firstX; x < width; ++x) {
+            for (int16_t y = 0; y < getDisplayHeight(); ++y) {
+                int16_t sourceX, sourceY, targetX, targetY;
+                logicalToPhysical(static_cast<int16_t>(x - shiftX), y, sourceX, sourceY);
+                logicalToPhysical(x, y, targetX, targetY);
+                const size_t sourceIndex = static_cast<size_t>(sourceY / 2) * LCD_DATA_WIDTH +
+                                           sourceX / 4;
+                const uint8_t sourceBit = static_cast<uint8_t>(
+                    1U << (7U - ((sourceX % 4) * 2U + sourceY % 2U)));
+                writePoint(static_cast<uint>(targetX), static_cast<uint>(targetY),
+                           (src[sourceIndex] & sourceBit) != 0U);
+            }
+        }
+        return;
+    }
+
+    // Rotation 1 maps logical x to physical y. Each physical byte stores two
+    // adjacent y rows in alternating bits, so a shifted row needs parity remapping.
+    for (int16_t x = firstX < 0 ? 0 : firstX; x < width; ++x) {
+        const int16_t sourceY = static_cast<int16_t>(x - shiftX);
+        const uint8_t sourceMask = (sourceY & 1) ? 0x55U : 0xAAU;
+        const uint8_t targetMask = (x & 1) ? 0x55U : 0xAAU;
+        const size_t sourceOffset = static_cast<size_t>(sourceY / 2) * LCD_DATA_WIDTH;
+        const size_t targetOffset = static_cast<size_t>(x / 2) * LCD_DATA_WIDTH;
+        for (int16_t byte = 0; byte < LCD_DATA_WIDTH; ++byte) {
+            uint8_t pixels = static_cast<uint8_t>(src[sourceOffset + byte] & sourceMask);
+            if (sourceMask != targetMask) {
+                pixels = sourceMask == 0x55U ? static_cast<uint8_t>(pixels << 1U)
+                                             : static_cast<uint8_t>(pixels >> 1U);
+            }
+            display_buffer[targetOffset + byte] =
+                static_cast<uint8_t>((display_buffer[targetOffset + byte] & ~targetMask) | pixels);
+        }
+    }
+}
+
 void ST7305_2p9_BW_DisplayDriver::Initial_ST7305() {
     digitalWrite(RES_PIN, HIGH);	
     delay(10);

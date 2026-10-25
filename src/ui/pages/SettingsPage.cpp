@@ -7,69 +7,12 @@
 #include "../../services/OtaService.h"
 #include "../../services/TimeService.h"
 #include "../../bsp/UsbSerial.h"
-#include "../assets/submenu/desktopclock.h"
-#include "../assets/submenu/language.h"
 #include "../../services/WifiProvisionService.h"
-#include "../assets/submenu/about.h"
-#include "../assets/submenu/author.h"
-#include "../assets/submenu/reset.h"
-#include "../assets/submenu/restart.h"
-#include "../assets/submenu/wificonnet.h"
-#if __has_include("../assets/submenu/ota.h")
-#include "../assets/submenu/ota.h"
-#define OB_HAS_OTA_ICON 1
-#else
-#define OB_HAS_OTA_ICON 0
-#endif
 
 namespace {
-#if OB_HAS_OTA_ICON
-const IconBitmap::Anim kSettingsOtaIcon = {
-    reinterpret_cast<const uint8_t*>(&ota_frames[0][0]),
-    OTA_FRAME_BYTES,
-    OTA_FRAME_WIDTH,
-    OTA_FRAME_HEIGHT,
-    OTA_FRAME_DELAY,
-    OTA_FRAME_COUNT};
-#else
-const IconBitmap::Anim kSettingsOtaIcon = {
-    reinterpret_cast<const uint8_t*>(&reset_frames[0][0]),
-    RESET_FRAME_BYTES,
-    RESET_FRAME_WIDTH,
-    RESET_FRAME_HEIGHT,
-    RESET_FRAME_DELAY,
-    RESET_FRAME_COUNT};
-#endif
-
-const SettingsPage::MenuItem kSettingsItems[] = {
-    {"重启设备",
-     {reinterpret_cast<const uint8_t*>(&restart_frames[0][0]), RESTART_FRAME_BYTES,
-      RESTART_FRAME_WIDTH, RESTART_FRAME_HEIGHT, RESTART_FRAME_DELAY, RESTART_FRAME_COUNT}},
-    {"系统更新", kSettingsOtaIcon},
-    {"WiFi配网",
-     {reinterpret_cast<const uint8_t*>(&wificonnet_frames[0][0]), WIFICONNET_FRAME_BYTES,
-      WIFICONNET_FRAME_WIDTH, WIFICONNET_FRAME_HEIGHT, WIFICONNET_FRAME_DELAY,
-      WIFICONNET_FRAME_COUNT}},
-    {"时间校准",
-     {reinterpret_cast<const uint8_t*>(&desktopclock_frames[0][0]), DESKTOPCLOCK_FRAME_BYTES,
-      DESKTOPCLOCK_FRAME_WIDTH, DESKTOPCLOCK_FRAME_HEIGHT, DESKTOPCLOCK_FRAME_DELAY,
-      DESKTOPCLOCK_FRAME_COUNT}},
-    {"设备自检",
-     {reinterpret_cast<const uint8_t*>(&reset_frames[0][0]), RESET_FRAME_BYTES,
-      RESET_FRAME_WIDTH, RESET_FRAME_HEIGHT, RESET_FRAME_DELAY, RESET_FRAME_COUNT}},
-    {"USB串口",
-     {reinterpret_cast<const uint8_t*>(&language_frames[0][0]), LANGUAGE_FRAME_BYTES,
-      LANGUAGE_FRAME_WIDTH, LANGUAGE_FRAME_HEIGHT, LANGUAGE_FRAME_DELAY,
-      LANGUAGE_FRAME_COUNT}},
-    {"恢复默认设置",
-     {reinterpret_cast<const uint8_t*>(&reset_frames[0][0]), RESET_FRAME_BYTES,
-      RESET_FRAME_WIDTH, RESET_FRAME_HEIGHT, RESET_FRAME_DELAY, RESET_FRAME_COUNT}},
-    {"关于设备",
-     {reinterpret_cast<const uint8_t*>(&about_frames[0][0]), ABOUT_FRAME_BYTES,
-      ABOUT_FRAME_WIDTH, ABOUT_FRAME_HEIGHT, ABOUT_FRAME_DELAY, ABOUT_FRAME_COUNT}},
-    {"关于作者",
-     {reinterpret_cast<const uint8_t*>(&author_frames[0][0]), AUTHOR_FRAME_BYTES,
-      AUTHOR_FRAME_WIDTH, AUTHOR_FRAME_HEIGHT, AUTHOR_FRAME_DELAY, AUTHOR_FRAME_COUNT}},
+const char* const kSettingsLabels[] = {
+    "重启设备", "系统更新", "WiFi配网", "时间校准", "设备自检",
+    "USB串口", "恢复默认设置", "关于设备", "关于作者",
 };
 
 void renderAboutDeviceDetail(DisplayMonoTft& display, uint8_t detailPageIndex, int16_t yOffset,
@@ -342,10 +285,10 @@ bool SettingsPage::handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus,
   return false;
 }
 
-const SettingsPage::MenuItem* SettingsPage::menuItems() const { return kSettingsItems; }
+const char* const* SettingsPage::menuLabels() const { return kSettingsLabels; }
 
 uint8_t SettingsPage::menuItemCount() const {
-  return static_cast<uint8_t>(sizeof(kSettingsItems) / sizeof(kSettingsItems[0]));
+  return static_cast<uint8_t>(sizeof(kSettingsLabels) / sizeof(kSettingsLabels[0]));
 }
 
 bool SettingsPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, uint8_t detailPageIndex,
