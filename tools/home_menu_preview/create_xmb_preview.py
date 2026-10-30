@@ -99,7 +99,8 @@ TEMPLATE = r'''<!DOCTYPE html>
 </head>
 <body>
 <div class="topbar"><button id="tab-xmb" class="active" type="button">XMB · 横纵交叉菜单</button>
-  <button id="tab-focus" type="button">打开焦点舞台</button></div>
+  <button id="tab-focus" type="button">打开焦点舞台</button>
+  <button id="tab-first-boot" type="button">首次开机流程</button></div>
 <div class="stage"><div class="screen" id="screen"><div class="xmb-content" id="xmb-content"><div class="top-status"><span class="battery">▰ 87%</span><span class="clock">08:42</span><span class="date">10月25日 周日</span></div><div class="wave"></div><div class="xmb-axis" id="xmb-axis">
   <div class="category-rail" id="category-rail"></div><div class="rail-rule"></div>
   <div class="section-panel" id="section-panel">
@@ -273,6 +274,7 @@ document.getElementById("btn-left").onclick=()=>handleDeviceKey("left"); documen
 document.getElementById("btn-reset").onclick=()=>{if(powerState!=="active"&&powerState!=="frozen")return; categoryIndex=0;itemIndex=0;lastActivity=performance.now();setPowerState("active");render();hint.textContent="已重置到设置分类。";reconcileIdle();};
 powerButton.onclick = enterSleep;
 document.getElementById("tab-focus").onclick=()=>{window.location.href="main_menu_mock.html";};
+document.getElementById("tab-first-boot").onclick=()=>{window.location.href="first_boot_mock.html";};
 window.addEventListener("keydown", e=>{const key={ArrowLeft:"left",ArrowRight:"right",ArrowUp:"up",ArrowDown:"down",Enter:"ok",Backspace:"back"}[e.key];if(wakeKey===(e.code||e.key)){e.preventDefault();return;}if(!key&&["active","frozen"].includes(powerState))return;e.preventDefault();if(e.repeat)return;if(handleDeviceKey(key||"wake"))wakeKey=e.code||e.key;});
 window.addEventListener("keyup", e=>{if((e.code||e.key)===wakeKey)wakeKey=null;});
 window.addEventListener("blur",()=>{wakeKey=null;});

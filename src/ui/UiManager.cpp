@@ -130,7 +130,8 @@ bool UiManager::begin() {
   initDeviceInfoCache();
   syncHomeClockFromTimeService();
   refreshHomeBattery(nowMs);
-  state_ = UiState::Home;
+  fontSetupService_.begin(millis());
+  state_ = UiState::FirstBoot;
   lastActivityMs_ = millis();
   leftLongReported_ = false;
   transitionStartMs_ = millis();
@@ -207,6 +208,21 @@ void UiManager::tick() {
   wifiProvisionService_.tick(nowMs, timeService_);
   if (wifiProvisionService_.consumeChanged() && !staticReaderDetail) {
     needsRedraw_ = true;
+  }
+  if (state_ == UiState::FirstBoot) {
+    fontSetupService_.tick(nowMs, sdCardService_, wifiProvisionService_);
+    if (fontSetupService_.consumeChanged()) needsRedraw_ = true;
+    if (fontSetupService_.state() == FontSetupService::State::Restarting &&
+        nowMs - fontSetupService_.stateSinceMs() >= 900U) {
+      LogI("SETUP", "font package complete; restarting for boot check");
+      ESP.restart();
+    }
+    if (fontSetupService_.state() == FontSetupService::State::Ready &&
+        nowMs - fontSetupService_.stateSinceMs() >= 650U) {
+      state_ = UiState::Home;
+      lastActivityMs_ = nowMs;
+      needsRedraw_ = true;
+    }
   }
   if (readerService_.consumeChanged()) {
     needsRedraw_ = true;
@@ -322,6 +338,14 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
   }
 
   switch (state_) {
+    case UiState::FirstBoot:
+      if (edges.ok) fontSetupService_.confirm(nowMs, sdCardService_, wifiProvisionService_);
+      if (edges.left || edges.leftLong) {
+        if (fontSetupService_.state() == FontSetupService::State::Portal ||
+            fontSetupService_.state() == FontSetupService::State::Connecting)
+          fontSetupService_.cancel(wifiProvisionService_, timeService_);
+      }
+      return;
     case UiState::Home: {
       syncHomeSubmenu();
       const bool enterDetail =
@@ -866,6 +890,12 @@ void UiManager::render(uint32_t nowMs) {
 
   if (isComputerStatusDetail() && computerStatusFrameVisible_) {
     // The host frame was rendered above.
+  } else if (state_ == UiState::FirstBoot) {
+    const uint16_t soc = powerDiagnosticService_.reading().stateOfChargeX100;
+    const uint8_t percent = soc >= 10000U ? 100U : static_cast<uint8_t>((soc + 50U) / 100U);
+    firstBootPage_.render(display_, fontSetupService_, wifiProvisionService_, timeService_,
+                          percent,
+                          powerDiagnosticService_.state() != PowerDiagnosticService::State::Failed);
   } else if (state_ == UiState::Home) {
     homePage_.render(display_, 0, nowMs);
   } else if (state_ == UiState::ToDetailTransition) {

@@ -9,8 +9,10 @@ public:
   State state() const; bool isBusy() const; bool consumeChanged(); bool hasPassed() const;
   uint8_t address() const; uint8_t whoAmI() const; uint32_t sampleCount() const;
   const ImuDriver::Sample& latest() const;
+  bool calibrate(); bool calibrated() const; int16_t calAx() const; int16_t calAy() const;
 private:
   void finish(bool passed);
   ImuDriver driver_; State state_ = State::Idle; uint32_t nextMs_ = 0; uint32_t count_ = 0;
-  bool changed_ = false; bool passed_ = false; ImuDriver::Sample first_{}, latest_{};
+  bool changed_ = false; bool passed_ = false; bool calibrated_ = false;
+  int16_t calAx_ = 0; int16_t calAy_ = 0; ImuDriver::Sample first_{}, latest_{};
 };

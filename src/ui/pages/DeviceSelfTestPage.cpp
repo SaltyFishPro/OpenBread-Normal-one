@@ -156,11 +156,15 @@ bool DeviceSelfTestPage::handleInput(bool leftEdge, bool leftLongEdge, bool upEd
       return true;
     }
     if (upEdge || downEdge) {
-      imuPageIndex_ = static_cast<uint8_t>(1U - imuPageIndex_);
+      imuPageIndex_ = imuPageIndex_ >= 2U ? 0 : static_cast<uint8_t>(imuPageIndex_ + 1U);
       return true;
     }
     if (okEdge) {
-      (void)imuTestService.start(nowMs);
+      if (imuPageIndex_ == 2U) {
+        (void)imuTestService.calibrate();
+      } else {
+        (void)imuTestService.start(nowMs);
+      }
       return true;
     }
     return false;
@@ -920,21 +924,64 @@ void DeviceSelfTestPage::renderImuTest(DisplayMonoTft& display, int16_t yOffset,
     text.drawUTF8(18, yOffset + 91, line);
     snprintf(line, sizeof(line), "芯片标识：0x%02X", service.whoAmI());
     text.drawUTF8(18, yOffset + 122, line);
-    text.drawUTF8(18, yOffset + 158, "Up/Down翻页  1/2  Left退出");
+    text.drawUTF8(18, yOffset + 158, "Up/Down翻页  1/3  Left退出");
     return;
   }
 
   const ImuDriver::Sample& sample = service.latest();
   char line[80];
-  snprintf(line, sizeof(line), "加速度 X:%d", sample.ax);
-  text.drawUTF8(18, yOffset + 51, line);
-  snprintf(line, sizeof(line), "加速度 Y:%d", sample.ay);
-  text.drawUTF8(18, yOffset + 76, line);
-  snprintf(line, sizeof(line), "加速度 Z:%d", sample.az);
-  text.drawUTF8(18, yOffset + 101, line);
-  snprintf(line, sizeof(line), "陀螺仪 X:%d  Y:%d  Z:%d", sample.gx, sample.gy, sample.gz);
-  text.drawUTF8(18, yOffset + 129, line);
-  text.drawUTF8(18, yOffset + 158, "Up/Down翻页  2/2  Left退出");
+  if (imuPageIndex_ == 1U) {
+    snprintf(line, sizeof(line), "加速度 X:%d", sample.ax);
+    text.drawUTF8(18, yOffset + 51, line);
+    snprintf(line, sizeof(line), "加速度 Y:%d", sample.ay);
+    text.drawUTF8(18, yOffset + 76, line);
+    snprintf(line, sizeof(line), "加速度 Z:%d", sample.az);
+    text.drawUTF8(18, yOffset + 101, line);
+    snprintf(line, sizeof(line), "陀螺仪 X:%d  Y:%d  Z:%d", sample.gx, sample.gy, sample.gz);
+    text.drawUTF8(18, yOffset + 129, line);
+    text.drawUTF8(18, yOffset + 158, "Up/Down翻页  2/3  Left退出");
+    return;
+  }
+
+  // 小方块水平仪：用加速度计 ax/ay 做重力投影映射到屏幕偏移（8g 量程 ≈ 4096 LSB/g）。
+  // 校准后以校准值为零位，未校准时以 0 为零位。左右倾由 ay 驱动，上下倾由 ax 驱动。
+  constexpr int16_t kSquareSize = 32;
+  constexpr int16_t kSquareHalf = kSquareSize / 2;
+  constexpr int16_t kMaxTravelX = 96;
+  constexpr int16_t kMaxTravelY = 36;
+  const int16_t arenaLeft = 16;
+  const int16_t arenaRight = static_cast<int16_t>(width - 16);
+  const int16_t arenaTop = static_cast<int16_t>(yOffset + 40);
+  const int16_t arenaBottom = static_cast<int16_t>(yOffset + height - 22);
+  const int16_t centerX = static_cast<int16_t>(width / 2);
+  const int16_t centerY = static_cast<int16_t>((arenaTop + arenaBottom) / 2);
+
+  const int32_t relAx = static_cast<int32_t>(sample.ax) - static_cast<int32_t>(service.calAx());
+  const int32_t relAy = static_cast<int32_t>(sample.ay) - static_cast<int32_t>(service.calAy());
+  int32_t dx = relAy * kMaxTravelX / 4096;
+  int32_t dy = -(relAx * kMaxTravelY) / 4096;
+  if (dx > kMaxTravelX) dx = kMaxTravelX;
+  if (dx < -kMaxTravelX) dx = -kMaxTravelX;
+  if (dy > kMaxTravelY) dy = kMaxTravelY;
+  if (dy < -kMaxTravelY) dy = -kMaxTravelY;
+
+  int16_t squareX = static_cast<int16_t>(centerX + dx - kSquareHalf);
+  int16_t squareY = static_cast<int16_t>(centerY + dy - kSquareHalf);
+  if (squareX < arenaLeft) squareX = arenaLeft;
+  if (squareX > arenaRight - kSquareSize) squareX = arenaRight - kSquareSize;
+  if (squareY < arenaTop) squareY = arenaTop;
+  if (squareY > arenaBottom - kSquareSize) squareY = arenaBottom - kSquareSize;
+
+  canvas.drawRectangle(static_cast<int16_t>(centerX - kSquareHalf - 6),
+                       static_cast<int16_t>(centerY - kSquareHalf - 6),
+                       static_cast<int16_t>(centerX + kSquareHalf + 6),
+                       static_cast<int16_t>(centerY + kSquareHalf + 6), ST7305_COLOR_BLACK);
+  canvas.drawFilledRectangle(squareX, squareY, static_cast<int16_t>(squareX + kSquareSize - 1),
+                             static_cast<int16_t>(squareY + kSquareSize - 1), ST7305_COLOR_BLACK);
+
+  text.drawUTF8(18, yOffset + 57, service.calibrated() ? "已校准  倾转设备查看方框移动"
+                                                       : "未校准  放正设备后按OK校准");
+  text.drawUTF8(18, yOffset + 158, "Up/Down翻页  3/3  Left退出  OK校准");
 }
 
 void DeviceSelfTestPage::renderPowerTest(DisplayMonoTft& display, int16_t yOffset,

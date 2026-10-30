@@ -91,10 +91,12 @@ void WifiProvisionService::tick(uint32_t nowMs, TimeService& time) {
   cleanupRadio(false);
 }
 
-void WifiProvisionService::startPortal(uint32_t nowMs) {
+void WifiProvisionService::startPortal(uint32_t nowMs, Purpose purpose) {
   if (!canStartPortal()) {
     return;
   }
+
+  purpose_ = purpose;
 
   const uint32_t chip = static_cast<uint32_t>(ESP.getEfuseMac() & 0xFFFFU);
   snprintf(apSsid_, sizeof(apSsid_), "OpenBread-Setup-%04X", static_cast<unsigned>(chip));
@@ -104,7 +106,12 @@ void WifiProvisionService::startPortal(uint32_t nowMs) {
   WiFi.mode(WIFI_AP_STA);
   WiFi.setSleep(false);
   WiFi.softAPdisconnect(true);
-  WiFi.softAP(apSsid_);
+  if (!WiFi.softAP(apSsid_)) {
+    LogE("WIFI", "portal start failed AP='%s'", apSsid_);
+    cleanupRadio(false);
+    setState(State::Failed, Error::Unknown);
+    return;
+  }
   LogI("WIFI", "portal started, AP='%s'", apSsid_);
 
   if (!routesReady_) {
@@ -142,6 +149,12 @@ void WifiProvisionService::finishOnlineSession() {
   LogI("WIFI", "online session finished, radio off, keep connected state");
   cleanupRadio(false);
   setState(State::Connected, Error::None);
+}
+
+void WifiProvisionService::abortOnlineSession() {
+  LogW("WIFI", "online session aborted; radio off");
+  cleanupRadio(false);
+  setState(State::Idle, Error::None);
 }
 
 WifiProvisionService::State WifiProvisionService::state() const { return state_; }
@@ -297,6 +310,12 @@ void WifiProvisionService::clearTarget() {
 void WifiProvisionService::finishProvisionSuccess(uint32_t nowMs, TimeService& time) {
   updateStaIpCache();
   saveCredentials();
+  if (purpose_ == Purpose::FontSetup) {
+    LogI("WIFI", "connected for font setup ip=%s", staIp_);
+    cleanupRadio(true);
+    setState(State::Connected, Error::None);
+    return;
+  }
   LogI("WIFI", "connected, ip=%s; starting one-shot time sync", staIp_);
   cleanupRadio(true);
   if (time.requestNtpSync(nowMs, targetSsid_, targetPass_, true)) {

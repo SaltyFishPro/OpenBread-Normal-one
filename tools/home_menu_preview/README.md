@@ -1,5 +1,7 @@
 # 主菜单预览
 
+[first_boot_mock.html](first_boot_mock.html) 是包含完整流程的单文件交互预览：可模拟缺卡、缺少或损坏字体、连接配网热点、下载失败、校验与重启复查；检查通过后在同一页面内显示完整 XMB 主菜单，地址不变。菜单内的「首次开机流程」会在原页复位。网页不连接真实网络或写入 SD 卡。更新独立 [xmb_menu_mock.html](xmb_menu_mock.html) 后运行 `python tools/home_menu_preview/create_first_boot_preview.py`，将其最新内容嵌入此文件。
+
 打开 [main_menu_mock.html](main_menu_mock.html) 查看预览，方向键上下切换，Enter 确认。
 
 屏幕逻辑尺寸为 384×168；文字只使用 14、20、24 像素，菜单名称固定为 20 像素。

@@ -78,6 +78,7 @@ public:
   // Share the menu asset with the waiting page without storing a second copy.
   static const IconBitmap::Anim& computerStatusIcon();
   static const IconBitmap::Anim& sdUsbIcon();
+  static const IconBitmap::Anim& bootIcon(uint8_t index);
   void setClockData(const ClockData& data);
   bool setBatteryData(const BatteryData& data);
   void invalidateTextLayer() {}

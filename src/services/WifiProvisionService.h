@@ -27,13 +27,16 @@ public:
     Timeout,
     Unknown
   };
+  enum class Purpose : uint8_t { TimeSync, FontSetup };
 
   bool begin();
   void tick(uint32_t nowMs, TimeService& time);
 
-  void startPortal(uint32_t nowMs);
+  void startPortal(uint32_t nowMs, Purpose purpose = Purpose::TimeSync);
   void stopPortal();
   void cancelProvision(TimeService& time);
+  void finishOnlineSession();
+  void abortOnlineSession();
 
   State state() const;
   Error error() const;
@@ -63,7 +66,6 @@ private:
   void loadCredentials();
   void clearTarget();
   void finishProvisionSuccess(uint32_t nowMs, TimeService& time);
-  void finishOnlineSession();
   void cleanupRadio(bool keepStation);
   const char* errorText(Error err) const;
 
@@ -81,6 +83,7 @@ private:
   bool radioActive_ = false;
   bool routesReady_ = false;
   bool connectPending_ = false;
+  Purpose purpose_ = Purpose::TimeSync;
 
   uint32_t portalStartMs_ = 0;
   uint32_t connectStartMs_ = 0;

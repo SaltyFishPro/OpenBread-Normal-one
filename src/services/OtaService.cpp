@@ -535,6 +535,7 @@ bool OtaService::beginDownloadSession() {
   clearProgress();
   totalBytes_ = manifest_.size;
   setState(State::Downloading, Error::None);
+  changed_ = true;
   LogI("OTA", "download session opened size=%lu", static_cast<unsigned long>(manifest_.size));
   return true;
 }
@@ -584,8 +585,10 @@ bool OtaService::processDownloadChunk() {
   }
 
   mbedtls_sha256_update(&shaCtx_, buf, static_cast<size_t>(readLen));
+  const uint8_t previousPercent = progressPercent();
   downloadedBytes_ += static_cast<uint32_t>(readLen);
   downloadRemaining_ -= static_cast<size_t>(readLen);
+  if (progressPercent() != previousPercent) changed_ = true;
 
   const uint8_t step = static_cast<uint8_t>(progressPercent() / 10U);
   if (step > lastProgressStep_) {

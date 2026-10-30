@@ -13,7 +13,8 @@ bool ImuTestService::begin() {
 bool ImuTestService::start(uint32_t nowMs) {
   if (isBusy()) return false;
   driver_.powerOn(); state_ = State::Powering; nextMs_ = nowMs + 100U; count_ = 0;
-  passed_ = false; first_ = {}; latest_ = {}; changed_ = true; return true;
+  passed_ = false; first_ = {}; latest_ = {}; changed_ = true;
+  calibrated_ = false; calAx_ = 0; calAy_ = 0; return true;
 }
 void ImuTestService::tick(uint32_t nowMs) {
   if (state_ == State::Powering && static_cast<int32_t>(nowMs - nextMs_) >= 0) {
@@ -43,6 +44,18 @@ void ImuTestService::tick(uint32_t nowMs) {
   const bool nonzero = latest_.ax || latest_.ay || latest_.az || latest_.gx || latest_.gy || latest_.gz;
   if (nonzero && activity > 8) { passed_ = true; LogI("SELFTEST/IMU", "passed samples=%lu continuing=1", static_cast<unsigned long>(count_)); }
 }
+bool ImuTestService::calibrate() {
+  if (state_ != State::Sampling || count_ == 0U) {
+    LogW("SELFTEST/IMU", "calibrate ignored state=%u samples=%lu",
+         static_cast<unsigned>(state_), static_cast<unsigned long>(count_));
+    return false;
+  }
+  calAx_ = latest_.ax; calAy_ = latest_.ay; calibrated_ = true; changed_ = true;
+  LogI("SELFTEST/IMU", "calibrate ax=%d ay=%d samples=%lu", calAx_, calAy_,
+       static_cast<unsigned long>(count_));
+  return true;
+}
+
 void ImuTestService::finish(bool passed) {
   driver_.end(); passed_ = passed; state_ = passed ? State::Passed : State::Failed; changed_ = true;
   if (!passed) LogE("SELFTEST/IMU", "failed samples=%lu addr=0x%02X who=0x%02X", static_cast<unsigned long>(count_), driver_.address(), driver_.whoAmI());
@@ -51,3 +64,4 @@ void ImuTestService::cancel() { if (isBusy()) driver_.end(); state_=State::Idle;
 ImuTestService::State ImuTestService::state()const{return state_;} bool ImuTestService::isBusy()const{return state_==State::Powering||state_==State::Sampling;}
 bool ImuTestService::consumeChanged(){const bool c=changed_;changed_=false;return c;} bool ImuTestService::hasPassed()const{return passed_;}
 uint8_t ImuTestService::address()const{return driver_.address();} uint8_t ImuTestService::whoAmI()const{return driver_.whoAmI();} uint32_t ImuTestService::sampleCount()const{return count_;} const ImuDriver::Sample&ImuTestService::latest()const{return latest_;}
+bool ImuTestService::calibrated()const{return calibrated_;} int16_t ImuTestService::calAx()const{return calAx_;} int16_t ImuTestService::calAy()const{return calAy_;}

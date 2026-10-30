@@ -10,7 +10,8 @@ parser.add_argument('--check', action='store_true')
 args = parser.parse_args()
 points = set(range(32, 127))
 for path in sorted((root / 'src').rglob('*')):
-    if path.suffix not in ('.h', '.cpp') or path == target:
+    # The boot page has its own Flash glyphs because SD may be absent.
+    if path.suffix not in ('.h', '.cpp') or path == target or path.name == 'FirstBootPage.cpp':
         continue
     source = path.read_text(encoding='utf-8')
     # Comments may conservatively add codepoints, but never remove UI literals.

@@ -349,6 +349,15 @@ const IconBitmap::Anim& HomePage::sdUsbIcon() {
   return kMenuIcons[kSdUsbMenuIndex];
 }
 
+const IconBitmap::Anim& HomePage::bootIcon(uint8_t index) {
+  switch (index) {
+    case 0: return kMenuIcons[kSdUsbMenuIndex];
+    case 1: return kMenuIcons[2];
+    case 2: return kMenuIcons[4];
+    default: return kMenuIcons[0];
+  }
+}
+
 void HomePage::setClockData(const ClockData& data) {
   clockData_ = data;
 }

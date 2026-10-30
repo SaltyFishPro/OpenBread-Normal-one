@@ -18,6 +18,7 @@
 #include "../services/RtcTestService.h"
 #include "../services/TimeService.h"
 #include "../services/WifiProvisionService.h"
+#include "../services/FontSetupService.h"
 #include "PopupView.h"
 #include "Render1bpp.h"
 #include "pages/TimeCalibrationPage.h"
@@ -28,6 +29,7 @@
 #include "pages/FocusClockPage.h"
 #include "pages/GamesPage.h"
 #include "pages/HomePage.h"
+#include "pages/FirstBootPage.h"
 #include "pages/MusicPage.h"
 #include "pages/ReaderPage.h"
 #include "pages/RemotePage.h"
@@ -45,6 +47,7 @@ public:
 
 private:
   enum class UiState : uint8_t {
+    FirstBoot,
     Home,
     ToHomeTransition,
     ToDetailTransition,
@@ -117,6 +120,7 @@ private:
   SdUsbSwitch sdUsbSwitch_;
   Render1bpp renderer_;
   HomePage homePage_;
+  FirstBootPage firstBootPage_;
   MusicPage musicPage_;
   ReaderPage readerPage_;
   TimeCalibrationPage timeCalibrationPage_;
@@ -135,6 +139,7 @@ private:
   PowerDiagnosticService powerDiagnosticService_;
   TimeService timeService_;
   WifiProvisionService wifiProvisionService_;
+  FontSetupService fontSetupService_;
   SdCardService sdCardService_;
   SdBitmapFont sdBitmapFont_;
   SdBitmapFont sdTitleFont_;
