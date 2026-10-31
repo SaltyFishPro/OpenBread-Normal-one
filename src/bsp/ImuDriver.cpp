@@ -19,6 +19,7 @@ constexpr uint8_t kCtrl1Config = 0x60;
 constexpr uint8_t kCtrl2Config = 0x26;
 constexpr uint8_t kCtrl3Config = 0x56;
 constexpr uint8_t kCtrl7Config = 0x03;
+constexpr uint8_t kCtrl7Accelerometer = 0x01;
 }
 
 void ImuDriver::powerOn() {
@@ -66,6 +67,21 @@ bool ImuDriver::configure() {
          writeRegister(kCtrl2, kCtrl2Config) &&
          writeRegister(kCtrl3, kCtrl3Config) &&
          writeRegister(kCtrl7, kCtrl7Config);
+}
+
+bool ImuDriver::configureAccelerometer() {
+  return writeRegister(kCtrl1, kCtrl1Config) &&
+         writeRegister(kCtrl2, kCtrl2Config) &&
+         writeRegister(kCtrl7, kCtrl7Accelerometer);
+}
+
+bool ImuDriver::readAcceleration(int16_t& ax, int16_t& ay, int16_t& az) {
+  uint8_t data[6] = {};
+  if (!readRegisters(kData, data, sizeof(data))) return false;
+  ax = static_cast<int16_t>((static_cast<uint16_t>(data[1]) << 8) | data[0]);
+  ay = static_cast<int16_t>((static_cast<uint16_t>(data[3]) << 8) | data[2]);
+  az = static_cast<int16_t>((static_cast<uint16_t>(data[5]) << 8) | data[4]);
+  return true;
 }
 
 bool ImuDriver::readSample(Sample&s){uint8_t r[12]={0};if(!readRegisters(kData,r,12))return false;auto v=[&](uint8_t i){return static_cast<int16_t>((static_cast<uint16_t>(r[i+1])<<8)|r[i]);};s.ax=v(0);s.ay=v(2);s.az=v(4);s.gx=v(6);s.gy=v(8);s.gz=v(10);return true;}

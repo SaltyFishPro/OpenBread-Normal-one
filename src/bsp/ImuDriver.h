@@ -7,7 +7,9 @@ public:
   bool beginBus();
   bool beginLowPower();
   bool configure();
+  bool configureAccelerometer();
   bool readSample(Sample& sample);
+  bool readAcceleration(int16_t& ax, int16_t& ay, int16_t& az);
   void end();
   uint8_t address()const; uint8_t whoAmI()const;
 private:

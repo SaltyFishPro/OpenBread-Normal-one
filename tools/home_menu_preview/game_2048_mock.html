@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenBread 2048 预览</title>
+<style>
+  :root { --scale: 2; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; padding: 28px 16px 44px; background: #e9eceb; color: #17201d;
+    font: 14px/1.45 "Microsoft YaHei", "Segoe UI", sans-serif; display: flex; flex-direction: column;
+    align-items: center; gap: 20px; }
+  h1 { width: min(100%, 780px); margin: 0; font-size: 20px; font-weight: 600; }
+  .stage { width: 384px; height: 168px; zoom: var(--scale); outline: 1px solid #72807a; background: #fff; }
+  canvas { display: block; width: 384px; height: 168px; image-rendering: pixelated; }
+  .preview-controls { width: min(100%, 780px); display: flex; justify-content: space-between;
+    align-items: start; flex-wrap: wrap; gap: 24px; }
+  .pad { display: grid; grid-template-columns: repeat(3, 54px); grid-template-rows: repeat(2, 44px); gap: 5px; }
+  button { font: inherit; cursor: pointer; border: 1px solid #52625a; background: #fff; color: #17201d;
+    border-radius: 4px; min-height: 38px; }
+  button:hover { background: #e1e8e4; }
+  button:active { background: #17201d; color: #fff; }
+  button:focus-visible { outline: 2px solid #00866c; outline-offset: 2px; }
+  .pad button { width: 54px; height: 44px; font-size: 20px; line-height: 1; }
+  .up { grid-column: 2; }
+  .left { grid-column: 1; grid-row: 2; }
+  .down { grid-column: 2; grid-row: 2; }
+  .right { grid-column: 3; grid-row: 2; }
+  .actions { display: flex; gap: 8px; align-items: flex-start; }
+  .actions button { padding: 8px 13px; }
+  .controls-note { width: min(100%, 780px); color: #4d5b55; margin: -8px 0 0; }
+  @media (max-width: 420px) { body { padding-top: 20px; } .preview-controls { gap: 16px; } }
+</style>
+</head>
+<body>
+<h1>2048 · 384×168 画面预览</h1>
+<div class="stage"><canvas id="screen" width="384" height="168" role="img" aria-label="2048 游戏画面"></canvas></div>
+<div class="preview-controls">
+  <div class="pad" aria-label="方向控制">
+    <button class="up" data-dir="up" title="向上移动" aria-label="向上移动">↑</button>
+    <button class="left" data-dir="left" title="向左移动，长按退出" aria-label="向左移动">←</button>
+    <button class="down" data-dir="down" title="向下移动" aria-label="向下移动">↓</button>
+    <button class="right" data-dir="right" title="向右移动" aria-label="向右移动">→</button>
+  </div>
+  <div class="actions">
+    <button id="restart" type="button">重新开始</button>
+    <button id="end-demo" type="button">预览结束画面</button>
+  </div>
+</div>
+<p class="controls-note">键盘方向键或 WASD 可移动；长按左键约 0.7 秒退出，结束时按 Enter 重开。预览不会修改固件或设备记录。</p>
+<script>
+(() => {
+  const canvas = document.getElementById('screen');
+  const ctx = canvas.getContext('2d', { alpha: false });
+  const W = 384, H = 168, cell = 36, gap = 3, boardX = 30, boardY = 7, infoX = 216;
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  const keyDirections = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
+    w: 'up', s: 'down', a: 'left', d: 'right' };
+  let grid, score, best, largest, state, nextId = 1, animation = null, lastSpawn = 0;
+  let leftTimer = null, leftHeld = false, leftExited = false;
+  let seed = Date.now() >>> 0;
+  try { best = Number(localStorage.getItem('openbread-2048-preview-best')) || 0; } catch { best = 0; }
+
+  function random() { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed; }
+  function tile(value) { return { id: nextId++, value }; }
+  function emptyGrid() { return Array.from({ length: 4 }, () => Array(4).fill(null)); }
+  function spawn() {
+    const free = [];
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) if (!grid[r][c]) free.push([r, c]);
+    if (!free.length) return;
+    const [r, c] = free[random() % free.length];
+    const item = tile(random() % 10 === 0 ? 4 : 2);
+    grid[r][c] = item;
+    lastSpawn = item.id;
+  }
+  function newGame() {
+    animation = null; grid = emptyGrid(); score = 0; largest = 2; state = 'playing';
+    spawn(); spawn(); render();
+  }
+  function lineCells(dir, index) {
+    const cells = [];
+    for (let i = 0; i < 4; i++) {
+      cells.push(dir === 'left' ? [index, i] : dir === 'right' ? [index, 3 - i] :
+        dir === 'up' ? [i, index] : [3 - i, index]);
+    }
+    return cells;
+  }
+  function hasMoves() {
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+      const value = grid[r][c]?.value;
+      if (!value || (r < 3 && value === grid[r + 1][c]?.value) ||
+          (c < 3 && value === grid[r][c + 1]?.value)) return true;
+    }
+    return false;
+  }
+  function move(dir) {
+    if (state !== 'playing' || animation) return;
+    const next = emptyGrid(), travels = [], merged = [];
+    let changed = false, gained = 0;
+    for (let line = 0; line < 4; line++) {
+      const cells = lineCells(dir, line);
+      const entries = cells.map(([r, c]) => ({ item: grid[r][c], r, c })).filter(entry => entry.item);
+      let destination = 0;
+      for (let i = 0; i < entries.length; i++) {
+        const first = entries[i], second = entries[i + 1];
+        const [toR, toC] = cells[destination++];
+        if (second && first.item.value === second.item.value && first.item.value < 32768) {
+          const result = tile(first.item.value * 2);
+          next[toR][toC] = result; merged.push(result.id); gained += result.value;
+          travels.push({ ...first, toR, toC }); travels.push({ ...second, toR, toC }); i++;
+        } else {
+          next[toR][toC] = first.item;
+          travels.push({ ...first, toR, toC });
+        }
+      }
+    }
+    changed = travels.some(entry => entry.r !== entry.toR || entry.c !== entry.toC);
+    if (!changed) return;
+    const duration = reduceMotion.matches ? 0 : 140;
+    animation = { travels, merged, start: performance.now(), duration };
+    grid = next; score += gained;
+    if (score > best) {
+      best = score;
+      try { localStorage.setItem('openbread-2048-preview-best', String(best)); } catch {}
+    }
+    for (const row of grid) for (const item of row) if (item) largest = Math.max(largest, item.value);
+    requestAnimationFrame(animate);
+  }
+  function animate(now) {
+    if (!animation) return;
+    const elapsed = now - animation.start;
+    if (elapsed < animation.duration) { render(Math.min(1, elapsed / animation.duration)); requestAnimationFrame(animate); return; }
+    const merged = animation.merged;
+    animation = null; spawn();
+    if (!hasMoves()) state = 'over';
+    render(1, merged);
+    if (merged.length && !reduceMotion.matches) setTimeout(() => { if (!animation) render(); }, 130);
+  }
+  function stroke(x, y, w, h) { ctx.strokeRect(x + .5, y + .5, w - 1, h - 1); }
+  function text(value, x, baseline, size, align = 'left', color = '#000', weight = 'normal') {
+    ctx.fillStyle = color; ctx.font = `${weight} ${size}px "Microsoft YaHei", sans-serif`;
+    ctx.textAlign = align; ctx.textBaseline = 'alphabetic'; ctx.fillText(value, x, baseline);
+  }
+  function drawTile(item, x, y, flash = false, alpha = 1) {
+    if (!item) return;
+    ctx.save(); ctx.globalAlpha = alpha;
+    const v = item.value, dark = v >= 128 || flash;
+    ctx.fillStyle = dark ? '#000' : '#fff'; ctx.fillRect(x, y, cell, cell);
+    ctx.strokeStyle = '#000'; stroke(x, y, cell, cell);
+    if (v >= 16 && !dark) stroke(x + 2, y + 2, cell - 4, cell - 4);
+    if (v >= 64 && !dark) ctx.fillRect(x + 5, y + 4, cell - 10, 2);
+    if (v >= 1024 && !flash) { ctx.strokeStyle = '#fff'; stroke(x + 2, y + 2, cell - 4, cell - 4); }
+    ctx.fillStyle = dark ? '#fff' : '#000';
+    ctx.font = '14px Consolas, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const label = String(v), width = ctx.measureText(label).width;
+    const scale = Math.min(1, (cell - 5) / width);
+    ctx.translate(x + cell / 2, y + cell / 2 + 1); ctx.scale(scale, 1);
+    ctx.fillText(label, 0, 0);
+    ctx.restore();
+  }
+  function render(progress = 1, flashes = []) {
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
+    stroke(boardX - 3, boardY - 3, 161, 161);
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+      const x = boardX + c * (cell + gap), y = boardY + r * (cell + gap);
+      ctx.setLineDash([2, 3]); stroke(x, y, cell, cell); ctx.setLineDash([]);
+    }
+    if (animation && progress < 1) {
+      const eased = 1 - Math.pow(1 - progress, 3);
+      for (const entry of animation.travels) {
+        const x = boardX + (entry.c + (entry.toC - entry.c) * eased) * (cell + gap);
+        const y = boardY + (entry.r + (entry.toR - entry.r) * eased) * (cell + gap);
+        drawTile(entry.item, x, y);
+      }
+    } else {
+      for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+        const item = grid[r][c];
+        if (item) drawTile(item, boardX + c * (cell + gap), boardY + r * (cell + gap),
+          flashes.includes(item.id), item.id === lastSpawn ? 1 : 1);
+      }
+    }
+
+    ctx.fillStyle = '#000'; ctx.fillRect(infoX - 17, 12, 1, 144);
+    text('2048', infoX, 32, 24, 'left', '#000', 'bold');
+    ctx.fillRect(infoX, 39, 150, 1);
+    text('得分', infoX, 57, 14);
+    text(String(score), infoX, 79, 20, 'left', '#000', 'bold');
+    ctx.fillRect(infoX, 89, 150, 1);
+    text('最高', infoX, 107, 14);
+    text(String(best), infoX, 129, 20, 'left', '#000', 'bold');
+    ctx.fillRect(infoX, 138, 150, 1);
+    text(`最大数  ${largest}`, infoX, 156, 14);
+
+    if (state === 'over' || state === 'exited') {
+      ctx.fillStyle = '#fff'; ctx.fillRect(boardX - 3, boardY - 3, 161, 161);
+      ctx.strokeStyle = '#000'; stroke(boardX - 3, boardY - 3, 161, 161);
+      text(state === 'over' ? '游戏结束' : '已退出', boardX + 76, 64, 20, 'center', '#000', 'bold');
+      text(`本局 ${score}`, boardX + 76, 94, 14, 'center');
+      text('OK 重新开始', boardX + 76, 125, 14, 'center');
+    }
+  }
+  function exitGame() { if (animation) return; state = 'exited'; render(); }
+  function leftDown() {
+    if (leftHeld) return;
+    leftHeld = true; leftExited = false;
+    leftTimer = setTimeout(() => { leftExited = true; exitGame(); }, 700);
+  }
+  function leftUp() {
+    if (!leftHeld) return;
+    leftHeld = false; clearTimeout(leftTimer);
+    if (!leftExited) move('left');
+  }
+  document.querySelectorAll('[data-dir]').forEach(button => {
+    const dir = button.dataset.dir;
+    if (dir === 'left') {
+      button.addEventListener('pointerdown', event => { event.preventDefault(); button.setPointerCapture(event.pointerId); leftDown(); });
+      button.addEventListener('pointerup', leftUp);
+      button.addEventListener('pointercancel', () => { leftHeld = false; clearTimeout(leftTimer); });
+    } else button.addEventListener('click', () => move(dir));
+  });
+  window.addEventListener('keydown', event => {
+    const dir = keyDirections[event.key.toLowerCase()] || keyDirections[event.key];
+    if (dir) { event.preventDefault(); if (event.repeat) return; if (dir === 'left') leftDown(); else move(dir); }
+    else if (event.key === 'Enter') { event.preventDefault(); if (state !== 'playing') newGame(); }
+  });
+  window.addEventListener('keyup', event => {
+    const dir = keyDirections[event.key.toLowerCase()] || keyDirections[event.key];
+    if (dir === 'left') { event.preventDefault(); leftUp(); }
+  });
+  window.addEventListener('blur', () => { leftHeld = false; clearTimeout(leftTimer); });
+  document.getElementById('restart').addEventListener('click', newGame);
+  document.getElementById('end-demo').addEventListener('click', () => { animation = null; state = 'over'; render(); });
+  function fit() { document.documentElement.style.setProperty('--scale', Math.min(2, (innerWidth - 32) / 384)); }
+  addEventListener('resize', fit); fit(); newGame();
+})();
+</script>
+</body>
+</html>

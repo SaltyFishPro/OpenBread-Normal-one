@@ -44,7 +44,7 @@ struct SubmenuContent {
 const char* const kMusicItems[] = {"音乐列表", "收藏歌曲"};
 const char* const kReaderItems[] = {"单词阅读", "提词器"};
 const char* const kWirelessItems[] = {"蓝牙连接", "蓝牙拍照", "翻页器"};
-const char* const kGamesItems[] = {"敲木鱼", "飞机世界大战"};
+const char* const kGamesItems[] = {"敲木鱼", "飞机世界大战", "极速前进", "2048"};
 
 const SubmenuContent kSubmenus[] = {
     {kMusicItems, static_cast<uint8_t>(sizeof(kMusicItems) / sizeof(kMusicItems[0]))},
@@ -241,6 +241,9 @@ void UiManager::tick() {
   if (iicScanService_.consumeChanged()) {
     needsRedraw_ = true;
   }
+  gamesPage_.tick(nowMs, buttons_[0].stablePressed, buttons_[1].stablePressed,
+                   buttons_[2].stablePressed, buttons_[3].stablePressed);
+  if (gamesPage_.consumeChanged()) needsRedraw_ = true;
   const InputEdges edges = pollInputEdges();
   if (state_ == UiState::Home) syncHomeSubmenu();
   updateState(edges, nowMs);
@@ -394,6 +397,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         musicPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_, musicService_,
                                      sdCardService_);
         readerPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_, sdBitmapFont_);
+        gamesPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_);
         setRemotePagePortrait(remotePage_.isPortraitSelection(homePage_.focusIndex(),
                                                               sectionFocusIndex_));
         if (homePage_.focusIndex() == HomePage::kComputerStatusMenuIndex) {
@@ -466,6 +470,35 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
                                           rtcTestService_, sdCardService_, imuTestService_,
                                           powerDiagnosticService_, peripheralPower_, sdBitmapFont_)) {
         needsRedraw_ = true;
+      } else if (gamesPage_.is2048Selection(homePage_.focusIndex(), sectionFocusIndex_)) {
+        // Short Left is reported on release; a long press exits without moving tiles.
+        if (edges.leftLong) {
+          gamesPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_);
+          setRemotePagePortrait(false);
+          state_ = UiState::ToHomeTransition;
+          transitionStartMs_ = nowMs;
+          needsRedraw_ = true;
+        } else if (edges.left) {
+          gamesPage_.handle2048Left(nowMs);
+          needsRedraw_ = true;
+        } else if (edges.ok) {
+          gamesPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
+                                       true, edges.okPressed, edges.okChanged, nowMs);
+          needsRedraw_ = true;
+        }
+      } else if (gamesPage_.isRacingSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
+        // Steering uses held Left/Right; only a paused race accepts Left as Back.
+        if (gamesPage_.racingPaused() && (edges.left || edges.leftLong)) {
+          gamesPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_);
+          setRemotePagePortrait(false);
+          state_ = UiState::ToHomeTransition;
+          transitionStartMs_ = nowMs;
+          needsRedraw_ = true;
+        } else if (edges.ok) {
+          gamesPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
+                                       true, edges.okPressed, edges.okChanged, nowMs);
+          needsRedraw_ = true;
+        }
       } else if (edges.leftLong) {
         if (musicPage_.isMusicListSelection(homePage_.focusIndex(), sectionFocusIndex_)) closeContentFonts();
         if (musicPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
@@ -656,6 +689,11 @@ bool UiManager::shouldRedraw(uint32_t nowMs) const {
   }
 
   if (state_ == UiState::Detail &&
+      gamesPage_.needsAnimationFrame(homePage_.focusIndex(), sectionFocusIndex_)) {
+    return true;
+  }
+
+  if (state_ == UiState::Detail &&
       settingsPage_.isDeviceSelfTestSelection(homePage_.focusIndex(), sectionFocusIndex_) &&
       deviceSelfTestPage_.needsAnimationFrame()) {
     return true;
@@ -696,6 +734,11 @@ uint32_t UiManager::targetFrameIntervalMs(uint32_t nowMs) const {
   if (isComputerStatusDetail() && !computerStatusFrameVisible_ &&
       computerStatusPage_.needsAnimationFrame(nowMs, HomePage::computerStatusIcon())) {
     return ComputerStatusPage::kAnimationFrameIntervalMs;
+  }
+
+  if (state_ == UiState::Detail &&
+      gamesPage_.needsAnimationFrame(homePage_.focusIndex(), sectionFocusIndex_)) {
+    return kTransitionFrameIntervalMs;
   }
 
   if (state_ == UiState::Detail &&

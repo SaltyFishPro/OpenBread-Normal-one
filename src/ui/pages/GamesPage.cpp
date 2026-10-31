@@ -37,8 +37,58 @@ bool GamesPage::isWoodenFishSelection(uint8_t homeFocus, uint8_t sectionFocus) c
   return homeFocus == kHomeIndex && sectionFocus == kWoodenFishItemIndex;
 }
 
+bool GamesPage::isAirplaneWarSelection(uint8_t homeFocus, uint8_t sectionFocus) const {
+  return homeFocus == kHomeIndex && sectionFocus == kAirplaneWarItemIndex;
+}
+
+bool GamesPage::isRacingSelection(uint8_t homeFocus, uint8_t sectionFocus) const {
+  return homeFocus == kHomeIndex && sectionFocus == kRacingItemIndex;
+}
+
+bool GamesPage::is2048Selection(uint8_t homeFocus, uint8_t sectionFocus) const {
+  return homeFocus == kHomeIndex && sectionFocus == k2048ItemIndex;
+}
+
+void GamesPage::handle2048Left(uint32_t nowMs) {
+  game2048_.handleLeft(nowMs);
+}
+
+void GamesPage::handleDetailEnter(uint8_t homeFocus, uint8_t sectionFocus) {
+  if (isAirplaneWarSelection(homeFocus, sectionFocus)) {
+    airplaneWar_.enter();
+  } else if (isRacingSelection(homeFocus, sectionFocus)) {
+    racing_.enter();
+    (void)racingSteering_.start(millis());
+  } else if (is2048Selection(homeFocus, sectionFocus)) {
+    game2048_.enter();
+  }
+}
+
 bool GamesPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool okEdge,
                                   bool okPressed, bool okChanged, uint32_t nowMs) {
+  if (isAirplaneWarSelection(homeFocus, sectionFocus)) {
+    if (okEdge) {
+      airplaneWar_.handleOk();
+      return true;
+    }
+    return false;
+  }
+  if (isRacingSelection(homeFocus, sectionFocus)) {
+    if (okEdge) {
+      racing_.handleOk();
+      if (racing_.paused()) racingSteering_.stop();
+      else (void)racingSteering_.start(nowMs);
+      return true;
+    }
+    return false;
+  }
+  if (is2048Selection(homeFocus, sectionFocus)) {
+    if (okEdge) {
+      game2048_.handleOk();
+      return true;
+    }
+    return false;
+  }
   if (!isWoodenFishSelection(homeFocus, sectionFocus)) {
     return false;
   }
@@ -58,15 +108,52 @@ bool GamesPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool 
 }
 
 bool GamesPage::handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus) {
-  if (!isWoodenFishSelection(homeFocus, sectionFocus)) {
-    return false;
+  if (isAirplaneWarSelection(homeFocus, sectionFocus)) {
+    airplaneWar_.exit();
+  } else if (isRacingSelection(homeFocus, sectionFocus)) {
+    racingSteering_.stop();
+    racing_.exit();
+  } else if (is2048Selection(homeFocus, sectionFocus)) {
+    game2048_.exit();
+  } else if (isWoodenFishSelection(homeFocus, sectionFocus)) {
+    iconPressed_ = false;
   }
-  iconPressed_ = false;
+  return false;
+}
+
+void GamesPage::tick(uint32_t nowMs, bool leftPressed, bool rightPressed, bool upPressed,
+                     bool downPressed) {
+  airplaneWar_.tick(nowMs, upPressed, downPressed);
+  racingSteering_.tick(nowMs);
+  racing_.tick(nowMs, leftPressed, rightPressed, racingSteering_.steering());
+  game2048_.tick(nowMs, leftPressed, rightPressed, upPressed, downPressed);
+}
+
+bool GamesPage::consumeChanged() {
+  return airplaneWar_.consumeChanged() || racing_.consumeChanged() || game2048_.consumeChanged();
+}
+
+bool GamesPage::needsAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus) const {
+  if (isAirplaneWarSelection(homeFocus, sectionFocus)) return airplaneWar_.running();
+  if (isRacingSelection(homeFocus, sectionFocus)) return racing_.running();
+  if (is2048Selection(homeFocus, sectionFocus)) return game2048_.needsAnimationFrame();
   return false;
 }
 
 bool GamesPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
                              DisplayMonoTft& display) const {
+  if (isAirplaneWarSelection(homeFocus, sectionFocus)) {
+    airplaneWar_.render(display, yOffset);
+    return true;
+  }
+  if (isRacingSelection(homeFocus, sectionFocus)) {
+    racing_.render(display, yOffset);
+    return true;
+  }
+  if (is2048Selection(homeFocus, sectionFocus)) {
+    game2048_.render(display, yOffset);
+    return true;
+  }
   if (!isWoodenFishSelection(homeFocus, sectionFocus)) {
     return false;
   }
