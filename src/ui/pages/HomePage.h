@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <Arduino.h>
 
@@ -70,6 +70,9 @@ public:
   void renderSleepTransition(DisplayMonoTft& display, uint32_t nowMs, uint16_t progress,
                              const uint8_t* homeFrame,
                              const uint8_t* sleepFrame = nullptr) const;
+  // 唤醒后播放一遍待机表情动画；standbyEmojiDurationMs 为完整一轮时长。
+  void startStandbyEmoji(uint32_t nowMs);
+  uint32_t standbyEmojiDurationMs() const;
   // 本帧是否直接回填了静态图层（未重建），用于判断能否只推送菜单列。
   bool frameUsedStaticLayer() const;
   bool isAnimationActive(uint32_t nowMs) const;
@@ -125,6 +128,8 @@ private:
   uint32_t animationTimeMs_ = 0;
   ClockData clockData_;
   BatteryData batteryData_;
+  uint32_t standbyEmojiStartMs_ = 0;
+  bool standbyEmojiPlaying_ = false;
   FontStatus fontStatus_ = FontStatus::Ready;
   int16_t activeRenderOffsetX_ = 0;
 

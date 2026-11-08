@@ -36,6 +36,7 @@ python tools/gif_to_c/gif_to_c.py your.gif -o src/generated_wifi.h -n wifi -W 32
 - `-H, --height` target height (default `32`)
 - `-t, --threshold` binarization threshold 0-255 (default `128`)
 - `--invert` invert black/white before packing
+- `--dither none|bayer4|bayer8` apply fixed 4x4 or 8x8 ordered grayscale dithering before packing
 - `--resize nearest|bilinear|bicubic|lanczos` (default `nearest`)
 - `--dedupe` drop consecutive identical frames
 - `--bg` background gray for transparent pixels (default `255`)
@@ -43,6 +44,13 @@ python tools/gif_to_c/gif_to_c.py your.gif -o src/generated_wifi.h -n wifi -W 32
 - `--header-only` use legacy single-file output; avoid for assets referenced by multiple `.cpp` files
 - `--frame-step` keep every Nth GIF frame to reduce flash usage
 - `--frame-delay` set the generated animation frame interval in milliseconds
+
+For ST7305 assets, a packed `1` is black and `0` is white. To keep the
+standby GIF's black background black, export it without `--invert`:
+
+```powershell
+python tools/gif_to_c/gif_to_c.py "素材/待机表情动画.gif" -o src/ui/assets/sleep/standby_emoji.h -n standby_emoji -W 144 -H 144 --resize lanczos --frame-step 2 --dedupe --frame-delay 33 --dither bayer8
+```
 
 Main menu icons use 100x100 frames (1300 decoded bytes, within the icon cache):
 

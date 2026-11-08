@@ -43,7 +43,7 @@ const char* WifiProvisionService::targetSsid() const { return "面包 WiFi"; }
 const char* WifiProvisionService::apSsid() const { return "Normal One"; }
 const char* WifiProvisionService::targetPass() const { return ""; }
 bool WifiProvisionService::canStartPortal() const { return true; }
-void WifiProvisionService::startPortal(uint32_t) {}
+void WifiProvisionService::startPortal(uint32_t, Purpose) {}
 bool WifiProvisionService::isRadioActive() const { return false; }
 void WifiProvisionService::cancelProvision(TimeService&) {}
 BluetoothService::State BluetoothService::state() const { return btState; }
@@ -347,6 +347,12 @@ int main() {
     check(!home.setFontStatus(HomePage::FontStatus::Ready),"unchanged status requests redraw");
     uint8_t sleepFrame[8064];
     d.clear(); home.renderSleepClock(d, 12000); d.captureFrame(sleepFrame); save(d, "home-sleep");
+    // The GIF's black background must match the sleep clock's black canvas.
+    for (const auto& point : {std::pair<int16_t, int16_t>{5, 30}, {138, 30},
+                              {5, 162}, {138, 162}, {150, 30}}) {
+      check(framePixel(sleepFrame, d, point.first, point.second),
+            "sleep emoji background became white");
+    }
     d.clear(); home.renderSleepTransition(d, 12000, 0, original, sleepFrame); d.captureFrame(current);
     check(!memcmp(current, original, sizeof(original)), "sleep transition start differs from home");
     for (uint16_t progress : {30U, 500U, 750U}) {

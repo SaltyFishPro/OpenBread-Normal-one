@@ -44,7 +44,7 @@ struct SubmenuContent {
 const char* const kMusicItems[] = {"音乐列表", "收藏歌曲"};
 const char* const kReaderItems[] = {"单词阅读", "提词器"};
 const char* const kWirelessItems[] = {"蓝牙连接", "蓝牙拍照", "翻页器"};
-const char* const kGamesItems[] = {"敲木鱼", "飞机世界大战", "极速前进", "2048"};
+const char* const kGamesItems[] = {"敲木鱼", "飞机世界大战", "极速前进", "2048", "心动 App"};
 
 const SubmenuContent kSubmenus[] = {
     {kMusicItems, static_cast<uint8_t>(sizeof(kMusicItems) / sizeof(kMusicItems[0]))},
@@ -1531,6 +1531,18 @@ void UiManager::enterSleep(uint32_t nowMs) {
   } else {
     LogW("SLEEP", "XMB wake transition snapshot unavailable bytes=%u; restore home directly",
          static_cast<unsigned>(frameBytes));
+  }
+  // 唤醒后播放一遍待机表情动画，播完定格最后一帧，再滑回主页。
+  homePage_.startStandbyEmoji(exitNowMs);
+  const uint32_t standbyEmojiEndMs = exitNowMs + homePage_.standbyEmojiDurationMs();
+  uint32_t emojiNextMs = exitNowMs;
+  while (millis() < standbyEmojiEndMs) {
+    emojiNextMs += 33U;
+    display_.clear();
+    homePage_.renderSleepClock(display_, emojiNextMs);
+    display_.present();
+    const int32_t remain = static_cast<int32_t>(emojiNextMs) - static_cast<int32_t>(millis());
+    if (remain > 0) delay(static_cast<uint32_t>(remain));
   }
   animateClock(false, exitNowMs);
   if (homeFrame != nullptr) heap_caps_free(homeFrame);

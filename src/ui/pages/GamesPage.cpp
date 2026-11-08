@@ -49,6 +49,10 @@ bool GamesPage::is2048Selection(uint8_t homeFocus, uint8_t sectionFocus) const {
   return homeFocus == kHomeIndex && sectionFocus == k2048ItemIndex;
 }
 
+bool GamesPage::isHypnosisSelection(uint8_t homeFocus, uint8_t sectionFocus) const {
+  return homeFocus == kHomeIndex && sectionFocus == kHypnosisItemIndex;
+}
+
 void GamesPage::handle2048Left(uint32_t nowMs) {
   game2048_.handleLeft(nowMs);
 }
@@ -61,6 +65,8 @@ void GamesPage::handleDetailEnter(uint8_t homeFocus, uint8_t sectionFocus) {
     (void)racingSteering_.start(millis());
   } else if (is2048Selection(homeFocus, sectionFocus)) {
     game2048_.enter();
+  } else if (isHypnosisSelection(homeFocus, sectionFocus)) {
+    hypnosis_.enter(millis());
   }
 }
 
@@ -85,6 +91,13 @@ bool GamesPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool 
   if (is2048Selection(homeFocus, sectionFocus)) {
     if (okEdge) {
       game2048_.handleOk();
+      return true;
+    }
+    return false;
+  }
+  if (isHypnosisSelection(homeFocus, sectionFocus)) {
+    if (okEdge) {
+      hypnosis_.replay(nowMs);
       return true;
     }
     return false;
@@ -115,6 +128,8 @@ bool GamesPage::handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus) {
     racing_.exit();
   } else if (is2048Selection(homeFocus, sectionFocus)) {
     game2048_.exit();
+  } else if (isHypnosisSelection(homeFocus, sectionFocus)) {
+    hypnosis_.exit();
   } else if (isWoodenFishSelection(homeFocus, sectionFocus)) {
     iconPressed_ = false;
   }
@@ -127,16 +142,22 @@ void GamesPage::tick(uint32_t nowMs, bool leftPressed, bool rightPressed, bool u
   racingSteering_.tick(nowMs);
   racing_.tick(nowMs, leftPressed, rightPressed, racingSteering_.steering());
   game2048_.tick(nowMs, leftPressed, rightPressed, upPressed, downPressed);
+  hypnosis_.tick(nowMs);
 }
 
 bool GamesPage::consumeChanged() {
-  return airplaneWar_.consumeChanged() || racing_.consumeChanged() || game2048_.consumeChanged();
+  const bool airplaneChanged = airplaneWar_.consumeChanged();
+  const bool racingChanged = racing_.consumeChanged();
+  const bool game2048Changed = game2048_.consumeChanged();
+  const bool hypnosisChanged = hypnosis_.consumeChanged();
+  return airplaneChanged || racingChanged || game2048Changed || hypnosisChanged;
 }
 
 bool GamesPage::needsAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus) const {
   if (isAirplaneWarSelection(homeFocus, sectionFocus)) return airplaneWar_.running();
   if (isRacingSelection(homeFocus, sectionFocus)) return racing_.running();
   if (is2048Selection(homeFocus, sectionFocus)) return game2048_.needsAnimationFrame();
+  if (isHypnosisSelection(homeFocus, sectionFocus)) return hypnosis_.needsAnimationFrame();
   return false;
 }
 
@@ -152,6 +173,10 @@ bool GamesPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yO
   }
   if (is2048Selection(homeFocus, sectionFocus)) {
     game2048_.render(display, yOffset);
+    return true;
+  }
+  if (isHypnosisSelection(homeFocus, sectionFocus)) {
+    hypnosis_.render(display, yOffset, millis());
     return true;
   }
   if (!isWoodenFishSelection(homeFocus, sectionFocus)) {

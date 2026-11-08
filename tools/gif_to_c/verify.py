@@ -60,6 +60,15 @@ def main() -> None:
 
     # Exercise the actual GIF and still-image export entry points as well.
     from PIL import Image
+    gray = Image.new("RGB", (8, 8), (128, 128, 128))
+    dither_options = replace(options, name="dither", width=8, height=8, dither="bayer4")
+    dither_frame = core.frame_to_mono_bytes(gray, dither_options)
+    assert sum(byte.bit_count() for byte in dither_frame) == 32, "Bayer4 midpoint coverage changed"
+    assert dither_frame == core.frame_to_mono_bytes(gray, dither_options), "Bayer4 pattern is unstable"
+    dither8_options = replace(dither_options, dither="bayer8")
+    dither8_frame = core.frame_to_mono_bytes(gray, dither8_options)
+    assert sum(byte.bit_count() for byte in dither8_frame) == 32, "Bayer8 midpoint coverage changed"
+    assert dither8_frame == core.frame_to_mono_bytes(gray, dither8_options), "Bayer8 pattern is unstable"
     images = [Image.new("RGB", (13, 4), color) for color in ("white", "black")]
     gif = OUT / "input.gif"
     images[0].save(gif, save_all=True, append_images=images[1:], duration=100, loop=0)

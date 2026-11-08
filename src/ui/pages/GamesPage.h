@@ -5,6 +5,7 @@
 #include "AirplaneWarGame.h"
 #include "RacingGame.h"
 #include "Game2048.h"
+#include "HypnosisApp.h"
 #include "../../services/RacingSteeringService.h"
 
 class DisplayMonoTft;
@@ -16,11 +17,13 @@ public:
   static constexpr uint8_t kAirplaneWarItemIndex = 1;
   static constexpr uint8_t kRacingItemIndex = 2;
   static constexpr uint8_t k2048ItemIndex = 3;
+  static constexpr uint8_t kHypnosisItemIndex = 4;
 
   bool isWoodenFishSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
   bool isAirplaneWarSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
   bool isRacingSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
   bool is2048Selection(uint8_t homeFocus, uint8_t sectionFocus) const;
+  bool isHypnosisSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
   bool racingPaused() const { return racing_.paused(); }
   void handle2048Left(uint32_t nowMs);
   void handleDetailEnter(uint8_t homeFocus, uint8_t sectionFocus);
@@ -44,5 +47,6 @@ private:
   AirplaneWarGame airplaneWar_;
   RacingGame racing_;
   Game2048 game2048_;
+  HypnosisApp hypnosis_;
   RacingSteeringService racingSteering_;
 };

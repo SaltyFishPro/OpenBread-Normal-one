@@ -38,6 +38,7 @@ class ConvertOptions:
     frame_step: int = 1
     frame_delay: int = 42
     header_only: bool = False
+    dither: str = "none"
 
 
 def parse_args() -> argparse.Namespace:
@@ -72,6 +73,8 @@ def parse_args() -> argparse.Namespace:
         default="nearest",
         help="Resize filter",
     )
+    parser.add_argument("--dither", choices=["none", "bayer4", "bayer8"], default="none",
+                        help="Apply fixed 4x4 or 8x8 Bayer grayscale dithering before packing")
     parser.add_argument(
         "--dedupe",
         action="store_true",
@@ -135,11 +138,29 @@ def frame_to_mono_bytes(frame: Image.Image, opts: ConvertOptions) -> List[int]:
     pixels = merged.load()
     bytes_per_row = (opts.width + 7) // 8
     out: List[int] = [0] * (bytes_per_row * opts.height)
+    bayer4 = ((0, 8, 2, 10), (12, 4, 14, 6), (3, 11, 1, 9), (15, 7, 13, 5))
+    bayer8 = (
+        (0, 48, 12, 60, 3, 51, 15, 63),
+        (32, 16, 44, 28, 35, 19, 47, 31),
+        (8, 56, 4, 52, 11, 59, 7, 55),
+        (40, 24, 36, 20, 43, 27, 39, 23),
+        (2, 50, 14, 62, 1, 49, 13, 61),
+        (34, 18, 46, 30, 33, 17, 45, 29),
+        (10, 58, 6, 54, 9, 57, 5, 53),
+        (42, 26, 38, 22, 41, 25, 37, 21),
+    )
 
     for y in range(opts.height):
         for x in range(opts.width):
             val = pixels[x, y]
-            on = val < opts.threshold  # dark pixel => bit=1
+            if opts.dither == "bayer4":
+                cutoff = max(0, min(255, opts.threshold + bayer4[y & 3][x & 3] * 16 - 120))
+                on = val < cutoff
+            elif opts.dither == "bayer8":
+                cutoff = max(0, min(255, opts.threshold + bayer8[y & 7][x & 7] * 4 - 126))
+                on = val < cutoff
+            else:
+                on = val < opts.threshold  # dark pixel => bit=1
             if on:
                 idx = y * bytes_per_row + (x // 8)
                 bit_pos = 7 - (x % 8)
@@ -378,6 +399,7 @@ def main() -> None:
         frame_step=args.frame_step,
         frame_delay=max(1, args.frame_delay),
         header_only=args.header_only,
+        dither=args.dither,
     )
 
     try:

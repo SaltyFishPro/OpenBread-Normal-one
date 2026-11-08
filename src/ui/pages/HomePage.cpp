@@ -21,6 +21,7 @@
 #include "../assets/main_menu/api_stats.h"
 #include "../assets/main_menu/computer_status.h"
 #include "../assets/main_menu/sd_usb.h"
+#include "../assets/sleep/standby_emoji.h"
 
 namespace {
 constexpr int16_t kXmbFocusCenterX = 48;
@@ -34,6 +35,16 @@ constexpr int16_t kXmbIndexX = 24;
 constexpr int16_t kXmbTextX = 56;
 constexpr int16_t kMenuClipTop = 10;
 constexpr int16_t kMenuClipBottom = 167;
+constexpr int16_t kStandbyEmojiX = 0;
+constexpr int16_t kStandbyEmojiY = 24;
+constexpr int16_t kStandbyEmojiSize = 144;
+constexpr uint16_t kStandbyEmojiStaticFrame = 40;
+static_assert(kStandbyEmojiStaticFrame < STANDBY_EMOJI_FRAME_COUNT,
+              "static standby emoji frame is out of range");
+const IconBitmap::Anim kStandbyEmoji = {
+    reinterpret_cast<const uint8_t*>(&standby_emoji_frames[0][0]),
+    STANDBY_EMOJI_FRAME_BYTES, STANDBY_EMOJI_FRAME_WIDTH, STANDBY_EMOJI_FRAME_HEIGHT,
+    STANDBY_EMOJI_FRAME_DELAY, static_cast<uint16_t>(STANDBY_EMOJI_FRAME_COUNT)};
 
 const IconBitmap::Anim kMenuIcons[] = {
     {reinterpret_cast<const uint8_t*>(&setting_frames[0][0]), SETTING_FRAME_BYTES,
@@ -370,6 +381,15 @@ bool HomePage::setBatteryData(const BatteryData& data) {
   return true;
 }
 
+void HomePage::startStandbyEmoji(uint32_t nowMs) {
+  standbyEmojiStartMs_ = nowMs;
+  standbyEmojiPlaying_ = true;
+}
+
+uint32_t HomePage::standbyEmojiDurationMs() const {
+  return static_cast<uint32_t>(STANDBY_EMOJI_FRAME_COUNT) * STANDBY_EMOJI_FRAME_DELAY;
+}
+
 void HomePage::render(DisplayMonoTft& display, int16_t pageOffsetX, uint32_t nowMs) {
   renderTransition(display, pageOffsetX, pageOffsetX, 0, 0, 0, nowMs);
 }
@@ -492,12 +512,22 @@ void HomePage::drawMenuWheel(DisplayMonoTft& display, int16_t, int16_t, int16_t,
                        356, ST7305_COLOR_WHITE);
 }
 
-void HomePage::renderSleepClock(DisplayMonoTft& display, uint32_t, int16_t) const {
+void HomePage::renderSleepClock(DisplayMonoTft& display, uint32_t nowMs, int16_t) const {
   auto& canvas = display.canvas();
   auto& text = display.text();
   const int16_t width = static_cast<int16_t>(display.width());
   const int16_t height = static_cast<int16_t>(display.height());
   canvas.drawFilledRectangle(0, 0, width - 1, height - 1, ST7305_COLOR_BLACK);
+
+  // Keep a recognizable still frame on the sleep screen and after wake playback.
+  uint16_t emojiFrame = kStandbyEmojiStaticFrame;
+  if (standbyEmojiPlaying_) {
+    const uint32_t elapsed = nowMs - standbyEmojiStartMs_;
+    const uint16_t idx = static_cast<uint16_t>(elapsed / STANDBY_EMOJI_FRAME_DELAY);
+    emojiFrame = idx < STANDBY_EMOJI_FRAME_COUNT ? idx : kStandbyEmojiStaticFrame;
+  }
+  IconBitmap::drawFrame(canvas, kStandbyEmoji, emojiFrame, kStandbyEmojiX, kStandbyEmojiY,
+                        kStandbyEmojiSize, kStandbyEmojiSize, false, 0, 167);
 
   constexpr int16_t x = 256;
   DrawUtils::fillRoundRect(canvas, x + 8, 16, x + 119, 59, 8, ST7305_COLOR_WHITE);
