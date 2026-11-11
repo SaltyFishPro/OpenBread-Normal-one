@@ -230,6 +230,9 @@ void UiManager::tick() {
   if (focusClockPage_.update(nowMs)) {
     needsRedraw_ = true;
   }
+  if (timerPage_.update(nowMs)) {
+    needsRedraw_ = true;
+  }
   if (answersBookPage_.update(nowMs)) {
     needsRedraw_ = true;
   }
@@ -389,6 +392,7 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
     case UiState::ToDetailTransition: {
       if (nowMs - transitionStartMs_ >= kDetailTransitionMs) {
         focusClockPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_);
+        timerPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_);
         answersBookPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_);
         if (settingsPage_.isAboutDeviceSelection(homePage_.focusIndex(), sectionFocusIndex_))
           refreshSdStatus();
@@ -534,6 +538,9 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         } else if (focusClockPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
                                                    nowMs)) {
           needsRedraw_ = true;
+        } else if (timerPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
+                                               nowMs)) {
+          needsRedraw_ = true;
         } else {
           if (homePage_.focusIndex() == HomePage::kComputerStatusMenuIndex) {
             computerStatusFrameVisible_ = false;
@@ -578,6 +585,9 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
                                                    nowMs)) {
           // 长按 Left 同样不能绕过"放弃专注"确认。
           needsRedraw_ = true;
+        } else if (timerPage_.handleDetailBack(homePage_.focusIndex(), sectionFocusIndex_,
+                                               nowMs)) {
+          needsRedraw_ = true;
         } else {
           if (homePage_.focusIndex() == HomePage::kComputerStatusMenuIndex) {
             computerStatusFrameVisible_ = false;
@@ -601,6 +611,10 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
       } else if (focusClockPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
                                                    false, edges.right, edges.up, edges.down,
                                                    edges.ok, nowMs)) {
+        needsRedraw_ = true;
+      } else if (timerPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
+                                              false, edges.right, edges.up, edges.down,
+                                              edges.ok, nowMs)) {
         needsRedraw_ = true;
       } else if (answersBookPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
                                                     edges.up, edges.down, edges.ok, nowMs)) {
@@ -693,6 +707,11 @@ bool UiManager::shouldRedraw(uint32_t nowMs) const {
   }
 
   if (state_ == UiState::Detail &&
+      timerPage_.needsAnimationFrame(homePage_.focusIndex(), sectionFocusIndex_, nowMs)) {
+    return true;
+  }
+
+  if (state_ == UiState::Detail &&
       answersBookPage_.needsAnimationFrame(homePage_.focusIndex(), sectionFocusIndex_)) {
     return true;
   }
@@ -737,6 +756,11 @@ uint32_t UiManager::targetFrameIntervalMs(uint32_t nowMs) const {
 
   if (state_ == UiState::Detail &&
       focusClockPage_.isAnimating(homePage_.focusIndex(), sectionFocusIndex_, nowMs)) {
+    return kHighFrameIntervalMs;
+  }
+
+  if (state_ == UiState::Detail &&
+      timerPage_.isAnimating(homePage_.focusIndex(), sectionFocusIndex_, nowMs)) {
     return kHighFrameIntervalMs;
   }
 
@@ -1122,6 +1146,9 @@ void UiManager::renderDetail(int16_t yOffset) {
   } else if (focusClockPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset,
                                           display_, millis(), timeService_)) {
     handled = true;
+  } else if (timerPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset,
+                                     display_, millis(), &sdTitleFont_)) {
+    handled = true;
   } else if (answersBookPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset,
                                            display_, millis(), &sdBitmapFont_, &sdTitleFont_)) {
     handled = true;
@@ -1219,6 +1246,8 @@ void UiManager::syncContentFonts() {
     } else if (musicPage_.isMusicListSelection(home, sectionFocusIndex_) ||
                settingsPage_.isWifiProvisionSelection(home, sectionFocusIndex_))
       next = ContentFontUse::External;
+    else if (timerPage_.isSelection(home, sectionFocusIndex_))
+      next = ContentFontUse::Timer;
   }
   if (next == contentFontUse_) {
     if (next == ContentFontUse::Reader && sdTitleFont_.state() == SdBitmapFont::State::Closed &&
@@ -1238,10 +1267,12 @@ void UiManager::syncContentFonts() {
   if (next != ContentFontUse::Reader) {
     // Music already owns/mounts SD. Never refresh it while its files are open.
     if (sdCardService_.status() != SdCardService::Status::Ready && !music) sdCardService_.refresh();
-    (void)sdBitmapFont_.open(14);
+    if (next != ContentFontUse::Timer) (void)sdBitmapFont_.open(14);
   }
-  if (next == ContentFontUse::Answers || next == ContentFontUse::Reader)
-    (void)sdTitleFont_.open(next == ContentFontUse::Answers ? 20 : 24, false);
+  if (next == ContentFontUse::Answers)
+    (void)sdTitleFont_.open(20, false);
+  else if (next == ContentFontUse::Reader || next == ContentFontUse::Timer)
+    (void)sdTitleFont_.open(24, false);
   needsRedraw_ = true;
 }
 

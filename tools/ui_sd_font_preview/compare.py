@@ -65,9 +65,12 @@ names = [('home-0','主菜单'),('home-9','答案之书入口'),('home-11','电�
          ('focus','专注时钟'),('bluetooth','蓝牙连接'),('wifi-on','WiFi 状态'),
          ('about','关于设备'),('computer','电脑看板等待'),('wifi-off','WiFi 配网'),
          ('answer-prompt','答案之书提问'),('answer','答案正文 / 20 号'),('answer-history','答案记录 / 14 号'),
-         ('update','系统更新'),('update-progress','下载进度'),('reader','阅读 / 14 与 24 号')]
+         ('update','系统更新'),('update-progress','下载进度'),('reader','阅读 / 14 与 24 号'),
+         ('timer-preset','定时器预设'),('timer-custom','定时器自定义'),('timer-running','定时器运行'),
+         ('timer-done','定时器完成 / 24 号'),('timer-popup','定时器放弃确认')]
 label_font = ImageFont.truetype('C:/Windows/Fonts/msyh.ttc',15)
-sheet = Image.new('RGB',(3*404,6*200+410),'#e9e9e9')
+rows = (len(names) + 2) // 3
+sheet = Image.new('RGB',(3*404, rows*200 + 418),'#e9e9e9')
 draw = ImageDraw.Draw(sheet)
 for i,(name,title) in enumerate(names):
     x,y=10+(i%3)*404,5+(i//3)*200
@@ -75,8 +78,9 @@ for i,(name,title) in enumerate(names):
     sheet.paste(Image.open(out/f'{name}.pgm').convert('RGB'),(x,y+24))
 for i,(name,title) in enumerate((('camera','蓝牙拍照'),('pager','翻页器'))):
     x=10+i*200
-    draw.text((x,1203),title,font=label_font,fill='black')
-    sheet.paste(Image.open(out/f'{name}.pgm').convert('RGB'),(x,1226))
+    y=rows*200+5
+    draw.text((x,y),title,font=label_font,fill='black')
+    sheet.paste(Image.open(out/f'{name}.pgm').convert('RGB'),(x,y+24))
 sheet.save(out/'ui-sd-font-pages.png')
 print(f'PASS: {count} cached records match independent NBFT glyph metrics/pixels; real framebuffer text matches')
 print(out/'ui-sd-font-pages.png')

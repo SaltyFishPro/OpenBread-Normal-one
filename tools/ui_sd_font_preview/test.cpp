@@ -21,6 +21,7 @@
 #include "src/ui/pages/ComputerStatusPage.h"
 #include "src/ui/pages/TimeCalibrationPage.h"
 #include "src/ui/pages/FocusClockPage.h"
+#include "src/ui/pages/TimerPage.h"
 #include "src/ui/pages/RemotePage.h"
 #include "src/ui/pages/SettingsPage.h"
 #include "src/ui/pages/AnswersBookPage.h"
@@ -383,6 +384,14 @@ int main() {
     timePage.renderDetail(0,3,0,d,time);save(d,"time");
     FocusClockPage focus;focus.handleDetailEnter(3,0);d.clear();
     focus.renderDetail(3,0,0,d,1000,time);save(d,"focus");
+    TimerPage timer;timer.handleDetailEnter(6,0);
+    d.clear();timer.renderDetail(6,0,0,d,0,nullptr);save(d,"timer-preset");
+    timer.handleDetailInput(6,0,false,true,false,false,false,100);
+    d.clear();timer.renderDetail(6,0,0,d,100,nullptr);save(d,"timer-custom");
+    timer.handleDetailInput(6,0,false,false,false,false,true,200);
+    d.clear();timer.renderDetail(6,0,0,d,1200,nullptr);save(d,"timer-running");
+    timer.handleDetailBack(6,0,1300);
+    d.clear();timer.renderDetail(6,0,0,d,1400,nullptr);save(d,"timer-popup");
     BluetoothService bt;RemoteService remote;RemotePage remotePage;d.clear();
     remotePage.renderDetail(4,0,0,d,bt,remote);save(d,"bluetooth");
     for(uint8_t item=1;item<=2;++item) {
@@ -448,6 +457,10 @@ int main() {
     for(int i=0;i<1000 && large.state()==SdBitmapFont::State::Checking;++i)large.tick();
     for(int i=0;i<1000;++i)if(readerPage.updateMeaning(reader,external))break;
     d.clear();readerPage.renderDetail(2,0,0,d,reader,external,&large);save(d,"reader");
+    TimerPage timerDone;timerDone.handleDetailEnter(6,0);
+    timerDone.handleDetailInput(6,0,false,false,false,false,true,0);
+    check(timerDone.update(61000),"timer did not finish");
+    d.clear();timerDone.renderDetail(6,0,0,d,61000,&large);save(d,"timer-done");
     reader.reset();
   }
   external.end();large.end();cache.end();

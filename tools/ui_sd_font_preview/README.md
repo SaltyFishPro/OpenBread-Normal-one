@@ -13,7 +13,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/ui_sd_font_preview/bui
 
 输出：
 
-- `ui-sd-font-pages.png`：主菜单、USB、弹窗、时间、专注、WiFi/蓝牙、看板等待、答案、阅读和更新页合览。
+- `ui-sd-font-pages.png`：主菜单、USB、弹窗、时间、专注、定时器、WiFi/蓝牙、看板等待、答案、阅读和更新页合览。
 - 每个页面的 `.pgm`：原始逻辑像素；同名 `.png` 为三倍无插值放大。
 - `home-loading.png`、`home-unavailable.png`：不依赖中文字体的加载/缺失提示。
 - `home-sleep.png`、`home-sleep-transition.png`：浅睡时钟与扫描线过渡中间帧；测试还逐像素核对原菜单、奇偶位移及最终时钟画面。

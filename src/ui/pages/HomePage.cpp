@@ -9,7 +9,7 @@
 #include "../ThemeMono.h"
 #include "../TextUtils.h"
 #include "../assets/games/icons8_games.h"
-#include "../assets/main_menu/alarm.h"
+#include "../assets/main_menu/timer.h"
 #include "../assets/main_menu/answers_book.h"
 #include "../assets/main_menu/icons8-book.h"
 #include "../assets/main_menu/calendar.h"
@@ -60,8 +60,8 @@ const IconBitmap::Anim kMenuIcons[] = {
     {reinterpret_cast<const uint8_t*>(&icons8_games_frames[0][0]), ICONS8_GAMES_FRAME_BYTES,
      ICONS8_GAMES_FRAME_WIDTH, ICONS8_GAMES_FRAME_HEIGHT, ICONS8_GAMES_FRAME_DELAY,
      ICONS8_GAMES_FRAME_COUNT},
-    {reinterpret_cast<const uint8_t*>(&alarm_frames[0][0]), ALARM_FRAME_BYTES,
-     ALARM_FRAME_WIDTH, ALARM_FRAME_HEIGHT, ALARM_FRAME_DELAY, ALARM_FRAME_COUNT},
+    {reinterpret_cast<const uint8_t*>(&timer_frames[0][0]), TIMER_FRAME_BYTES,
+     TIMER_FRAME_WIDTH, TIMER_FRAME_HEIGHT, TIMER_FRAME_DELAY, TIMER_FRAME_COUNT},
     {reinterpret_cast<const uint8_t*>(&calendar_frames[0][0]), CALENDAR_FRAME_BYTES,
      CALENDAR_FRAME_WIDTH, CALENDAR_FRAME_HEIGHT, CALENDAR_FRAME_DELAY, CALENDAR_FRAME_COUNT},
     {reinterpret_cast<const uint8_t*>(&api_stats_frames[0][0]), API_STATS_FRAME_BYTES,
@@ -80,7 +80,7 @@ const IconBitmap::Anim kMenuIcons[] = {
 };
 
 const char* const kMenuNamesZh[] = {"设置", "音乐", "阅读", "专注时钟", "无线功能", "游戏",
-                                   "闹钟", "课程表", "Api统计板", "答案之书", "今日抽签",
+                                   "定时器", "课程表", "Api统计板", "答案之书", "今日抽签",
                                    "电脑状态看板", "SD卡转USB"};
 static_assert(sizeof(kMenuIcons) / sizeof(kMenuIcons[0]) ==
               sizeof(kMenuNamesZh) / sizeof(kMenuNamesZh[0]), "Menu icons and labels must match");

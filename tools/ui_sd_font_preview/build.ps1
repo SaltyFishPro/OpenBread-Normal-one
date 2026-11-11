@@ -23,6 +23,7 @@ try {
         'src/ui/assets/sleep/standby_emoji.cpp',
         'src/ui/pages/SdUsbPage.cpp', 'src/ui/pages/ComputerStatusPage.cpp',
         'src/ui/pages/TimeCalibrationPage.cpp', 'src/ui/pages/FocusClockPage.cpp',
+        'src/ui/pages/TimerPage.cpp',
         'src/ui/pages/RemotePage.cpp', 'src/ui/pages/SettingsPage.cpp',
         'src/ui/pages/AnswersBookPage.cpp', 'src/ui/pages/ReaderPage.cpp',
         'src/services/ReaderService.cpp', 'src/ui/pages/SystemUpdatePage.cpp',

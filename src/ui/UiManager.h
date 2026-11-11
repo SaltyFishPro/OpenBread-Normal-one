@@ -27,6 +27,7 @@
 #include "pages/ComputerStatusPage.h"
 #include "pages/SdUsbPage.h"
 #include "pages/FocusClockPage.h"
+#include "pages/TimerPage.h"
 #include "pages/GamesPage.h"
 #include "pages/HomePage.h"
 #include "pages/FirstBootPage.h"
@@ -97,7 +98,7 @@ private:
   void performFactoryReset();
   void initDeviceInfoCache();
   void renderDetail(int16_t yOffset = 0);
-  enum class ContentFontUse : uint8_t { None, Answers, Update, Reader, External };
+  enum class ContentFontUse : uint8_t { None, Answers, Update, Reader, External, Timer };
   void syncContentFonts();
   void closeContentFonts();
   void syncUiFont();
@@ -129,6 +130,7 @@ private:
   ComputerStatusPage computerStatusPage_;
   SdUsbPage sdUsbPage_;
   FocusClockPage focusClockPage_;
+  TimerPage timerPage_;
   GamesPage gamesPage_;
   RemotePage remotePage_;
   SettingsPage settingsPage_;

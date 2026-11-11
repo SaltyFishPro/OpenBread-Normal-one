@@ -9,9 +9,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--check', action='store_true')
 args = parser.parse_args()
 
-# The timer page is not in src/ yet, but its SD subset must ship first. Keep
-# the planned copy here until the page lands; the normal string scan then
-# covers it and these entries can be deleted.
+# The timer page is in src/ now, so the normal string scan covers its literals.
+# Keep this list so the already-shipped font-14.ui.bin subset (whose codepoint
+# set was generated with these entries) stays byte-for-byte valid and does not
+# need a server re-upload. 闹 is retained because the alarm menu slot was
+# repurposed as the timer; dropping it would change kCount and invalidate the
+# shipped subset's expectedCount.
 RESERVED_UI_LITERALS = (
     '定时器', '选择时长，OK 立即开始', 'OK 进入自定义时长', '自定义',
     '1分钟', '5分钟', '10分钟', '15分钟', '30分钟', '60分钟',
@@ -20,6 +23,7 @@ RESERVED_UI_LITERALS = (
     'OK 停止', '放弃当前计时？', '取消', '时间到', '任意按键停止',
     '定时剩余', '时长', '切换', '步进', '按键', '进入', '开始',
     '暂停', '继续', '返回', '当前', '计时', '时间', '选择', '立即', '分钟',
+    '闹钟',
 )
 
 points = set(range(32, 127))

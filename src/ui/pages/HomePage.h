@@ -10,7 +10,7 @@ class HomePage {
 public:
   enum class FontStatus : uint8_t { Loading, Unavailable, Ready };
   // 主菜单里直接进入详情页、跳过单条目二级目录的入口。
-  static constexpr uint8_t kAlarmMenuIndex = 6;
+  static constexpr uint8_t kTimerMenuIndex = 6;
   static constexpr uint8_t kCalendarMenuIndex = 7;
   static constexpr uint8_t kApiStatsMenuIndex = 8;
   static constexpr uint8_t kAnswersBookMenuIndex = 9;
