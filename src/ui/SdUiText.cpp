@@ -36,7 +36,10 @@ void centered(DisplayMonoTft& display, SdBitmapFont* font, int16_t centerX, int1
 }
 Scope::Scope(DisplayMonoTft& display, SdBitmapFont* font)
     : display_(display), font_(font), previous_(display.text().utf8Renderer()) {
-  if (ready(font_, 27))
+  // NBFT line height includes leading (the current 14px full font is 28px).
+  // Compact pages keep their own clipping cells; do not reject the full font by
+  // confusing line height with the visible 14px glyph size.
+  if (ready(font_, 32))
     display_.text().setUTF8Renderer(u8g2_font_7x14_tf, this, measure, render);
   else font_ = nullptr;
 }

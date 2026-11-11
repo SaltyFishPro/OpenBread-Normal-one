@@ -8,7 +8,22 @@ target = root / 'src/services/UiFontCodepoints.h'
 parser = argparse.ArgumentParser()
 parser.add_argument('--check', action='store_true')
 args = parser.parse_args()
+
+# The timer page is not in src/ yet, but its SD subset must ship first. Keep
+# the planned copy here until the page lands; the normal string scan then
+# covers it and these entries can be deleted.
+RESERVED_UI_LITERALS = (
+    '定时器', '选择时长，OK 立即开始', 'OK 进入自定义时长', '自定义',
+    '1分钟', '5分钟', '10分钟', '15分钟', '30分钟', '60分钟',
+    'OK 开始', 'OK 进入', 'Right 切换步进', '增加', '减少',
+    'OK 暂停', 'OK 继续', '计时中', '已暂停', '剩余', '共',
+    'OK 停止', '放弃当前计时？', '取消', '时间到', '任意按键停止',
+    '定时剩余', '时长', '切换', '步进', '按键', '进入', '开始',
+    '暂停', '继续', '返回', '当前', '计时', '时间', '选择', '立即', '分钟',
+)
+
 points = set(range(32, 127))
+points.update(ord(c) for text in RESERVED_UI_LITERALS for c in text if ord(c) >= 128)
 for path in sorted((root / 'src').rglob('*')):
     # The boot page has its own Flash glyphs because SD may be absent.
     if path.suffix not in ('.h', '.cpp') or path == target or path.name == 'FirstBootPage.cpp':

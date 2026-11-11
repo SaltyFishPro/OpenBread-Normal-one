@@ -20,9 +20,9 @@ constexpr File kFiles[] = {
     {"font-14.bin", 2269533U,
      "4dd04cceb3efb9a307cdc54e03d2bf69a3b2fd1e069feffbbaabb5ca23c60884",
      14, 44650U, 0xDFCFEB1BU},
-    {"font-14.ui.bin", 39425U,
-     "ac17e253db0446baa89b9b086d6da9013629b1dc23c659f522f4d925af1e97de",
-     14, 803U, 0xF02C1952U},
+    {"font-14.ui.bin", 39633U,
+     "fcb7252b2a84b72670b0e4386544e738d9f4e9564562cb8becef5780627b27fd",
+     14, 807U, 0xD66EDD4DU},
     {"font-20.bin", 3342737U,
      "2ce6aedd66c52fc34887e66c30e538d8e1b506e749ddb1f1ec354665c0ed528a",
      20, 44650U, 0x1BFCA471U},
@@ -31,5 +31,5 @@ constexpr File kFiles[] = {
      24, 44650U, 0xEFA0F389U},
 };
 constexpr uint8_t kFileCount = sizeof(kFiles) / sizeof(kFiles[0]);
-constexpr uint32_t kTotalBytes = 9656053U;
+constexpr uint32_t kTotalBytes = 9656261U;
 }  // namespace FontBundle

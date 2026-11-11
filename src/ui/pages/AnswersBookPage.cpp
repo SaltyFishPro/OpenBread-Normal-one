@@ -86,7 +86,7 @@ void drawFooter(U8G2_FOR_ST73XX& text, int16_t yOffset, const char* value,
 void drawHistoryRow(DisplayMonoTft& display, SdBitmapFont* font, const char* value,
                     int16_t rowTop, int16_t centerX, bool selected) {
   auto& canvas = display.canvas();
-  if (!SdUiText::ready(font, 27)) font = nullptr;
+  if (!SdUiText::ready(font, 32)) font = nullptr;
   const int16_t height = 26;
   if (selected)
     DrawUtils::drawClippedFilledRect(canvas, 32, rowTop, 351, rowTop + height - 1,

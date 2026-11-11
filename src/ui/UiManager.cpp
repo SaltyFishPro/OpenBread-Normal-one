@@ -459,6 +459,20 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         break;
       }
 
+      const bool musicList = musicPage_.isMusicListSelection(homePage_.focusIndex(), sectionFocusIndex_);
+      const bool musicFontPending = musicList &&
+          musicService_.listState() == MusicService::ListState::Ready &&
+          !SdUiText::ready(&sdBitmapFont_, 32);
+      if (musicFontPending && (edges.right || edges.up || edges.down || edges.ok)) {
+        if (edges.ok && sdBitmapFont_.state() == SdBitmapFont::State::Error) {
+          LogI("MUSIC", "retry list scan and full font after font error");
+          closeContentFonts();
+          (void)musicService_.startListScan(sdCardService_);
+        }
+        needsRedraw_ = true;
+        break;
+      }
+
       const bool isSelfTest = settingsPage_.isDeviceSelfTestSelection(
           homePage_.focusIndex(), sectionFocusIndex_);
       const DeviceSelfTestPage::ButtonState selfTestButtons = {
@@ -1211,6 +1225,11 @@ void UiManager::syncContentFonts() {
         sdBitmapFont_.state() == SdBitmapFont::State::Checking) (void)sdTitleFont_.open(24, false);
     return;
   }
+  const bool music = state_ == UiState::Detail &&
+                     musicPage_.isMusicListSelection(homePage_.focusIndex(), sectionFocusIndex_);
+  // Music mounts and scans SD cooperatively. Wait until the list is usable before
+  // opening the full font; otherwise an early open failure would last until re-entry.
+  if (music && musicService_.listState() != MusicService::ListState::Ready) return;
   if (contentFontUse_ != ContentFontUse::None && contentFontUse_ != ContentFontUse::Reader)
     sdBitmapFont_.end();
   sdTitleFont_.end();
@@ -1218,7 +1237,6 @@ void UiManager::syncContentFonts() {
   if (next == ContentFontUse::None) return;
   if (next != ContentFontUse::Reader) {
     // Music already owns/mounts SD. Never refresh it while its files are open.
-    const bool music = musicPage_.isMusicListSelection(homePage_.focusIndex(), sectionFocusIndex_);
     if (sdCardService_.status() != SdCardService::Status::Ready && !music) sdCardService_.refresh();
     (void)sdBitmapFont_.open(14);
   }

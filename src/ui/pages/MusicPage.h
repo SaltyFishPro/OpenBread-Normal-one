@@ -58,6 +58,7 @@ private:
   void moveListFocus(int8_t delta, uint32_t nowMs, MusicService& music);
   void refreshFavoriteState(MusicService& music);
   bool playSelectedTrack(MusicService& music);
+  bool prepareListFont(const MusicService& music, SdBitmapFont* font);
   uint32_t selectedAbsoluteIndex() const;
   const MusicService::TrackInfo* focusedTrack(const MusicService& music) const;
   float selectionProgress(uint32_t nowMs) const;
@@ -86,4 +87,7 @@ private:
   float playerTransitionTargetProgress_ = 0.0f;
   uint32_t playerTransitionStartMs_ = 0;
   uint32_t playerTransitionDurationMs_ = 0;
+  uint32_t preparedFontSession_ = 0;
+  uint16_t preparedFontPage_ = 0;
+  bool listFontPrepared_ = false;
 };

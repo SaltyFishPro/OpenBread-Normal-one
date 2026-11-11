@@ -111,7 +111,8 @@ void SystemUpdatePage::prepareEnter() {
 
 bool SystemUpdatePage::syncLogs(const View& view, U8G2_FOR_ST73XX& text, SdBitmapFont* font) {
   logsVisible_ = showsLogs(view.state);
-  if (!SdUiText::ready(font, 27)) font = nullptr;
+  // The current 14px full font has a 28px line height including leading.
+  if (!SdUiText::ready(font, 32)) font = nullptr;
   const uint32_t session = font ? font->session() : 0;
   const char* source = view.state == OtaService::State::Idle ? kLocalNotes : view.notes;
   if (!source || !*source) source = kEmptyNotes;
@@ -362,11 +363,8 @@ void SystemUpdatePage::render(DisplayMonoTft& display, int16_t yOffset, const Vi
       snprintf(meta, sizeof(meta), "%s %u/%u", label, page_ + 1, logPageCount());
     }
     const char* caption = building_ ? "正在排版更新说明" : meta;
-    if (logFont_)
-      SdUiText::draw(display, logFont_, kDetailX, yOffset + 132, caption, ST7305_COLOR_BLACK,
-                     {kDetailX, static_cast<int16_t>(yOffset + 120), 367,
-                      static_cast<int16_t>(yOffset + 134)});
-    else drawFitted(text, kDetailX, yOffset + 130, caption, kDetailWidth);
+    // Page captions are fixed UI text; only the log body above uses the full SD font.
+    drawFitted(text, kDetailX, yOffset + 130, caption, kDetailWidth);
   } else {
     drawFitted(text, kDetailX, yOffset + 86, line1, kDetailWidth);
     drawFitted(text, kDetailX, yOffset + 108, line2, kDetailWidth);

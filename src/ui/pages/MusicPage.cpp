@@ -399,12 +399,27 @@ void drawMusicList(DisplayMonoTft& display, const MusicService& music, uint16_t 
     return;
   }
 
+  // Do not reveal a partially covered song list while the full font is being
+  // checked. Fixed status text still uses the outer compact UI font scope.
+  if (!SdUiText::ready(font, 32)) {
+    const bool failed = font && font->state() == SdBitmapFont::State::Error;
+    const char* status = failed ? "字体加载失败" : "正在加载音乐列表...";
+    text.drawUTF8(TextUtils::centeredTextXInBox(text, status, xOffset, kListAreaWidth), 48, status);
+    if (failed) {
+      const char* hint = "OK 重试  Left 返回";
+      text.drawUTF8(TextUtils::centeredTextXInBox(text, hint, xOffset, kListAreaWidth), 76, hint);
+    }
+    return;
+  }
+
   const MusicService::Page& page = music.page();
   if (page.count == 0) {
     return;
   }
 
-  SdUiText::Scope externalText(display, font);
+  // Track names are external UTF-8 data and must use the full SD font. The
+  // navigation labels are drawn later under the outer fixed-UI font scope.
+  SdUiText::Scope fullFontText(display, font);
   rowIndex = min<uint8_t>(rowIndex, static_cast<uint8_t>(page.count - 1U));
 
   char selectedLine[96];
@@ -931,7 +946,7 @@ void drawPlayerPreviewSurface(DisplayMonoTft& display, const MusicService& music
   text.setBackgroundColor(ST7305_COLOR_WHITE);
   text.setFontMode(1);
   {
-    SdUiText::Scope externalText(display, font);
+    SdUiText::Scope fullFontText(display, font);
     drawMaskedScrollingText(display, playerTitleFor(music, rowIndex), kPlayerTitleX, kPlayerTitleY,
                             kPlayerTitleWidth, kPlayerTitleHeight, kPlayerTitleBaselineY, nowMs,
                             kTitleScrollPeriodMs);
@@ -1173,6 +1188,7 @@ bool MusicPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yO
     return false;
   }
 
+  (void)prepareListFont(music, font);
   const float progress = selectionAnimating_ ? selectionProgress(nowMs) : 1.0f;
   const bool listFocusAnimating = isListFocusAnimating(nowMs);
 
@@ -1251,6 +1267,7 @@ bool MusicPage::renderDetailListOnly(uint8_t homeFocus, uint8_t sectionFocus,
     return false;
   }
 
+  (void)prepareListFont(music, font);
   const bool listFocusAnimating = isListFocusAnimating(nowMs);
   clearMusicListArea(display);
   drawMusicList(display, music, pageIndex_, rowIndex_, nowMs, listFocusAnimating,
@@ -1393,6 +1410,34 @@ bool MusicPage::playSelectedTrack(MusicService& music) {
   return music.playTrack(index);
 }
 
+bool MusicPage::prepareListFont(const MusicService& music, SdBitmapFont* font) {
+  if (music.listState() != MusicService::ListState::Ready || !SdUiText::ready(font, 32)) {
+    listFontPrepared_ = false;
+    return false;
+  }
+
+  const MusicService::Page& page = music.page();
+  const uint32_t session = font->session();
+  if (listFontPrepared_ && preparedFontSession_ == session && preparedFontPage_ == page.pageIndex) {
+    return true;
+  }
+
+  // Warm only the visible page. The full NBFT stays on SD and the existing
+  // bounded glyph cache retains the metrics/bitmap data needed by the first draw.
+  listFontPrepared_ = false;
+  for (uint8_t row = 0; row < page.count; ++row) {
+    char line[96];
+    makeMusicListLine(page, row, line, sizeof(line));
+    (void)SdBitmapText::measureUTF8(*font, line);
+    if (!SdUiText::ready(font, 32)) return false;
+  }
+
+  preparedFontSession_ = session;
+  preparedFontPage_ = page.pageIndex;
+  listFontPrepared_ = true;
+  return true;
+}
+
 uint32_t MusicPage::selectedAbsoluteIndex() const {
   return static_cast<uint32_t>(pageIndex_) * MusicService::kRowsPerPage + rowIndex_;
 }
@@ -1479,4 +1524,7 @@ void MusicPage::resetStateUnchecked() {
   playerTransitionTargetProgress_ = 0.0f;
   playerTransitionStartMs_ = 0;
   playerTransitionDurationMs_ = 0;
+  preparedFontSession_ = 0;
+  preparedFontPage_ = 0;
+  listFontPrepared_ = false;
 }
