@@ -94,6 +94,38 @@ void parserChecks() {
   const std::string longJson = "{\"release_notes\":\"" + std::string(900, 'a') + "\"}";
   check(OtaReleaseNotes::parse(longJson.c_str(), notes, sizeof(notes)) && std::strlen(notes) == 767,
         "notes capacity not enforced");
+
+  // release_note 是可截断的展示字段：超长时保留完整 UTF-8 字符，不返回清单错误。
+  char summary[96];
+  check(OtaReleaseNotes::parseField("{\"release_note\":\"ok\"}", "release_note", summary,
+                                    sizeof(summary)) &&
+            std::strcmp(summary, "ok") == 0,
+        "short release_note parse failed");
+  const std::string longSummary = "{\"release_note\":\"" + std::string(200, 'a') + "\"}";
+  check(OtaReleaseNotes::parseField(longSummary.c_str(), "release_note", summary,
+                                    sizeof(summary)) &&
+            std::strlen(summary) == 95,
+        "long release_note was not truncated");
+  std::string chinese;
+  for (int i = 0; i < 40; ++i) chinese += u8"定";
+  const std::string longChinese = "{\"release_note\":\"" + chinese + "\"}";
+  std::string expectedChinese;
+  for (int i = 0; i < 31; ++i) expectedChinese += u8"定";
+  check(OtaReleaseNotes::parseField(longChinese.c_str(), "release_note", summary,
+                                    sizeof(summary)) &&
+            std::strlen(summary) == 93 &&
+            std::strcmp(summary, expectedChinese.c_str()) == 0,
+        "release_note split a UTF-8 character");
+  check(OtaReleaseNotes::parseField(u8"{\"release_note\":\"优化\\n修复\\\"问题\\\"\"}",
+                                    "release_note", summary, sizeof(summary)) &&
+            std::strcmp(summary, u8"优化\n修复\"问题\"") == 0,
+        "release_note escapes were not decoded");
+  check(!OtaReleaseNotes::parseField("{\"nested\":{\"release_note\":\"wrong\"}}",
+                                     "release_note", summary, sizeof(summary)),
+        "nested release_note accepted");
+  check(!OtaReleaseNotes::parseField("{\"other\":\"value\"}", "release_note", summary,
+                                     sizeof(summary)),
+        "missing release_note accepted");
 }
 }  // namespace
 

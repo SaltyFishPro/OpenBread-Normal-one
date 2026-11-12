@@ -23,14 +23,17 @@ RESERVED_UI_LITERALS = (
     'OK 停止', '放弃当前计时？', '取消', '时间到', '任意按键停止',
     '定时剩余', '时长', '切换', '步进', '按键', '进入', '开始',
     '暂停', '继续', '返回', '当前', '计时', '时间', '选择', '立即', '分钟',
-    '闹钟',
+    '闹钟', '操作',
 )
 
 points = set(range(32, 127))
 points.update(ord(c) for text in RESERVED_UI_LITERALS for c in text if ord(c) >= 128)
 for path in sorted((root / 'src').rglob('*')):
-    # The boot page has its own Flash glyphs because SD may be absent.
-    if path.suffix not in ('.h', '.cpp') or path == target or path.name == 'FirstBootPage.cpp':
+    # The boot page has its own Flash glyphs because SD may be absent. The
+    # provisioning page is a served web asset, not device UI text, so its
+    # embedded HTML must not pull browser-only characters into the fixed subset.
+    if path.suffix not in ('.h', '.cpp') or path == target or \
+            path.name in ('FirstBootPage.cpp', 'WifiPortalPage.cpp'):
         continue
     source = path.read_text(encoding='utf-8')
     # Comments may conservatively add codepoints, but never remove UI literals.

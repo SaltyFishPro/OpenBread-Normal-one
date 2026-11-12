@@ -11,6 +11,8 @@ The generated manifest keeps the required `release_note` summary and also includ
 an optional `release_notes` UTF-8 string (up to 767 bytes) for the device's scrolling
 System Update page. Older firmware ignores the optional field.
 
+`release_note` 建议保持在 95 字节以内；新固件遇到超长摘要时会在完整 UTF-8 字符处截断显示，不再把整份清单判定为无效。`release_notes` 上限 767 字节，超长时同样截断。
+
 ## Script
 
 Use this script from this repo:

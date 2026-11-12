@@ -1,5 +1,6 @@
 #include "WifiProvisionService.h"
 #include "TimeService.h"
+#include "WifiPortalPage.h"
 
 #include <WiFi.h>
 
@@ -11,11 +12,42 @@ constexpr const char* kPrefsNs = "wifi";
 constexpr const char* kPrefsKeySsid = "ssid";
 constexpr const char* kPrefsKeyPass = "pass";
 
+void jsonEscape(char* out, size_t capacity, const char* value) {
+  if (capacity == 0) {
+    return;
+  }
+  size_t pos = 0;
+  for (const unsigned char* p = reinterpret_cast<const unsigned char*>(value);
+       p != nullptr && *p != '\0' && pos + 6U < capacity; ++p) {
+    const unsigned char c = *p;
+    if (c == '"' || c == '\\') {
+      out[pos++] = '\\';
+      out[pos++] = static_cast<char>(c);
+    } else if (c == '\n') {
+      out[pos++] = '\\';
+      out[pos++] = 'n';
+    } else if (c == '\r') {
+      out[pos++] = '\\';
+      out[pos++] = 'r';
+    } else if (c == '\t') {
+      out[pos++] = '\\';
+      out[pos++] = 't';
+    } else if (c < 0x20U) {
+      out[pos++] = '?';
+    } else {
+      out[pos++] = static_cast<char>(c);
+    }
+  }
+  out[pos] = '\0';
+}
+
 }  // namespace
 
 bool WifiProvisionService::begin() {
   loadCredentials();
   radioActive_ = false;
+  portalActive_ = false;
+  holdEndMs_ = 0;
   WiFi.mode(WIFI_OFF);
   LogI("WIFI", "init complete, radio off");
   setState(State::Idle, Error::None);
@@ -33,7 +65,7 @@ void WifiProvisionService::tick(uint32_t nowMs, TimeService& time) {
     return;
   }
 
-  if (isPortalActive()) {
+  if (portalActive_) {
     dns_.processNextRequest();
     server_.handleClient();
   }
@@ -47,12 +79,20 @@ void WifiProvisionService::tick(uint32_t nowMs, TimeService& time) {
   // Only accept station success while this service is actively connecting.
   // This avoids stealing externally managed sessions (for example OTA checks).
   if (state_ == State::Connecting && (WiFi.status() == WL_CONNECTED || hasStaIp())) {
-    finishProvisionSuccess(nowMs, time);
+    finishProvisionSuccess(nowMs);
     return;
   }
 
-  if (state_ == State::PortalReady && (nowMs - portalStartMs_) >= kPortalTimeoutMs) {
-    LogI("WIFI", "portal timeout");
+  // Keep the setup AP alive briefly after success so the phone can read the IP.
+  if (state_ == State::Connected && portalActive_ && holdEndMs_ != 0 &&
+      static_cast<int32_t>(nowMs - holdEndMs_) >= 0) {
+    finishPortalHold(nowMs, time);
+    return;
+  }
+
+  if (portalActive_ && state_ != State::Connected &&
+      (nowMs - portalStartMs_) >= kPortalTimeoutMs) {
+    LogI("WIFI", "portal timeout state=%u", static_cast<unsigned>(state_));
     setState(State::PortalTimeout, Error::Timeout);
     cleanupRadio(false);
     return;
@@ -64,7 +104,7 @@ void WifiProvisionService::tick(uint32_t nowMs, TimeService& time) {
 
   const wl_status_t s = WiFi.status();
   if (s == WL_CONNECTED || hasStaIp()) {
-    finishProvisionSuccess(nowMs, time);
+    finishProvisionSuccess(nowMs);
     return;
   }
 
@@ -78,17 +118,20 @@ void WifiProvisionService::tick(uint32_t nowMs, TimeService& time) {
     return;
   }
 
+  Error error = Error::Timeout;
   if (s == WL_CONNECT_FAILED) {
-    LogW("WIFI", "connect failed: auth");
-    setState(State::Failed, Error::AuthFailed);
+    LogW("WIFI", "connect failed: auth; setup AP remains active");
+    error = Error::AuthFailed;
   } else if (s == WL_NO_SSID_AVAIL) {
-    LogW("WIFI", "connect failed: ap not found");
-    setState(State::Failed, Error::ApNotFound);
+    LogW("WIFI", "connect failed: ap not found; setup AP remains active");
+    error = Error::ApNotFound;
   } else {
-    LogW("WIFI", "connect failed: timeout");
-    setState(State::Failed, Error::Timeout);
+    LogW("WIFI", "connect failed: timeout; setup AP remains active");
   }
-  cleanupRadio(false);
+  // Stop this station attempt without touching the setup AP, so the phone can
+  // show the failure and retry through the same page.
+  WiFi.disconnect(false, false);
+  setState(State::Failed, error);
 }
 
 void WifiProvisionService::startPortal(uint32_t nowMs, Purpose purpose) {
@@ -112,6 +155,8 @@ void WifiProvisionService::startPortal(uint32_t nowMs, Purpose purpose) {
     setState(State::Failed, Error::Unknown);
     return;
   }
+  portalActive_ = true;
+  holdEndMs_ = 0;
   LogI("WIFI", "portal started, AP='%s'", apSsid_);
 
   if (!routesReady_) {
@@ -129,6 +174,8 @@ void WifiProvisionService::stopPortal() {
   dns_.stop();
   server_.stop();
   WiFi.softAPdisconnect(true);
+  portalActive_ = false;
+  holdEndMs_ = 0;
 }
 
 void WifiProvisionService::cancelProvision(TimeService& time) {
@@ -138,6 +185,11 @@ void WifiProvisionService::cancelProvision(TimeService& time) {
     return;
   }
   if (!radioActive_) {
+    return;
+  }
+  if (state_ == State::Connected && portalActive_ && purpose_ == Purpose::TimeSync) {
+    LogI("WIFI", "success hold canceled by user; starting time sync");
+    finishPortalHold(millis(), time);
     return;
   }
   LogI("WIFI", "provision canceled by user");
@@ -161,15 +213,50 @@ WifiProvisionService::State WifiProvisionService::state() const { return state_;
 
 WifiProvisionService::Error WifiProvisionService::error() const { return error_; }
 
-bool WifiProvisionService::isPortalActive() const {
-  return state_ == State::PortalReady || state_ == State::Connecting;
-}
+bool WifiProvisionService::isPortalActive() const { return portalActive_; }
 
 bool WifiProvisionService::isRadioActive() const { return radioActive_; }
 
 bool WifiProvisionService::canStartPortal() const {
+  if (portalActive_) {
+    return false;
+  }
   return state_ == State::Idle || state_ == State::Connected || state_ == State::Failed ||
          state_ == State::PortalTimeout;
+}
+
+bool WifiProvisionService::canRetryConnect() const {
+  return portalActive_ && state_ == State::Failed && targetSsid_[0] != '\0';
+}
+
+bool WifiProvisionService::retryConnect() {
+  if (!canRetryConnect()) {
+    return false;
+  }
+  requestConnecting();
+  return true;
+}
+
+uint32_t WifiProvisionService::portalRemainingSeconds(uint32_t nowMs) const {
+  if (!portalActive_) {
+    return 0;
+  }
+  const uint32_t elapsed = nowMs - portalStartMs_;
+  if (elapsed >= kPortalTimeoutMs) {
+    return 0;
+  }
+  return (kPortalTimeoutMs - elapsed + 999U) / 1000U;
+}
+
+uint32_t WifiProvisionService::holdRemainingSeconds(uint32_t nowMs) const {
+  if (!portalActive_ || state_ != State::Connected || holdEndMs_ == 0) {
+    return 0;
+  }
+  const int32_t remaining = static_cast<int32_t>(holdEndMs_ - nowMs);
+  if (remaining <= 0) {
+    return 0;
+  }
+  return (static_cast<uint32_t>(remaining) + 999U) / 1000U;
 }
 
 bool WifiProvisionService::consumeChanged() {
@@ -195,31 +282,28 @@ void WifiProvisionService::setupWebRoutes() {
 }
 
 void WifiProvisionService::handleRoot() {
-  const char* page =
-      "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' "
-      "content='width=device-width,initial-scale=1'>"
-      "<title>OpenBread WiFi Setup</title></head>"
-      "<body><h2>OpenBread WiFi Setup</h2>"
-      "<form method='POST' action='/connect'>"
-      "<label>WiFi SSID</label><br/><input name='ssid' maxlength='32'/><br/><br/>"
-      "<label>Password</label><br/><input name='pass' maxlength='64' type='password'/><br/><br/>"
-      "<button type='submit'>Connect</button></form>"
-      "<p><a href='/status'>Status</a></p></body></html>";
-  server_.send(200, "text/html", page);
+  server_.sendHeader("Cache-Control", "no-store, max-age=0");
+  server_.send_P(200, "text/html; charset=utf-8", kWifiPortalPage);
 }
 
 void WifiProvisionService::handleConnect() {
-  if (!server_.hasArg("ssid") || !server_.hasArg("pass")) {
-    setState(State::Failed, Error::InvalidInput);
-    server_.send(400, "text/plain", "missing ssid or pass");
+  if (!server_.hasArg("ssid")) {
+    server_.send(400, "application/json", "{\"ok\":false,\"error\":\"missing_ssid\"}");
+    return;
+  }
+  if (state_ == State::Connecting || state_ == State::SyncingTime) {
+    server_.send(409, "application/json", "{\"ok\":false,\"error\":\"busy\"}");
+    return;
+  }
+  if (!portalActive_ || (state_ != State::PortalReady && state_ != State::Failed)) {
+    server_.send(409, "application/json", "{\"ok\":false,\"error\":\"portal_inactive\"}");
     return;
   }
 
   const String ssid = server_.arg("ssid");
-  const String pass = server_.arg("pass");
+  const String pass = server_.hasArg("pass") ? server_.arg("pass") : String();
   if (ssid.length() == 0 || ssid.length() > 32 || pass.length() > 64) {
-    setState(State::Failed, Error::InvalidInput);
-    server_.send(400, "text/plain", "invalid ssid/pass");
+    server_.send(400, "application/json", "{\"ok\":false,\"error\":\"invalid_input\"}");
     return;
   }
 
@@ -228,17 +312,24 @@ void WifiProvisionService::handleConnect() {
   ssid.toCharArray(targetSsid_, sizeof(targetSsid_));
   pass.toCharArray(targetPass_, sizeof(targetPass_));
 
-  server_.send(200, "text/html",
-                "<html><body><h3>Connecting...</h3><p>Check device screen.</p>"
-                "<p><a href='/status'>Refresh status</a></p></body></html>");
+  LogI("WIFI", "web connect request ssid='%s'", targetSsid_);
+  server_.send(200, "application/json", "{\"ok\":true}");
   requestConnecting();
 }
 
 void WifiProvisionService::handleStatus() {
-  char body[256];
+  char targetJson[200];
+  jsonEscape(targetJson, sizeof(targetJson), targetSsid_);
+  char body[420];
+  const uint32_t nowMs = millis();
   snprintf(body, sizeof(body),
-           "{\"state\":%u,\"error\":\"%s\",\"ap\":\"%s\",\"target\":\"%s\",\"ip\":\"%s\"}",
-           static_cast<unsigned>(state_), errorText(error_), apSsid_, targetSsid_, staIp_);
+           "{\"state\":\"%s\",\"error\":\"%s\",\"portal\":%s,\"ap\":\"%s\","
+           "\"target\":\"%s\",\"ip\":\"%s\",\"remaining\":%lu,\"hold\":%lu}",
+           stateText(), errorText(error_), portalActive_ ? "true" : "false", apSsid_,
+           targetJson, staIp_,
+           static_cast<unsigned long>(portalRemainingSeconds(nowMs)),
+           static_cast<unsigned long>(holdRemainingSeconds(nowMs)));
+  server_.sendHeader("Cache-Control", "no-store, max-age=0");
   server_.send(200, "application/json", body);
 }
 
@@ -248,14 +339,17 @@ void WifiProvisionService::handleNotFound() {
 }
 
 void WifiProvisionService::startConnecting(uint32_t nowMs) {
-  stopPortal();
+  // Keep the setup AP alive while the station connects. The phone uses it to
+  // poll progress and to retry after a failure.
   radioActive_ = true;
-  WiFi.mode(WIFI_STA);
+  WiFi.mode(WIFI_AP_STA);
   WiFi.setSleep(false);
   WiFi.disconnect(false, false);
+  memset(staIp_, 0, sizeof(staIp_));
   WiFi.begin(targetSsid_, targetPass_);
   connectStartMs_ = nowMs;
-  LogI("WIFI", "STA connect requested");
+  holdEndMs_ = 0;
+  LogI("WIFI", "STA connect requested; setup AP stays active");
   setState(State::Connecting, Error::None);
 }
 
@@ -307,7 +401,7 @@ void WifiProvisionService::clearTarget() {
   memset(staIp_, 0, sizeof(staIp_));
 }
 
-void WifiProvisionService::finishProvisionSuccess(uint32_t nowMs, TimeService& time) {
+void WifiProvisionService::finishProvisionSuccess(uint32_t nowMs) {
   updateStaIpCache();
   saveCredentials();
   if (purpose_ == Purpose::FontSetup) {
@@ -316,19 +410,34 @@ void WifiProvisionService::finishProvisionSuccess(uint32_t nowMs, TimeService& t
     setState(State::Connected, Error::None);
     return;
   }
-  LogI("WIFI", "connected, ip=%s; starting one-shot time sync", staIp_);
-  cleanupRadio(true);
+  if (!portalActive_) {
+    LogW("WIFI", "connected without setup AP ip=%s", staIp_);
+    setState(State::Connected, Error::None);
+    return;
+  }
+  holdEndMs_ = nowMs + kSuccessHoldMs;
+  LogI("WIFI", "connected ip=%s; keeping setup AP for %lu ms", staIp_,
+       static_cast<unsigned long>(kSuccessHoldMs));
+  setState(State::Connected, Error::None);
+}
+
+void WifiProvisionService::finishPortalHold(uint32_t nowMs, TimeService& time) {
+  holdEndMs_ = 0;
+  LogI("WIFI", "setup AP hold finished; starting one-shot time sync");
+  stopPortal();
+  WiFi.setSleep(true);
   if (time.requestNtpSync(nowMs, targetSsid_, targetPass_, true)) {
     setState(State::SyncingTime, Error::None);
     return;
   }
   LogI("WIFI", "post-provision time sync not started error=%u",
-          static_cast<unsigned>(time.snapshot().error));
+       static_cast<unsigned>(time.snapshot().error));
   finishOnlineSession();
 }
 
 void WifiProvisionService::cleanupRadio(bool keepStation) {
   connectPending_ = false;
+  holdEndMs_ = 0;
   stopPortal();
   if (keepStation) {
     radioActive_ = true;
@@ -340,6 +449,27 @@ void WifiProvisionService::cleanupRadio(bool keepStation) {
   WiFi.disconnect(false, true);
   WiFi.mode(WIFI_OFF);
   radioActive_ = false;
+}
+
+const char* WifiProvisionService::stateText() const {
+  switch (state_) {
+    case State::Idle:
+      return "idle";
+    case State::PortalReady:
+      return "portal";
+    case State::Connecting:
+      return "connecting";
+    case State::Connected:
+      return "connected";
+    case State::Failed:
+      return "failed";
+    case State::PortalTimeout:
+      return "timeout";
+    case State::SyncingTime:
+      return "syncing";
+    default:
+      return "unknown";
+  }
 }
 
 const char* WifiProvisionService::errorText(Error err) const {

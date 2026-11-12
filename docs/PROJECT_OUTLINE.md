@@ -276,6 +276,10 @@ SD 字库分层为 `src/bsp/SdFontFile.*`（只读文件）、`SdFontCacheBuffer
 - 配网成功信息缓存（SSID/IP）与 UI 状态同步。
 - 支持连接成功后按需重开配网热点。
 - 与 OTA 联网会话隔离，避免误关 OTA WiFi 会话。
+- 配网热点（AP）在连接期间保持存活：手机网页通过 `/status` 轮询进度，失败后可直接重试；失败后热点保持开启，直到 5 分钟超时或用户退出。
+- 仅 `Purpose::TimeSync` 的配网在成功后保留热点约 6 秒供网页显示设备 IP；`Purpose::FontSetup` 仍保持成功后立即停热点、保留 STA。
+- 成功后的 NTP 校时延后到热点保持期结束，避免校时与热点共存影响连接。
+- 配网网页由 `WifiPortalPage.h/.cpp` 以 PROGMEM 提供，`/connect` 返回 JSON（400 表示输入无效、409 表示忙碌或热点未开启），`/status` 返回 `state/error/portal/ap/target/ip/remaining/hold`。
 
 ### 7.1 SettingsService（规划）
 - 管理系统设置：音量、震动强度、时间制式、主题参数、遥控配置。

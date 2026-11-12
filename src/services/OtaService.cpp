@@ -441,12 +441,14 @@ bool OtaService::fetchAndValidateManifest() {
       !parseStringField(payload.c_str(), "sha256", parsed.sha256,
                         sizeof(parsed.sha256)) ||
       !parseUintField(payload.c_str(), "size", parsed.size) ||
-      !parseStringField(payload.c_str(), "release_note", parsed.releaseNote,
-                        sizeof(parsed.releaseNote))) {
+      !OtaReleaseNotes::parseField(payload.c_str(), "release_note", parsed.releaseNote,
+                                   sizeof(parsed.releaseNote))) {
     LogE("OTA", "manifest parse/field validation failed");
     setState(State::Error, Error::ManifestInvalid);
     return false;
   }
+  LogI("OTA", "release note loaded bytes=%u",
+       static_cast<unsigned>(strlen(parsed.releaseNote)));
 
   // 旧清单继续有效；可选的长日志损坏时仅回退摘要，不阻断固件更新。
   if (OtaReleaseNotes::parse(payload.c_str(), parsed.releaseNotes, sizeof(parsed.releaseNotes))) {

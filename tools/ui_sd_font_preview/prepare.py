@@ -34,6 +34,7 @@ for name in ('font-14.bin', 'font-20.bin', 'font-24.bin', 'font-14.common.bin'):
 (out/'valid/words/junior.txt').write_text('bread\t/bred/\tn. 面包；生计。\n',encoding='utf-8')
 text = (root / 'lib/ST7305_MonoTFT_Library/src/u8g2_fonts.c').read_text(encoding='utf-8')
 names = ('u8g2_font_7x14_tf', 'u8g2_font_7x14B_tf', 'u8g2_font_6x12_mf',
+         'u8g2_font_fur14_tf',
          'u8g2_font_logisoso32_tr', 'u8g2_font_logisoso24_tr', 'u8g2_font_fur25_tf')
 declarations = ['#include "u8g2_fonts.h"\n']
 for name in names:

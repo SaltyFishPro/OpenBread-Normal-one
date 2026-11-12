@@ -97,28 +97,40 @@ bool readString(const char*& p, char* out, size_t capacity) {
 void skipWhitespace(const char*& p) {
   while (*p == ' ' || *p == '\n' || *p == '\r' || *p == '\t') ++p;
 }
-}  // namespace
 
-bool OtaReleaseNotes::parse(const char* json, char* out, size_t capacity) {
-  if (!json || !out || !capacity) return false;
-  out[0] = '\0';
+const char* findField(const char* json, const char* key) {
   const char* p = json;
   int depth = 0;
   while (*p) {
     if (*p == '{' || *p == '[') { ++depth; ++p; continue; }
     if (*p == '}' || *p == ']') { --depth; ++p; continue; }
     if (*p != '"') { ++p; continue; }
-    char key[32] = {};
-    if (!readString(p, key, sizeof(key))) return false;
+    char current[32] = {};
+    if (!readString(p, current, sizeof(current))) return nullptr;
     skipWhitespace(p);
-    if (depth != 1 || *p != ':' || strcmp(key, "release_notes") != 0) continue;
+    if (depth != 1 || *p != ':' || strcmp(current, key) != 0) continue;
     ++p;
     skipWhitespace(p);
-    if (*p != '"' || !readString(p, out, capacity)) {
-      out[0] = '\0';
-      return false;
-    }
-    return out[0] != '\0';
+    return p;
   }
-  return false;
+  return nullptr;
+}
+}  // namespace
+
+bool OtaReleaseNotes::parse(const char* json, char* out, size_t capacity) {
+  if (!parseField(json, "release_notes", out, capacity)) return false;
+  return out[0] != '\0';
+}
+
+bool OtaReleaseNotes::parseField(const char* json, const char* key, char* out,
+                                 size_t capacity) {
+  if (!json || !key || !out || !capacity) return false;
+  out[0] = '\0';
+  const char* p = findField(json, key);
+  if (p == nullptr || *p != '"') return false;
+  if (!readString(p, out, capacity)) {
+    out[0] = '\0';
+    return false;
+  }
+  return true;
 }

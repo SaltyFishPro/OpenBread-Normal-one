@@ -41,9 +41,17 @@ WifiProvisionService::State WifiProvisionService::state() const { return wifiSta
 WifiProvisionService::Error WifiProvisionService::error() const { return Error::None; }
 const char* WifiProvisionService::staIp() const { return "192.168.1.20"; }
 const char* WifiProvisionService::targetSsid() const { return "面包 WiFi"; }
-const char* WifiProvisionService::apSsid() const { return "Normal One"; }
+const char* WifiProvisionService::apSsid() const { return "OpenBread-Setup-1A2B"; }
 const char* WifiProvisionService::targetPass() const { return ""; }
 bool WifiProvisionService::canStartPortal() const { return true; }
+bool WifiProvisionService::isPortalActive() const {
+  return wifiState == State::PortalReady || wifiState == State::Connecting ||
+         wifiState == State::Connected || wifiState == State::Failed;
+}
+bool WifiProvisionService::canRetryConnect() const { return wifiState == State::Failed; }
+bool WifiProvisionService::retryConnect() { return false; }
+uint32_t WifiProvisionService::holdRemainingSeconds(uint32_t) const { return 0; }
+uint32_t WifiProvisionService::portalRemainingSeconds(uint32_t) const { return 0; }
 void WifiProvisionService::startPortal(uint32_t, Purpose) {}
 bool WifiProvisionService::isRadioActive() const { return false; }
 void WifiProvisionService::cancelProvision(TimeService&) {}
@@ -115,6 +123,16 @@ bool framePixel(const uint8_t* frame, DisplayMonoTft& display, int16_t x, int16_
   int16_t px, py;
   display.canvas().logicalToPhysical(x, y, px, py);
   return (frame[(py / 2) * 42 + px / 4] & (1U << (7 - ((px % 4) * 2 + py % 2)))) != 0;
+}
+
+bool rowHasInk(const uint8_t* frame, DisplayMonoTft& display, int16_t top, int16_t bottom,
+               int16_t left, int16_t right) {
+  for (int16_t y = top; y <= bottom; ++y) {
+    for (int16_t x = left; x < right; ++x) {
+      if (framePixel(frame, display, x, y)) return true;
+    }
+  }
+  return false;
 }
 
 int main() {
@@ -400,9 +418,32 @@ int main() {
     }
     d.canvas().setRotation(1);
     SettingsPage settings;WifiProvisionService wifi;
-    for(auto state:{WifiProvisionService::State::Idle,WifiProvisionService::State::Connected}) {
-      wifiState=state;d.clear();settings.renderDetail(0,2,0,0,d,"设备ID: 1234","Flash: 16MB","SD: ready",wifi,time);
-      save(d,state==WifiProvisionService::State::Idle?"wifi-off":"wifi-on");
+    const auto wifiStateNames = std::vector<std::pair<WifiProvisionService::State, const char*>>{
+        {WifiProvisionService::State::Idle, "wifi-idle"},
+        {WifiProvisionService::State::PortalReady, "wifi-portal"},
+        {WifiProvisionService::State::Connecting, "wifi-connecting"},
+        {WifiProvisionService::State::Connected, "wifi-connected"},
+        {WifiProvisionService::State::Failed, "wifi-failed"},
+        {WifiProvisionService::State::PortalTimeout, "wifi-timeout"},
+        {WifiProvisionService::State::SyncingTime, "wifi-syncing"},
+    };
+    for (auto& entry : wifiStateNames) {
+      wifiState = entry.first;
+      d.clear();
+      settings.renderDetail(0, 2, 0, 0, d, "设备ID: 1234", "Flash: 16MB", "SD: ready", wifi, time);
+      save(d, entry.second);
+      if (entry.first == WifiProvisionService::State::PortalReady) {
+        uint8_t portalFrame[8064];
+        d.captureFrame(portalFrame);
+        check(rowHasInk(portalFrame, d, 38, 53, 12, 245),
+              "WiFi QR connection instruction missing");
+        check(rowHasInk(portalFrame, d, 54, 80, 12, 245), "WiFi AP name missing");
+        check(rowHasInk(portalFrame, d, 96, 111, 12, 245), "WiFi portal prompt missing");
+        check(rowHasInk(portalFrame, d, 123, 140, 12, 245), "WiFi fallback address missing");
+        check(framePixel(portalFrame, d, 270, 50), "WiFi QR finder pattern missing");
+        check(!framePixel(portalFrame, d, 258, 93), "WiFi QR quiet zone was not preserved");
+        check(!framePixel(portalFrame, d, 366, 93), "WiFi QR right quiet zone was not preserved");
+      }
     }
     d.clear();settings.renderDetail(0,7,0,0,d,"设备ID: 1234","Flash: 16MB","SD: ready",wifi,time);save(d,"about");
   }

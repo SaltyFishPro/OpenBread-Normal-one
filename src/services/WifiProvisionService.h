@@ -43,6 +43,10 @@ public:
   bool isPortalActive() const;
   bool isRadioActive() const;
   bool canStartPortal() const;
+  bool canRetryConnect() const;
+  bool retryConnect();
+  uint32_t portalRemainingSeconds(uint32_t nowMs) const;
+  uint32_t holdRemainingSeconds(uint32_t nowMs) const;
   bool consumeChanged();
 
   const char* apSsid() const;
@@ -65,13 +69,16 @@ private:
   void saveCredentials();
   void loadCredentials();
   void clearTarget();
-  void finishProvisionSuccess(uint32_t nowMs, TimeService& time);
+  void finishProvisionSuccess(uint32_t nowMs);
+  void finishPortalHold(uint32_t nowMs, TimeService& time);
   void cleanupRadio(bool keepStation);
+  const char* stateText() const;
   const char* errorText(Error err) const;
 
   static constexpr uint32_t kPortalTimeoutMs = 5UL * 60UL * 1000UL;
   static constexpr uint32_t kConnectTimeoutMs = 35UL * 1000UL;
   static constexpr uint32_t kConnectGraceMs = 12UL * 1000UL;
+  static constexpr uint32_t kSuccessHoldMs = 6UL * 1000UL;
 
   DNSServer dns_;
   WebServer server_{80};
@@ -81,12 +88,14 @@ private:
   Error error_ = Error::None;
   bool changed_ = false;
   bool radioActive_ = false;
+  bool portalActive_ = false;
   bool routesReady_ = false;
   bool connectPending_ = false;
   Purpose purpose_ = Purpose::TimeSync;
 
   uint32_t portalStartMs_ = 0;
   uint32_t connectStartMs_ = 0;
+  uint32_t holdEndMs_ = 0;
 
   char apSsid_[33] = {0};
   char targetSsid_[33] = {0};
