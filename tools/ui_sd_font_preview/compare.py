@@ -44,6 +44,23 @@ def expected(text, x, baseline, size=(384,168), color=0, opaque=False, result=No
 
 assert Image.open(out/'reference-text.pgm').tobytes() == expected('设置 面包 123',3,28).tobytes()
 assert Image.open(out/'opaque-text.pgm').tobytes() == expected('面包 ABC',5,28,color=255,opaque=True).tobytes()
+# Check page-scoped 20/24px glyph pixels independently of the production cache.
+for name,text,x,baseline,pixel_size,box in (
+    ('wifi-start-confirm','开启配网热点？',24,61,24,(24,34,360,67)),
+    ('wifi-starting','正在开启热点',112,74,24,(112,47,368,80)),
+    ('wifi-portal','扫码加入设备热点',16,58,20,(16,35,248,64))):
+    face=BitmapFont.load(root/f'tools/font_builder/output/font-{pixel_size}.bin')
+    reference=Image.new('L',(384,168),0)
+    for char in text:
+        glyph=face.glyph(char)
+        assert glyph
+        stride=(glyph.width+7)//8
+        for row in range(glyph.height):
+            for col in range(glyph.width):
+                if glyph.bitmap[row*stride+col//8] & (0x80>>(col%8)):
+                    reference.putpixel((x+glyph.x_offset+col,baseline+glyph.y_offset+row),255)
+        x+=glyph.advance
+    assert Image.open(out/f'{name}.pgm').crop(box).tobytes()==reference.crop(box).tobytes(),f'WiFi title cache {name}'
 for rotation,size in ((0,(168,384)),(1,(384,168))):
     result = Image.new('L',size,255)
     for x,y in ((-8,6),(size[0]-12,24),(7,size[1]+3)):
@@ -62,8 +79,8 @@ for pgm in out.glob('*.pgm'):
 
 names = [('home-0','主菜单'),('home-9','答案之书入口'),('home-11','电脑看板入口'),
          ('usb','SD 卡交给 USB 后'),('popup','确认弹窗'),('time','时间校准'),
-         ('focus','专注时钟'),('bluetooth','蓝牙连接'),('wifi-on','WiFi 状态'),
-         ('about','关于设备'),('computer','电脑看板等待'),('wifi-off','WiFi 配网'),
+         ('focus','专注时钟'),('bluetooth','蓝牙连接'),('wifi-history','已保存网络'),
+         ('about','关于设备'),('computer','电脑看板等待'),('wifi-portal','WiFi 配网'),
          ('answer-prompt','答案之书提问'),('answer','答案正文 / 20 号'),('answer-history','答案记录 / 14 号'),
          ('update','系统更新'),('update-progress','下载进度'),('reader','阅读 / 14 与 24 号'),
          ('timer-preset','定时器预设'),('timer-custom','定时器自定义'),('timer-running','定时器运行'),

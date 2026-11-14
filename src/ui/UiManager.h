@@ -36,6 +36,7 @@
 #include "pages/RemotePage.h"
 #include "pages/SettingsPage.h"
 #include "pages/SystemUpdatePage.h"
+#include "pages/WifiPage.h"
 #include "../services/SdCardService.h"
 #include "../services/SdBitmapFont.h"
 #include "../services/UiFontCache.h"
@@ -62,7 +63,6 @@ private:
     Restart,
     FactoryReset,
     OtaApply,
-    WifiStart,
   };
 
   struct ButtonEdge {
@@ -98,10 +98,13 @@ private:
   void performFactoryReset();
   void initDeviceInfoCache();
   void renderDetail(int16_t yOffset = 0);
-  enum class ContentFontUse : uint8_t { None, Answers, Update, Reader, External, Timer };
+  enum class ContentFontUse : uint8_t { None, Answers, Update, Reader, External, Timer, Wifi };
   void syncContentFonts();
   void closeContentFonts();
   void syncUiFont();
+  void syncResidentFonts();
+  void syncWifiContentFonts();
+  bool residentFontsLoading() const;
   bool isComputerStatusDetail() const;
   void renderComputerStatusFrame();
   void syncHomeClockFromTimeService();
@@ -134,6 +137,7 @@ private:
   GamesPage gamesPage_;
   RemotePage remotePage_;
   SettingsPage settingsPage_;
+  WifiPage wifiPage_;
   SystemUpdatePage systemUpdatePage_;
   BluetoothService bluetoothService_;
   RemoteService remoteService_;
@@ -145,6 +149,8 @@ private:
   SdCardService sdCardService_;
   SdBitmapFont sdBitmapFont_;
   SdBitmapFont sdTitleFont_;
+  SdBitmapFont ui20Font_, ui24Font_;
+  bool ui20Attempted_ = false, ui24Attempted_ = false;
   UiFontCache uiFont_;
   bool uiFontAttempted_ = false;
   ContentFontUse contentFontUse_ = ContentFontUse::None;

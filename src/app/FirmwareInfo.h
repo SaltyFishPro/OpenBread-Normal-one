@@ -5,8 +5,8 @@
 namespace FirmwareInfo {
 constexpr const char* kProduct = "openbread-normal-one";
 constexpr const char* kChannel = "stable";
-constexpr const char* kVersion = "0.1.6";
-constexpr uint32_t kBuild = 7;
+constexpr const char* kVersion = "0.1.7";
+constexpr uint32_t kBuild = 8;
 constexpr const char* kManifestUrl =
     "https://ota.openbread.net/ota/openbread-normal-one/manifest.json";
 }  // namespace FirmwareInfo

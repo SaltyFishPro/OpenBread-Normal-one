@@ -4,6 +4,7 @@
 
 class DisplayMonoTft;
 class TimeService;
+class SdBitmapFont;
 class WifiProvisionService;
 
 class TimeCalibrationPage {
@@ -15,5 +16,6 @@ public:
                          const WifiProvisionService& wifi);
   bool handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus, TimeService& timeService);
   bool renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
-                    DisplayMonoTft& display, const TimeService& timeService) const;
+                    DisplayMonoTft& display, const TimeService& timeService,
+                    SdBitmapFont* titleFont = nullptr) const;
 };

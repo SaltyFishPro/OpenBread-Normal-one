@@ -40,8 +40,9 @@ public:
     uint32_t commonMisses = 0;
   };
 
-  // Reuses verified headers until end(); callers must end before SD ownership changes.
+  // Full-font CRC results are shared only within the current SD session.
   bool open(uint16_t pixelSize, bool useExternalCache = true);
+  bool openUiSubset(uint16_t pixelSize);
   void end();
   void tick();
   bool consumeChanged();
@@ -53,9 +54,12 @@ public:
   const Metrics& metrics() const { return metrics_; }
   const CacheStats& cacheStats() const { return cacheStats_; }
   size_t cacheBytes() const { return cacheMemory_.size(); }
+  size_t residentBytes() const { return subsetMemory_.size(); }
+  bool currentCard() const;
   uint32_t commonGlyphCount() const { return commonCount_; }
 
 private:
+  bool openFile(uint16_t pixelSize, bool useExternalCache, bool uiSubset);
   enum class CheckPhase : uint8_t { Font, CommonHeader, CommonData };
   static constexpr uint16_t kCacheSlots = 8;
   static constexpr uint16_t kPsramGlyphSlots = 256;
@@ -64,7 +68,6 @@ private:
   static constexpr uint8_t kCommonRecordBytes = 8;
   static constexpr uint8_t kCommonHeaderBytes = 96;
   static constexpr uint8_t kGlyphWays = 4;
-  static constexpr uint8_t kVerifiedFiles = 3;
   static constexpr uint16_t kGlyphCacheBytes = 128;
   static constexpr uint8_t kIndexBlockRecords = 16;
   static constexpr uint8_t kRecordBytes = 24;
@@ -87,6 +90,7 @@ private:
                 "SD font cache exceeds PSRAM budget");
 
   bool readRecord(uint32_t index, Glyph& glyph);
+  bool readAt(uint32_t offset, uint8_t* data, size_t length);
   bool fail(Error error);
   bool validateRow(const Glyph& glyph, const uint8_t* data) const;
   void clearCache();
@@ -103,6 +107,10 @@ private:
   SdFontFile file_;
   SdFontFile commonFile_;
   SdFontCacheBuffer cacheMemory_;
+  SdFontCacheBuffer subsetMemory_;
+  uint32_t fileBytes_ = 0;
+  uint32_t generation_ = 0;
+  bool uiSubset_ = false;
   PsramCache* psramCache_ = nullptr;
   CacheStats cacheStats_;
   Metrics metrics_;
@@ -122,8 +130,6 @@ private:
   uint32_t commonExpectedChecksum_ = 0;
   CheckPhase checkPhase_ = CheckPhase::Font;
   uint8_t header_[64];
-  uint8_t verifiedHeaders_[kVerifiedFiles][64] = {};
-  uint8_t nextVerified_ = 0;
   uint32_t indexBlockStart_ = UINT32_MAX;
   uint8_t indexBlock_[kIndexBlockRecords * kRecordBytes];
   CacheSlot cache_[kCacheSlots];

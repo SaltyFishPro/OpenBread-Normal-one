@@ -19,6 +19,10 @@ for case in ('valid', 'crc', 'missing', 'validfull'):
     (card / source.name).write_bytes(data)
 for size in (20,24):
     shutil.copyfile(root / f'tools/font_builder/output/font-{size}.bin', out/f'valid/Font/font-{size}.bin')
+    data = bytearray((root / f'tools/font_builder/output/font-{size}.ui.bin').read_bytes())
+    (out/f'valid/Font/font-{size}.ui.bin').write_bytes(data)
+    data[-1] ^= 0x80
+    (out/f'crc/Font/font-{size}.ui.bin').write_bytes(data)
 common = root / 'tools/font_builder/output/font-14.common.bin'
 if common.is_file():
     shutil.copyfile(common, out/'valid/Font/font-14.common.bin')

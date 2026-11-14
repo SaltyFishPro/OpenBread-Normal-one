@@ -25,6 +25,7 @@ try {
         'src/ui/pages/TimeCalibrationPage.cpp', 'src/ui/pages/FocusClockPage.cpp',
         'src/ui/pages/TimerPage.cpp',
         'src/ui/pages/RemotePage.cpp', 'src/ui/pages/SettingsPage.cpp',
+        'src/ui/pages/WifiPage.cpp', 'src/services/WifiNetworkStore.cpp',
         'src/ui/pages/AnswersBookPage.cpp', 'src/ui/pages/ReaderPage.cpp',
         'src/services/ReaderService.cpp', 'src/ui/pages/SystemUpdatePage.cpp',
         'lib/ST7305_MonoTFT_Library/src/ST73XX_UI.cpp',
@@ -33,7 +34,7 @@ try {
     )
     uv run --with ziglang==0.13.0 python -m ziglang c++ -std=c++17 -O1 `
         -DOB_SD_FONT_LOG_ENABLED=0 -DOB_LOG_LEVEL=0 -ffunction-sections -fdata-sections '-Wl,--gc-sections' `
-        -I tools/ui_sd_font_preview/stubs -I tools/reader_font_preview/stubs `
+        -I tools/wifi_device_tests/stubs -I tools/ui_sd_font_preview/stubs -I tools/reader_font_preview/stubs `
         -I tools/sd_font_tests/stubs -I tools/system_update_preview/stubs `
         -I tools/answers_book_preview/stubs -I . -I lib/ST7305_MonoTFT_Library/src `
         @sources -o tmp/ui-sd-font/test.exe

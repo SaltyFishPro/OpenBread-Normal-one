@@ -1,3 +1,4 @@
+#include "src/bsp/SdCardSession.h"
 #include <FS.h>
 #include <esp_heap_caps.h>
 #include <algorithm>
@@ -48,6 +49,7 @@ uint16_t le16(const uint8_t* p) { return p[0] | uint16_t(p[1]) << 8U; }
 uint32_t le32(const uint8_t* p) { return le16(p) | uint32_t(le16(p + 2)) << 16U; }
 void root(const char* name, SdBitmapFont& font) {
   font.end();  // Changing the test card must invalidate the previous SD session.
+  SdCardSession::invalidate();
   TestFs::root = std::string(kRoot) + name;
 }
 void ready(SdBitmapFont& font) {
@@ -116,6 +118,37 @@ void waitForCommonLoading(SdBitmapFont& font) {
        font.state() == SdBitmapFont::State::Checking; ++i) font.tick();
   check(TestFs::handles == 2U && font.state() == SdBitmapFont::State::Checking &&
         font.commonGlyphCount() == 0U, "Common loading stage not entered");
+}
+
+void verificationSessionTests(SdBitmapFont& font) {
+  root("valid", font);
+  check(font.open(14,false), "first session open"); ready(font);
+  font.end();
+  SdBitmapFont another;
+  const size_t bytes = TestFs::bytes;
+  check(another.open(14,false) && another.state()==SdBitmapFont::State::Ready &&
+        TestFs::bytes-bytes==64U, "end/cross-instance reuse reread payload");
+  SdBitmapFont::Glyph glyph;
+  check(another.glyph('A',glyph), "session reference glyph");
+  SdCardSession::invalidate();
+  const size_t reads=TestFs::reads;
+  uint8_t row[128];
+  check(!another.readRow(glyph,0,row,sizeof(row)) &&
+        another.state()==SdBitmapFont::State::Error && TestFs::reads==reads,
+        "stale SD handle accessed after ownership change");
+  another.end();
+  check(font.open(14,false) && font.state()==SdBitmapFont::State::Checking,
+        "new SD session reused old CRC");
+  ready(font); font.end();
+  // Same header, changed payload on a different card must still fail CRC.
+  SdCardSession::invalidate();
+  TestFs::root = std::string(kRoot) + "crc";
+  check(font.open(14,false), "corrupt new card open");
+  for(unsigned i=0;i<10000 && font.state()==SdBitmapFont::State::Checking;++i)font.tick();
+  check(font.error()==SdBitmapFont::Error::Crc && !TestFs::handles && !TestPsram::used,
+        "corrupt replacement card trusted previous CRC");
+  font.end();
+  std::printf("PASS: end/cross-instance CRC reuse=64 bytes; SD change rejects stale handles and corrupt payload\n");
 }
 
 void commonTests(SdBitmapFont& font, DisplayMonoTft& display, bool usePsram) {
@@ -537,6 +570,7 @@ int main(int argc, char** argv) {
       }
       check(TestPsram::used == 0U && TestFs::handles == 0U, "Destructor leaked PSRAM/file");
     }
+    verificationSessionTests(font);
     commonTests(font, display, usePsram);
     check(TestPsram::peak <= SdFontCacheBuffer::kBudgetBytes &&
           TestPsram::allocations == TestPsram::frees, "PSRAM budget/lifetime mismatch");

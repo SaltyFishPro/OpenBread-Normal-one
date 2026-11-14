@@ -1,4 +1,5 @@
 #include "SdCardDriver.h"
+#include "SdCardSession.h"
 
 #include <SD_MMC.h>
 
@@ -17,6 +18,7 @@ bool SdCardDriver::begin() {
 
 bool SdCardDriver::refresh(Info& info) {
   if (SD_MMC.cardType() == CARD_NONE) {
+    SdCardSession::invalidate();
     SD_MMC.end();
     const bool pinsReady =
         SD_MMC.setPins(BoardConfig::kPinSdClk, BoardConfig::kPinSdCmd,
@@ -52,4 +54,4 @@ bool SdCardDriver::refresh(Info& info) {
   return true;
 }
 
-void SdCardDriver::end() { SD_MMC.end(); }
+void SdCardDriver::end() { SdCardSession::invalidate(); SD_MMC.end(); }

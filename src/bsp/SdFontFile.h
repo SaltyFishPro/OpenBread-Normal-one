@@ -6,7 +6,7 @@
 // Read-only SD access. Mount/unmount and USB ownership belong to the caller.
 class SdFontFile {
 public:
-  bool open(const char* path);
+  bool open(const char* path, bool invalidateOnReadError = true);
   void close();
   bool readAt(uint32_t offset, uint8_t* data, size_t length);
   uint32_t size() const { return size_; }
@@ -14,4 +14,5 @@ public:
 private:
   File file_;
   uint32_t size_ = 0;
+  bool invalidateOnReadError_ = true;
 };

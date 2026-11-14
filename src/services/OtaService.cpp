@@ -1,4 +1,5 @@
 #include "OtaService.h"
+#include "WifiNetworkStore.h"
 #include "OtaReleaseNotes.h"
 
 #include <Preferences.h>
@@ -14,9 +15,6 @@
 #include "../log/Log.h"
 
 namespace {
-constexpr const char* kPrefsNs = "wifi";
-constexpr const char* kPrefsKeySsid = "ssid";
-constexpr const char* kPrefsKeyPass = "pass";
 constexpr const char* kOtaPrefsNs = "ota";
 constexpr const char* kOtaExpectedBuild = "expect_b";
 constexpr const char* kOtaExpectedVer = "expect_v";
@@ -315,20 +313,11 @@ void OtaService::setState(State next, Error err) {
 }
 
 bool OtaService::loadSavedCredentials() {
-  Preferences prefs;
-  if (!prefs.begin(kPrefsNs, true)) {
-    return false;
-  }
-  const String ssid = prefs.getString(kPrefsKeySsid, "");
-  const String pass = prefs.getString(kPrefsKeyPass, "");
-  prefs.end();
-
+  WifiNetworkStore networks;
   memset(staSsid_, 0, sizeof(staSsid_));
   memset(staPass_, 0, sizeof(staPass_));
-  ssid.toCharArray(staSsid_, sizeof(staSsid_));
-  pass.toCharArray(staPass_, sizeof(staPass_));
-
-  return staSsid_[0] != '\0';
+  return networks.begin() && networks.credentials(0, staSsid_, sizeof(staSsid_),
+                                                 staPass_, sizeof(staPass_));
 }
 
 void OtaService::cleanupRadio() {

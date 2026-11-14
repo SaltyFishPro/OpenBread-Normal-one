@@ -1,4 +1,5 @@
 #include "FontSetupService.h"
+#include "../bsp/SdCardSession.h"
 
 #include <SD_MMC.h>
 #include <WiFi.h>
@@ -271,6 +272,7 @@ void FontSetupService::finishFile() {
   if (!hashMatches(actual, expected.sha256)) { fail(Error::Hash, "sha256 mismatch"); return; }
   char destination[48];
   snprintf(destination, sizeof(destination), "%s/%s", FontBundle::kDirectory, expected.name);
+  SdCardSession::invalidate();
   if (SD_MMC.exists(destination) && !SD_MMC.remove(destination)) {
     fail(Error::Write, "replace old font");
     return;

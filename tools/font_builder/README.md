@@ -199,7 +199,7 @@ output/
 
 ## 固定菜单子集
 
-主菜单等固定中文界面优先读取 `font-14.ui.bin`。导出字库时会自动为每个字号生成对应的 `font-字号.ui.bin`（当前导出 14/20/24 三份），一起放进 `Font/` 文件夹；固件目前只使用 14 号，其余字号留作备用。子集只含固定 UI 文案所需码点，体积约几十 KB，加载时无需整读完整字库。
+主菜单等固定中文界面优先读取 `font-14.ui.bin`。导出字库时会自动为每个字号生成对应的 `font-字号.ui.bin`（当前导出 14/20/24 三份），一起放进 `Font/` 文件夹；固件使用 14 号常驻缓存，WiFi 页面按需打开 20/24 号子集；动态网络名称仍使用完整字库。子集只含固定 UI 文案所需码点，体积约几十 KB，加载时无需整读完整字库。
 
 只重新生成子集而不重新导出字库：
 
@@ -210,3 +210,7 @@ python tools/font_builder/font_ui_subset.py --size 24
 ```
 
 固件文案（`src/services/UiFontCodepoints.h`）变化后重新生成；文件缺失、损坏或与码点名单不一致时，设备自动回退完整字库路径。源字体缺少的码点（如 U+FFFD）不会写入子集，运行时显示占位框。
+
+### 更新 WiFi 页面字体包
+
+固定文案变化后执行 `python tools/ui_sd_font_preview/prepare_codepoints.py`，再执行 `python tools/font_builder/build_ui_package.py`。后者需要 `output/` 的完整 14/20/24 字库和现有 `output/Font/manifest.json`，同步生成三份 UI 子集、更新 SD 包描述及固件 `FontBundle.h` 的下载哈希。将 `output/Font/` 中的三个 `font-*.ui.bin` 同步复制到 SD 卡与字体服务器；首次开机所需六份文件见 [安装说明](../../docs/FIRST_BOOT_FONT_SETUP.md)。

@@ -16,7 +16,6 @@ public:
     Restart,
     FactoryReset,
     OtaApply,
-    WifiStart,
   };
 
   static constexpr uint8_t kHomeIndex = 0;
@@ -30,7 +29,7 @@ public:
   static constexpr uint8_t kAboutDeviceItemIndex = 7;
 
   ConfirmKind popupForSelection(uint8_t homeFocus, uint8_t sectionFocus) const;
-  // 详情页按 OK 前是否需要确认（目前只有"应用固件"和"开始配网"）。
+  // 详情页应用固件前需要确认；WiFi 页自行处理其确认操作。
   ConfirmKind detailConfirmFor(uint8_t homeFocus, uint8_t sectionFocus, const OtaService& ota,
                                const WifiProvisionService& wifi) const;
   bool isAboutDeviceSelection(uint8_t homeFocus, uint8_t sectionFocus) const;

@@ -4,30 +4,32 @@
 #include <cstdio>
 
 #include "../../bsp/DisplayMonoTft.h"
-#include "../DetailHeader.h"
-#include "../TextUtils.h"
+#include "../DrawUtils.h"
+#include "../SdUiText.h"
 #include "../../services/TimeService.h"
 #include "../../services/WifiProvisionService.h"
 
 namespace {
-void drawSelectionButton(DisplayMonoTft& display, int16_t x1, int16_t y1, int16_t x2, int16_t y2,
-                         bool selected, const char* label) {
+constexpr uint16_t kBlack = ST7305_COLOR_BLACK;
+constexpr uint16_t kWhite = ST7305_COLOR_WHITE;
+
+void clockIcon(DisplayMonoTft& display, int16_t x, int16_t y, int16_t radius) {
   auto& canvas = display.canvas();
+  canvas.drawCircle(x, y, radius, kWhite);
+  canvas.drawLine(x, y, x, y - radius / 2, kWhite);
+  canvas.drawLine(x, y, x + radius / 2, y + radius / 3, kWhite);
+}
+
+void label(DisplayMonoTft& display, SdBitmapFont* font, int16_t x, int16_t baseline,
+           const char* value, int16_t width, uint16_t color = kWhite) {
   auto& text = display.text();
-  const uint16_t fill = selected ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE;
-  const uint16_t fg = selected ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK;
-
-  canvas.drawFilledRectangle(x1, y1, x2, y2, fill);
-  canvas.drawRectangle(x1, y1, x2, y2, ST7305_COLOR_BLACK);
-
   text.setFont(u8g2_font_7x14_tf);
-  text.setBackgroundColor(fill);
-  text.setForegroundColor(fg);
-  text.setFontMode(selected ? 0 : 1);
-  const int16_t labelX =
-      TextUtils::centeredTextXInBox(text, label, x1, static_cast<int16_t>(x2 - x1 + 1));
-  const int16_t labelY = static_cast<int16_t>(y1 + ((y2 - y1 + 1) / 2) + 5);
-  text.drawUTF8(labelX, labelY, label);
+  text.setFontMode(1);
+  text.setForegroundColor(color);
+  text.setBackgroundColor(kBlack);
+  const SdBitmapText::Clip clip = {x, static_cast<int16_t>(baseline - 28),
+      static_cast<int16_t>(x + width - 1), static_cast<int16_t>(baseline + 5)};
+  SdUiText::draw(display, font, x, baseline, value, color, clip);
 }
 
 const char* syncSourceTextZh(TimeService::SyncSource source) {
@@ -105,7 +107,9 @@ bool TimeCalibrationPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFo
     timeService.cancelNtpSync();
     return true;
   }
-  (void)timeService.requestNtpSync(nowMs, wifi.targetSsid(), wifi.targetPass());
+  char ssid[33] = {}, pass[65] = {};
+  (void)wifi.networks().credentials(0, ssid, sizeof(ssid), pass, sizeof(pass));
+  (void)timeService.requestNtpSync(nowMs, ssid, pass);
   return true;
 }
 
@@ -125,60 +129,54 @@ bool TimeCalibrationPage::handleDetailBack(uint8_t homeFocus, uint8_t sectionFoc
 
 bool TimeCalibrationPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
                                        DisplayMonoTft& display,
-                                       const TimeService& timeService) const {
+                                       const TimeService& timeService, SdBitmapFont* titleFont) const {
   if (!isTimeCalibrationSelection(homeFocus, sectionFocus)) {
     return false;
   }
 
   auto& canvas = display.canvas();
-  auto& text = display.text();
   const int16_t width = static_cast<int16_t>(display.width());
-  const int16_t height = static_cast<int16_t>(display.height());
   const TimeService::Snapshot& snapshot = timeService.snapshot();
-
-  DetailHeader::render(display, "时间校准", yOffset);
-
-  const int16_t infoX = 10;
-  const int16_t infoY1 = static_cast<int16_t>(yOffset + 55);
-  const int16_t infoY2 = static_cast<int16_t>(yOffset + 79);
-  const int16_t infoY3 = static_cast<int16_t>(yOffset + 103);
-
-  text.setFont(u8g2_font_7x14_tf);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setFontMode(1);
-
-  char line1[72];
-  char line2[72];
-  char line3[72];
-
-  if (snapshot.valid) {
-    snprintf(line1, sizeof(line1), "%04u-%02u-%02u  %02u:%02u",
-             static_cast<unsigned>(snapshot.now.year), static_cast<unsigned>(snapshot.now.month),
-             static_cast<unsigned>(snapshot.now.day), static_cast<unsigned>(snapshot.now.hour),
-             static_cast<unsigned>(snapshot.now.minute));
-  } else {
-    snprintf(line1, sizeof(line1), "当前时间未校准");
-  }
-
-  snprintf(line2, sizeof(line2), "校时来源：%s", syncSourceTextZh(snapshot.lastSource));
-
+  const bool syncing = snapshot.syncState == TimeService::SyncState::Syncing;
   const bool hasError = snapshot.error != TimeService::Error::None;
-  snprintf(line3, sizeof(line3), hasError ? "错误：%s" : "状态：%s",
-           hasError ? errorTextZh(snapshot.error) : syncStateTextZh(snapshot.syncState));
+  SdBitmapFont* large = SdUiText::ready(titleFont) ? titleFont : nullptr;
 
-  text.drawUTF8(infoX, infoY1, line1);
-  text.drawUTF8(infoX, infoY2, line2);
-  text.drawUTF8(infoX, infoY3, line3);
-  const bool ntpSyncing = snapshot.syncState == TimeService::SyncState::Syncing;
-  const int16_t buttonX1 = 18;
-  const int16_t buttonX2 = static_cast<int16_t>(width - 19);
-  const int16_t buttonY1 = static_cast<int16_t>(yOffset + 119);
-  const int16_t buttonY2 = static_cast<int16_t>(yOffset + 151);
-  drawSelectionButton(display, buttonX1, buttonY1, buttonX2, buttonY2, true,
-                      ntpSyncing ? "停止网络校时" : "网络校时");
+  DrawUtils::drawClippedFilledRect(canvas, 0, yOffset, width - 1,
+                                   yOffset + display.height() - 1, kBlack);
+  clockIcon(display, 24, yOffset + 18, 8);
+  label(display, nullptr, 39, yOffset + 23, "时间校准", 170);
+  const char* status = hasError ? "校时失败" : syncStateTextZh(snapshot.syncState);
+  auto& text = display.text();
+  text.setFont(u8g2_font_7x14_tf);
+  const int16_t statusWidth = SdUiText::width(display, nullptr, status);
+  label(display, nullptr, width - 16 - statusWidth, yOffset + 23, status, statusWidth + 1);
 
-  canvas.drawRectangle(4, static_cast<int16_t>(yOffset + 32), width - 5,
-                       static_cast<int16_t>(yOffset + height - 5), ST7305_COLOR_BLACK);
+  clockIcon(display, 55, yOffset + 83, 23);
+  char clock[24];
+  if (snapshot.valid) {
+    snprintf(clock, sizeof(clock), "%02u:%02u", snapshot.now.hour, snapshot.now.minute);
+  } else {
+    snprintf(clock, sizeof(clock), "--:--");
+  }
+  label(display, large, 112, yOffset + 72, clock, 250);
+  char date[36];
+  if (snapshot.valid) {
+    snprintf(date, sizeof(date), "%04u-%02u-%02u", snapshot.now.year,
+             snapshot.now.month, snapshot.now.day);
+  } else {
+    snprintf(date, sizeof(date), "当前时间未校准");
+  }
+  label(display, nullptr, 112, yOffset + 97, date, 250);
+  const char* detail = hasError ? errorTextZh(snapshot.error) :
+      syncing ? "正在校时" : syncSourceTextZh(snapshot.lastSource);
+  label(display, nullptr, 112, yOffset + 120, detail, 250);
+
+  label(display, nullptr, 16, yOffset + 157, "< 返回", 120);
+  const char* action = syncing ? "停止网络校时" : "网络校时";
+  const int16_t actionWidth = SdUiText::width(display, nullptr, action);
+  const int16_t actionX = width - 16 - actionWidth - 37;
+  DrawUtils::drawRoundRect(canvas, actionX, yOffset + 140, 31, 18, 4, kBlack, kWhite);
+  label(display, nullptr, actionX + 5, yOffset + 154, "OK", 24);
+  label(display, nullptr, actionX + 37, yOffset + 157, action, actionWidth + 1);
   return true;
 }

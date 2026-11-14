@@ -206,6 +206,9 @@ void UiManager::tick() {
     needsRedraw_ = true;
   }
   wifiProvisionService_.tick(nowMs, timeService_);
+  if (state_ == UiState::Detail &&
+      settingsPage_.isWifiProvisionSelection(homePage_.focusIndex(), sectionFocusIndex_) &&
+      wifiPage_.update(wifiProvisionService_)) needsRedraw_ = true;
   if (wifiProvisionService_.consumeChanged() && !staticReaderDetail) {
     needsRedraw_ = true;
   }
@@ -252,6 +255,7 @@ void UiManager::tick() {
   updateState(edges, nowMs);
   syncUiFont();
   syncContentFonts();
+  syncResidentFonts();
   if (state_ == UiState::Detail &&
       readerPage_.isStaticWordDetail(homePage_.focusIndex(), sectionFocusIndex_) &&
       readerPage_.updateMeaning(readerService_, sdBitmapFont_)) needsRedraw_ = true;
@@ -283,6 +287,9 @@ void UiManager::tick() {
     render(nowMs);
     lastRenderMs_ = nowMs;
     needsRedraw_ = false;
+    if (state_ == UiState::Detail &&
+        settingsPage_.isWifiProvisionSelection(homePage_.focusIndex(),sectionFocusIndex_) &&
+        wifiPage_.afterPresent(millis(),wifiProvisionService_)) needsRedraw_=true;
   }
 
   updateCpuClock(millis());
@@ -375,6 +382,8 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
           musicPage_.resetState(homePage_.focusIndex(), sectionFocusIndex_);
           if (settingsPage_.isOtaSelection(homePage_.focusIndex(), sectionFocusIndex_))
             systemUpdatePage_.prepareEnter();
+          if (settingsPage_.isWifiProvisionSelection(homePage_.focusIndex(), sectionFocusIndex_))
+            wifiPage_.prepareEnter(wifiProvisionService_);
           if (homePage_.focusIndex() == HomePage::kComputerStatusMenuIndex)
             computerStatusPage_.prepareEnter();
           state_ = UiState::ToDetailTransition;
@@ -439,6 +448,22 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
     }
 
     case UiState::Detail: {
+      if (settingsPage_.isWifiProvisionSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
+        if (edges.left || edges.up || edges.down || edges.ok) {
+          const bool loading = sdBitmapFont_.state() == SdBitmapFont::State::Checking ||
+                               sdTitleFont_.state() == SdBitmapFont::State::Checking ||
+                               wifiPage_.fontsLoading();
+          if (loading && !edges.left) break;
+          const bool stay = wifiPage_.handleInput(edges.left,edges.up,edges.down,edges.ok,
+                                                  nowMs,wifiProvisionService_,timeService_);
+          if (!stay) {
+            state_ = UiState::ToHomeTransition;
+            transitionStartMs_ = nowMs;
+          }
+          needsRedraw_ = true;
+        }
+        break;
+      }
       // 详情页上的确认弹窗优先接收输入。
       if (PopupView::isVisible(confirmState_.anim)) {
         if (PopupView::handleInput(confirmState_, edges.left, edges.right, edges.up, edges.down,
@@ -448,16 +473,14 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         break;
       }
 
-      // 「应用固件」「开始配网」这类动作先弹确认，再由 performConfirmAction 执行。
+      // 应用固件先弹确认，再由 performConfirmAction 执行。
       const SettingsPage::ConfirmKind detailConfirm = settingsPage_.detailConfirmFor(
           homePage_.focusIndex(), sectionFocusIndex_, otaService_, wifiProvisionService_);
       if (edges.ok && detailConfirm != SettingsPage::ConfirmKind::None) {
         openConfirm(settingsPage_.confirmTitle(detailConfirm),
                     settingsPage_.confirmPrimaryLabel(detailConfirm),
                     settingsPage_.confirmDangerLabel(detailConfirm),
-                    detailConfirm == SettingsPage::ConfirmKind::OtaApply
-                        ? ConfirmAction::OtaApply
-                        : ConfirmAction::WifiStart,
+                    ConfirmAction::OtaApply,
                     nowMs);
         needsRedraw_ = true;
         break;
@@ -641,6 +664,15 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
                                              detailPageIndex_,
                                              edges.ok, nowMs, wifiProvisionService_, otaService_)) {
           needsRedraw_ = true;
+        } else if (settingsPage_.isAboutDeviceSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
+          if (edges.up && detailPageIndex_ > 0) {
+            --detailPageIndex_;
+            needsRedraw_ = true;
+          } else if (edges.down && detailPageIndex_ + 1 < settingsPage_.detailPageCount(
+                         homePage_.focusIndex(), sectionFocusIndex_)) {
+            ++detailPageIndex_;
+            needsRedraw_ = true;
+          }
         } else if (edges.up || edges.down || edges.right || edges.ok) {
           uint8_t pageCount = timeCalibrationPage_.detailPageCount(homePage_.focusIndex(), sectionFocusIndex_);
           if (pageCount == 0U) {
@@ -817,6 +849,7 @@ uint32_t UiManager::nextIdleDelayMs(uint32_t nowMs) const {
       iicScanService_.isBusy() || rtcTestService_.isBusy() || imuTestService_.isBusy() ||
       sdBitmapFont_.state() == SdBitmapFont::State::Checking ||
       sdTitleFont_.state() == SdBitmapFont::State::Checking ||
+      residentFontsLoading() ||
       uiFont_.state() == UiFontCache::State::Loading ||
       systemUpdatePage_.isPreparingLogs() || readerPage_.isPreparingMeaning()) {
     return kActivePollMs;
@@ -838,6 +871,7 @@ void UiManager::updateCpuClock(uint32_t nowMs) {
       iicScanService_.isBusy() || rtcTestService_.isBusy() || imuTestService_.isBusy() ||
       sdBitmapFont_.state() == SdBitmapFont::State::Checking ||
       sdTitleFont_.state() == SdBitmapFont::State::Checking ||
+      residentFontsLoading() ||
       uiFont_.state() == UiFontCache::State::Loading ||
       systemUpdatePage_.isPreparingLogs() || readerPage_.isPreparingMeaning();
   // 满屏渲染后保持一段满速窗口；期间只画脏区域的局部帧可以降频执行。
@@ -863,6 +897,14 @@ void UiManager::updateCpuClock(uint32_t nowMs) {
 
 void UiManager::render(uint32_t nowMs) {
   SdUiText::FixedScope fixedText(display_, uiFont_);
+  if (state_ == UiState::Detail &&
+      settingsPage_.isWifiProvisionSelection(homePage_.focusIndex(),sectionFocusIndex_) &&
+      wifiPage_.renderConfirmationFocusOnly(display_)) {
+    // Redraw only buttons in RAM. Keep the proven full-frame panel transfer:
+    // narrow ST7305 windows have shown coordinate errors on this hardware.
+    display_.present();
+    return;
+  }
   // Keep a verified host frame on screen until the next verified frame.
   if (isComputerStatusDetail() && computerStatusFrameVisible_ &&
       !computerStatusProtocol_.hasCompletedFrame()) {
@@ -1077,8 +1119,6 @@ void UiManager::performConfirmAction(uint32_t nowMs) {
       break;
     case ConfirmAction::OtaApply:
       closeContentFonts(); // Release SD resources before flash activation/restart.
-      [[fallthrough]];
-    case ConfirmAction::WifiStart:
       // 复用详情页原有的 OK 处理：确认后带一次 OK 边沿执行动作。
       (void)settingsPage_.handleDetailInput(homePage_.focusIndex(), sectionFocusIndex_,
                                             detailPageIndex_, true, nowMs,
@@ -1134,6 +1174,9 @@ void UiManager::renderDetail(int16_t yOffset) {
   } else if (homePage_.focusIndex() == HomePage::kSdUsbMenuIndex) {
     sdUsbPage_.render(display_, yOffset, HomePage::sdUsbIcon(), sdUsbSwitch_.enabled());
     handled = true;
+  } else if (settingsPage_.isWifiProvisionSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
+    wifiPage_.render(display_,yOffset,wifiProvisionService_,timeService_,&sdBitmapFont_,&sdTitleFont_);
+    handled = true;
   } else if (settingsPage_.isOtaSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
     systemUpdatePage_.render(display_, yOffset, SystemUpdatePage::viewOf(otaService_), millis(), &sdBitmapFont_);
     handled = true;
@@ -1147,7 +1190,7 @@ void UiManager::renderDetail(int16_t yOffset) {
                                           display_, millis(), timeService_)) {
     handled = true;
   } else if (timerPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset,
-                                     display_, millis(), &sdTitleFont_)) {
+                                     display_, millis(), &ui24Font_)) {
     handled = true;
   } else if (answersBookPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset,
                                            display_, millis(), &sdBitmapFont_, &sdTitleFont_)) {
@@ -1162,12 +1205,12 @@ void UiManager::renderDetail(int16_t yOffset) {
                                       bluetoothService_, remoteService_)) {
     handled = true;
   } else if (timeCalibrationPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset,
-                                               display_, timeService_)) {
+                                               display_, timeService_, &ui24Font_)) {
     handled = true;
   } else if (settingsPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_,
                                         detailPageIndex_, yOffset, display_, deviceIdText_,
                                         flashTotalText_, sdStatusText_, wifiProvisionService_,
-                                        timeService_, &sdBitmapFont_)) {
+                                        timeService_, &ui20Font_)) {
     handled = true;
   }
 
@@ -1194,14 +1237,24 @@ void UiManager::renderDetail(int16_t yOffset) {
 }
 
 void UiManager::closeContentFonts() {
+  ui20Attempted_ = ui24Attempted_ = false;
+  wifiPage_.endFonts();
   uiFont_.cancelLoad();  // Ready UI glyphs remain usable after SD ownership changes.
+  // Only completed memory snapshots may outlive an SD ownership change.
+  for (auto* font : {&ui20Font_, &ui24Font_})
+    if (!font->residentBytes() || font->state() != SdBitmapFont::State::Ready) font->end();
   sdTitleFont_.end();
   sdBitmapFont_.end();
   contentFontUse_ = ContentFontUse::None;
 }
 
 void UiManager::syncUiFont() {
-  if (state_ != UiState::Home) {
+  const bool fixedPage = state_ == UiState::Detail &&
+      (settingsPage_.isWifiProvisionSelection(homePage_.focusIndex(), sectionFocusIndex_) ||
+       timerPage_.isSelection(homePage_.focusIndex(), sectionFocusIndex_) ||
+       settingsPage_.isAboutDeviceSelection(homePage_.focusIndex(), sectionFocusIndex_) ||
+       timeCalibrationPage_.isTimeCalibrationSelection(homePage_.focusIndex(), sectionFocusIndex_));
+  if (state_ != UiState::Home && !fixedPage) {
     uiFont_.cancelLoad();
     uiFontAttempted_ = false;
     return;
@@ -1210,7 +1263,7 @@ void UiManager::syncUiFont() {
   // home visit; no repeated mount/CRC loop on absent, corrupt or removed cards.
   if (!uiFontAttempted_ && lastRenderMs_ != 0 && !musicService_.isBusy()) {
     uiFontAttempted_ = true;
-    if (uiFont_.state() != UiFontCache::State::Ready) {
+    if (uiFont_.state() != UiFontCache::State::Ready || !uiFont_.currentCard()) {
       if (sdCardService_.status() != SdCardService::Status::Ready) sdCardService_.refresh();
       (void)uiFont_.begin();
     }
@@ -1230,6 +1283,53 @@ void UiManager::syncUiFont() {
   }
 }
 
+bool UiManager::residentFontsLoading() const {
+  return ui20Font_.state() == SdBitmapFont::State::Checking ||
+         ui24Font_.state() == SdBitmapFont::State::Checking;
+}
+
+void UiManager::syncResidentFonts() {
+  const bool fixedPage = state_ == UiState::Detail &&
+      (contentFontUse_ == ContentFontUse::Wifi || contentFontUse_ == ContentFontUse::Timer ||
+       settingsPage_.isAboutDeviceSelection(homePage_.focusIndex(), sectionFocusIndex_) ||
+       timeCalibrationPage_.isTimeCalibrationSelection(homePage_.focusIndex(), sectionFocusIndex_));
+  if (state_ != UiState::Home && !fixedPage) {
+    ui20Attempted_ = ui24Attempted_ = false;
+    for (auto* font : {&ui20Font_, &ui24Font_})
+      if (font->state() == SdBitmapFont::State::Checking) font->end();
+    return;
+  }
+  if (uiFont_.state() != UiFontCache::State::Ready || musicService_.isBusy() ||
+      sdCardService_.status() != SdCardService::Status::Ready ||
+      sdBitmapFont_.state() == SdBitmapFont::State::Checking ||
+      sdTitleFont_.state() == SdBitmapFont::State::Checking) return;
+  for (auto* font : {&ui20Font_, &ui24Font_}) {
+    bool& attempted = font == &ui20Font_ ? ui20Attempted_ : ui24Attempted_;
+    if (!attempted && (font->state() != SdBitmapFont::State::Ready || !font->currentCard())) {
+      attempted = true;
+      (void)font->openUiSubset(font == &ui20Font_ ? 20 : 24);
+    }
+    if (font->state() == SdBitmapFont::State::Checking) {
+      font->tick();
+      if (font->consumeChanged()) {
+        needsRedraw_ = true;
+        lastActivityMs_ = millis();
+      }
+      return; // One cooperative loader per tick.
+    }
+  }
+}
+
+void UiManager::syncWifiContentFonts() {
+  // Keep each requested full font until page exit; fixed-only views never open it.
+  if (wifiPage_.needsFullFont14(wifiProvisionService_) &&
+      sdBitmapFont_.state() == SdBitmapFont::State::Closed)
+    (void)sdBitmapFont_.open(14);
+  if (wifiPage_.needsFullFont20(wifiProvisionService_) &&
+      sdTitleFont_.state() == SdBitmapFont::State::Closed)
+    (void)sdTitleFont_.open(20);
+}
+
 void UiManager::syncContentFonts() {
   // Keep outgoing typography through its exit animation. Start I/O only after entry.
   if (state_ != UiState::Detail && state_ != UiState::Home) return;
@@ -1243,17 +1343,20 @@ void UiManager::syncContentFonts() {
       if (state == OtaService::State::Idle || state == OtaService::State::UpToDate ||
           state == OtaService::State::UpdateAvailable || state == OtaService::State::ReadyToApply)
         next = ContentFontUse::Update;
-    } else if (musicPage_.isMusicListSelection(home, sectionFocusIndex_) ||
-               settingsPage_.isWifiProvisionSelection(home, sectionFocusIndex_))
+    } else if (settingsPage_.isWifiProvisionSelection(home, sectionFocusIndex_))
+      next = ContentFontUse::Wifi;
+    else if (musicPage_.isMusicListSelection(home, sectionFocusIndex_))
       next = ContentFontUse::External;
     else if (timerPage_.isSelection(home, sectionFocusIndex_))
       next = ContentFontUse::Timer;
   }
   if (next == contentFontUse_) {
+    if (next == ContentFontUse::Wifi) syncWifiContentFonts();
     if (next == ContentFontUse::Reader && sdTitleFont_.state() == SdBitmapFont::State::Closed &&
         sdBitmapFont_.state() == SdBitmapFont::State::Checking) (void)sdTitleFont_.open(24, false);
     return;
   }
+  if (contentFontUse_ == ContentFontUse::Wifi) wifiPage_.endFonts();
   const bool music = state_ == UiState::Detail &&
                      musicPage_.isMusicListSelection(homePage_.focusIndex(), sectionFocusIndex_);
   // Music mounts and scans SD cooperatively. Wait until the list is usable before
@@ -1267,11 +1370,15 @@ void UiManager::syncContentFonts() {
   if (next != ContentFontUse::Reader) {
     // Music already owns/mounts SD. Never refresh it while its files are open.
     if (sdCardService_.status() != SdCardService::Status::Ready && !music) sdCardService_.refresh();
-    if (next != ContentFontUse::Timer) (void)sdBitmapFont_.open(14);
+    if (next != ContentFontUse::Timer && next != ContentFontUse::Wifi) (void)sdBitmapFont_.open(14);
   }
   if (next == ContentFontUse::Answers)
     (void)sdTitleFont_.open(20, false);
-  else if (next == ContentFontUse::Reader || next == ContentFontUse::Timer)
+  else if (next == ContentFontUse::Wifi) {
+    wifiPage_.beginFonts(ui20Font_, ui24Font_);
+    syncWifiContentFonts();
+  }
+  else if (next == ContentFontUse::Reader)
     (void)sdTitleFont_.open(24, false);
   needsRedraw_ = true;
 }
@@ -1353,7 +1460,7 @@ bool UiManager::isSleepAllowed() const {
   }
   // Slow SD extraction may outlast the 20s idle timer. Sleeping here would
   // cancel startup on every attempt and leave all fixed Chinese unavailable.
-  if (uiFont_.state() == UiFontCache::State::Loading) return false;
+  if (uiFont_.state() == UiFontCache::State::Loading || residentFontsLoading()) return false;
   if (iicScanService_.isBusy() || rtcTestService_.isBusy() || imuTestService_.isBusy()) {
     return false;
   }

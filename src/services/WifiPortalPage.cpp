@@ -460,6 +460,7 @@ const char kWifiPortalPage[] PROGMEM = R"WIFIPORTAL(<!doctype html>
   var submitting = false;
   var submittedAt = 0;
   var offlineMisses = 0;
+  var prefilled = false;
 
   var CHIP = {
     portal:     ['busy', '等待输入'],
@@ -599,6 +600,10 @@ const char kWifiPortalPage[] PROGMEM = R"WIFIPORTAL(<!doctype html>
     }
 
     var next = String(data.state || '');
+    if (next === 'portal' && !prefilled) {
+      if (!$('#ssid').value && state.ssid) $('#ssid').value = state.ssid;
+      prefilled = true;
+    }
     if (next === 'portal') {
       if (submitting) {
         if (Date.now() - submittedAt > 4000) {

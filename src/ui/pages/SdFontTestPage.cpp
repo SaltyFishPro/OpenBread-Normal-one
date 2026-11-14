@@ -1,4 +1,5 @@
 #include "SdFontTestPage.h"
+#include "../../bsp/SdCardSession.h"
 
 #include "../../bsp/DisplayMonoTft.h"
 #include "../../services/SdBitmapFont.h"
@@ -25,6 +26,7 @@ const char* errorText(SdBitmapFont::Error error) {
 
 void SdFontTestPage::open(SdBitmapFont& font, SdCardService& sd, bool refreshCard) {
   if (refreshCard || sdUnavailable_) {
+    SdCardSession::invalidate();
     font.end();  // A retry/new card must not reuse previous verification results.
     sdUnavailable_ = sd.refresh() != SdCardService::Status::Ready;
   }

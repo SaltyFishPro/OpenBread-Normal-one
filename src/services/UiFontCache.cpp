@@ -1,4 +1,5 @@
 #include "UiFontCache.h"
+#include "../bsp/SdCardSession.h"
 
 #include <Arduino.h>
 #include <cstring>
@@ -30,9 +31,14 @@ uint32_t crc32(uint32_t crc, const uint8_t* data, size_t length) {
 }
 }
 
+bool UiFontCache::currentCard() const {
+  return generation_ == SdCardSession::generation();
+}
+
 bool UiFontCache::begin() {
-  if (state_ == State::Ready) return true;
+  if (state_ == State::Ready && currentCard()) return true;
   end();
+  generation_ = SdCardSession::generation();
   state_ = State::Loading;
   startedMs_ = millis();
   if (beginSubset()) {
@@ -44,6 +50,7 @@ bool UiFontCache::begin() {
   // source_.end() releases this temporary cache before the UI becomes Ready.
   LogI("FONT", "ui loading /Font/font-14.bin glyphs=%u (no usable ui subset)",
        static_cast<unsigned>(kCount));
+  generation_ = SdCardSession::generation();
   if (!source_.open(14)) { fail("open font"); return false; }
   return true;
 }
@@ -62,6 +69,7 @@ void UiFontCache::fail(const char* reason) {
 
 void UiFontCache::tick() {
   if (state_ != State::Loading) return;
+  if (!currentCard()) { fail("SD session changed"); return; }
   if (millis() - startedMs_ >= 120000U) { fail("load timeout"); return; }
   if (subsetActive_) { tickSubset(); return; }
   if (source_.state() == SdBitmapFont::State::Checking) { source_.tick(); return; }
@@ -262,6 +270,7 @@ void UiFontCache::finishSubset() {
 void UiFontCache::fallbackToFullFont(const char* reason) {
   LogI("FONT", "ui subset unavailable reason=%s; fallback full font", reason);
   freeSubset();
+  generation_ = SdCardSession::generation();
   if (!source_.open(14)) fail("open font");
 }
 

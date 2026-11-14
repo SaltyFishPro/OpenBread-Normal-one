@@ -1,3 +1,5 @@
+#include "src/bsp/SdCardSession.h"
+#include "src/app/FirmwareInfo.h"
 #include <FS.h>
 #include <esp_heap_caps.h>
 #include <cstdio>
@@ -24,6 +26,7 @@
 #include "src/ui/pages/TimerPage.h"
 #include "src/ui/pages/RemotePage.h"
 #include "src/ui/pages/SettingsPage.h"
+#include "src/ui/pages/WifiPage.h"
 #include "src/ui/pages/AnswersBookPage.h"
 #include "src/ui/pages/ReaderPage.h"
 #include "src/ui/pages/SystemUpdatePage.h"
@@ -32,11 +35,12 @@
 namespace {
 TimeService::Snapshot clockData;
 WifiProvisionService::State wifiState = WifiProvisionService::State::Idle;
+unsigned timeRequests = 0, timeCancels = 0;
 BluetoothService::State btState = BluetoothService::State::Connected;
 }
 const TimeService::Snapshot& TimeService::snapshot() const { return clockData; }
-void TimeService::cancelNtpSync() {}
-bool TimeService::requestNtpSync(uint32_t,const char*,const char*,bool) { return false; }
+void TimeService::cancelNtpSync() { ++timeCancels; }
+bool TimeService::requestNtpSync(uint32_t,const char*,const char*,bool) { ++timeRequests; return false; }
 WifiProvisionService::State WifiProvisionService::state() const { return wifiState; }
 WifiProvisionService::Error WifiProvisionService::error() const { return Error::None; }
 const char* WifiProvisionService::staIp() const { return "192.168.1.20"; }
@@ -52,7 +56,13 @@ bool WifiProvisionService::canRetryConnect() const { return wifiState == State::
 bool WifiProvisionService::retryConnect() { return false; }
 uint32_t WifiProvisionService::holdRemainingSeconds(uint32_t) const { return 0; }
 uint32_t WifiProvisionService::portalRemainingSeconds(uint32_t) const { return 0; }
-void WifiProvisionService::startPortal(uint32_t, Purpose) {}
+void WifiProvisionService::startPortal(uint32_t, Purpose, int8_t, const char*) { wifiState=State::PortalReady; }
+bool WifiProvisionService::connectSaved(uint8_t index) {
+  if (!networks_.credentials(index,targetSsid_,sizeof(targetSsid_),targetPass_,sizeof(targetPass_))) return false;
+  fromSaved_=true;wifiState=State::Connecting;return true;
+}
+bool WifiProvisionService::forgetNetwork(uint8_t index) { return networks_.forget(index); }
+bool WifiProvisionService::editPortal() { wifiState=State::PortalReady;return true; }
 bool WifiProvisionService::isRadioActive() const { return false; }
 void WifiProvisionService::cancelProvision(TimeService&) {}
 BluetoothService::State BluetoothService::state() const { return btState; }
@@ -108,7 +118,7 @@ void check(bool value, const char* why) { if (!value) throw std::runtime_error(w
 void settle(UiFontCache& font) {
   for (int i=0; i<10000 && font.state()==UiFontCache::State::Loading; ++i) font.tick();
 }
-void root(const char* card) { TestFs::root = std::string("tmp/ui-sd-font/")+card; }
+void root(const char* card) { SdCardSession::invalidate(); TestFs::root = std::string("tmp/ui-sd-font/")+card; }
 void save(DisplayMonoTft& d, const std::string& name) {
   uint8_t raw[8064]; d.captureFrame(raw);
   std::ofstream out("tmp/ui-sd-font/"+name+".pgm", std::ios::binary);
@@ -135,8 +145,74 @@ bool rowHasInk(const uint8_t* frame, DisplayMonoTft& display, int16_t top, int16
   return false;
 }
 
+void residentSubsetTests() {
+  root("valid");
+  for(uint16_t size : {20,24}) {
+    SdBitmapFont resident, full;
+    const size_t loadReads=TestFs::reads;
+    check(resident.openUiSubset(size),"resident open");
+    for(int i=0;i<1000 && resident.state()==SdBitmapFont::State::Checking;++i)resident.tick();
+    check(resident.state()==SdBitmapFont::State::Ready && resident.residentBytes() &&
+          resident.residentBytes()<=128*1024 && !TestFs::handles,"resident budget/handle");
+    const size_t subsetReads=TestFs::reads-loadReads;
+    check(full.open(size,false),"resident reference open");
+    for(int i=0;i<1000 && full.state()==SdBitmapFont::State::Checking;++i)full.tick();
+    check(full.state()==SdBitmapFont::State::Ready,"resident reference ready");
+    for(uint32_t cp:UiFontCodepoints::kValues) {
+      SdBitmapFont::Glyph a,b;
+      const bool found=resident.glyph(cp,a);
+      check(found==full.glyph(cp,b),"resident coverage differs from full font");
+      if(!found)continue;
+      check(a.width==b.width && a.height==b.height && a.xOffset==b.xOffset &&
+            a.yOffset==b.yOffset && a.advance==b.advance,"resident metrics differ");
+      for(uint16_t row=0;row<a.height;++row) {
+        uint8_t ar[128],br[128];
+        check(resident.readRow(a,row,ar,sizeof(ar)) && full.readRow(b,row,br,sizeof(br)) &&
+              !memcmp(ar,br,(a.width+7)/8),"resident pixels differ");
+      }
+    }
+    full.end();
+    const size_t reads=TestFs::reads, allocations=TestPsram::allocations;
+    SdCardSession::invalidate();
+    TestFs::unavailable=true;
+    for(uint32_t cp:UiFontCodepoints::kValues) {
+      SdBitmapFont::Glyph glyph;
+      if(!resident.glyph(cp,glyph))continue;
+      uint8_t row[128];
+      for(uint16_t y=0;y<glyph.height;++y)check(resident.readRow(glyph,y,row,sizeof(row)),"offline resident row");
+    }
+    check(TestFs::reads==reads && TestPsram::allocations==allocations && !TestFs::handles,
+          "resident offline rendering reads/allocates");
+    TestFs::unavailable=false;
+    resident.end();
+    TestPsram::failAllocation=true;
+    check(resident.openUiSubset(size),"resident allocation fallback open");
+    for(int i=0;i<1000 && resident.state()==SdBitmapFont::State::Checking;++i)resident.tick();
+    SdBitmapFont::Glyph glyph;
+    check(resident.state()==SdBitmapFont::State::Ready && !resident.residentBytes() &&
+          resident.glyph('A',glyph),"resident allocation fallback lost font");
+    resident.end();TestPsram::failAllocation=false;
+    check(resident.openUiSubset(size),"resident cancel setup");
+    resident.end();resident.tick();
+    check(!TestPsram::used && !TestFs::handles,"resident cancel leaks");
+    check(resident.openUiSubset(size),"resident session change setup");
+    SdCardSession::invalidate();resident.tick();
+    check(resident.state()==SdBitmapFont::State::Error && !TestPsram::used && !TestFs::handles,
+          "resident partial load survived SD change");
+    resident.end();
+    root("crc");
+    check(resident.openUiSubset(size),"resident CRC fixture open");
+    for(int i=0;i<1000 && resident.state()==SdBitmapFont::State::Checking;++i)resident.tick();
+    check(resident.error()==SdBitmapFont::Error::Crc && !TestPsram::used && !TestFs::handles,
+          "resident bad CRC published/leaked");
+    resident.end();root("valid");
+    printf("PASS: resident %u all UI glyphs match full font; offline reads=0; sequential load reads=%zu; fallback/cancel/session cleanup\n",size,subsetReads);
+  }
+}
+
 int main() {
  try {
+  residentSubsetTests();
   UiFontCache cache;
   DisplayMonoTft d; d.begin();
   root("missing"); check(!cache.begin(), "missing font accepted"); cache.end();
@@ -418,34 +494,25 @@ int main() {
     }
     d.canvas().setRotation(1);
     SettingsPage settings;WifiProvisionService wifi;
-    const auto wifiStateNames = std::vector<std::pair<WifiProvisionService::State, const char*>>{
-        {WifiProvisionService::State::Idle, "wifi-idle"},
-        {WifiProvisionService::State::PortalReady, "wifi-portal"},
-        {WifiProvisionService::State::Connecting, "wifi-connecting"},
-        {WifiProvisionService::State::Connected, "wifi-connected"},
-        {WifiProvisionService::State::Failed, "wifi-failed"},
-        {WifiProvisionService::State::PortalTimeout, "wifi-timeout"},
-        {WifiProvisionService::State::SyncingTime, "wifi-syncing"},
-    };
-    for (auto& entry : wifiStateNames) {
-      wifiState = entry.first;
-      d.clear();
-      settings.renderDetail(0, 2, 0, 0, d, "设备ID: 1234", "Flash: 16MB", "SD: ready", wifi, time);
-      save(d, entry.second);
-      if (entry.first == WifiProvisionService::State::PortalReady) {
-        uint8_t portalFrame[8064];
-        d.captureFrame(portalFrame);
-        check(rowHasInk(portalFrame, d, 38, 53, 12, 245),
-              "WiFi QR connection instruction missing");
-        check(rowHasInk(portalFrame, d, 54, 80, 12, 245), "WiFi AP name missing");
-        check(rowHasInk(portalFrame, d, 96, 111, 12, 245), "WiFi portal prompt missing");
-        check(rowHasInk(portalFrame, d, 123, 140, 12, 245), "WiFi fallback address missing");
-        check(framePixel(portalFrame, d, 270, 50), "WiFi QR finder pattern missing");
-        check(!framePixel(portalFrame, d, 258, 93), "WiFi QR quiet zone was not preserved");
-        check(!framePixel(portalFrame, d, 366, 93), "WiFi QR right quiet zone was not preserved");
-      }
-    }
-    d.clear();settings.renderDetail(0,7,0,0,d,"设备ID: 1234","Flash: 16MB","SD: ready",wifi,time);save(d,"about");
+    check(settings.detailPageCount(0,7)==2,"about page count");
+    d.clear();settings.renderDetail(0,7,0,0,d,"设备ID：123456789ABC","Flash空间：16 MB","SD卡：3.6G可用/3.8G总容量",wifi,time);save(d,"about");
+    uint8_t aboutFrame[8064], versionFrame[8064]; d.captureFrame(aboutFrame);
+    check(framePixel(aboutFrame,d,0,0),"about background not black");
+    d.clear();d.text().setFont(u8g2_font_7x14_tf);d.text().setFontMode(1);
+    d.text().setForegroundColor(ST7305_COLOR_WHITE);d.text().setBackgroundColor(ST7305_COLOR_BLACK);
+    d.canvas().fill(0xFF);
+    char expectedVersion[48]; snprintf(expectedVersion,sizeof(expectedVersion),"V%s",FirmwareInfo::kVersion);
+    d.text().drawUTF8(26,129,expectedVersion);d.captureFrame(versionFrame);
+    for(int y=115;y<=132;++y)for(int x=26;x<155;++x)
+      check(framePixel(aboutFrame,d,x,y)==framePixel(versionFrame,d,x,y),"about firmware version differs from FirmwareInfo");
+    d.clear();settings.renderDetail(0,7,1,0,d,"设备ID：123456789ABC","Flash空间：16 MB","SD卡：3.6G可用/3.8G总容量",wifi,time);save(d,"about-2");
+    d.captureFrame(versionFrame);check(memcmp(aboutFrame,versionFrame,sizeof(aboutFrame)),"about pages identical");
+    wifiState=WifiProvisionService::State::Connected;
+    d.clear();settings.renderDetail(0,7,1,0,d,"设备ID：123456789ABC","Flash空间：16 MB","SD卡：3.6G可用/3.8G总容量",wifi,time);
+    d.captureFrame(aboutFrame);check(!memcmp(aboutFrame,versionFrame,sizeof(aboutFrame)),"about displays WiFi state");
+    d.clear();settings.renderDetail(0,7,1,0,d,"设备ID：123456789ABC","Flash空间：16 MB","SD卡：未插入",wifi,time);save(d,"about-no-sd");
+    wifiState=WifiProvisionService::State::Idle;
+    printf("PASS: about cards, current firmware version pixels, SD states and no IP\n");
   }
   check(TestFs::reads==reads && TestPsram::allocations==allocations,"offline UI performed SD I/O/allocations");
   check(d.text().getUTF8Width(u8"面包")==0,"outer renderer not restored");
@@ -459,11 +526,160 @@ int main() {
     { SdUiText::Scope inner(d,&external);check(d.text().getUTF8Width(u8"龘𠮷")==SdBitmapText::measureUTF8(external,u8"龘𠮷"),"external Unicode lost"); }
     check(d.text().getUTF8Width(u8"面包")==width,"content renderer did not restore fixed cache");
   }
+  SdBitmapFont ui20, ui24;
+  check(ui20.openUiSubset(20) && ui24.openUiSubset(24),"resident subsets open");
+  for(int i=0;i<1000;++i){ui20.tick();ui24.tick();}
+  check(ui20.residentBytes() && ui24.residentBytes(),"subsets not resident");
+  check(ui20.state()==SdBitmapFont::State::Ready && ui24.state()==SdBitmapFont::State::Ready,"resident subsets not ready");
   SdBitmapFont large;
-  check(large.open(20,false),"answer20");
+  check(large.open(20),"answer20");
   for(int i=0;i<1000 && large.state()==SdBitmapFont::State::Checking;++i) large.tick();
   {
     SdUiText::FixedScope fixed(d,cache);
+    WifiProvisionService wifi; TimeService wifiTime;
+    auto& networks=const_cast<WifiNetworkStore&>(wifi.networks());
+    check(networks.save("OpenBread-Home","pw",{2026,11,13,9,30}),"seed history");
+    check(networks.save(u8"工作室 WiFi","pw",{2026,11,12,18,20}),"seed unicode");
+    check(networks.save("XiaoYu-Hotspot","pw",{2026,11,11,12,0}),"seed hotspot");
+    TimeCalibrationPage calibration;
+    clockData = {};
+    clockData.valid = true; clockData.now.year = 2026; clockData.now.month = 11;
+    clockData.now.day = 14; clockData.now.hour = 21; clockData.now.minute = 36;
+    for (const auto state : {TimeService::SyncState::Idle, TimeService::SyncState::Syncing,
+                             TimeService::SyncState::Success, TimeService::SyncState::Failed}) {
+      clockData.syncState = state;
+      clockData.error = state == TimeService::SyncState::Failed ? TimeService::Error::NtpTimeout : TimeService::Error::None;
+      const char* name = state == TimeService::SyncState::Idle ? "time-idle" :
+          state == TimeService::SyncState::Syncing ? "time-syncing" :
+          state == TimeService::SyncState::Success ? "time-success" : "time-failed";
+      const size_t reads = TestFs::reads;
+      d.clear(); check(calibration.renderDetail(0,3,0,d,wifiTime,&ui24),"time page selection");
+      save(d,name);
+      uint8_t frame[8064]; d.captureFrame(frame);
+      check(framePixel(frame,d,0,0) && framePixel(frame,d,383,167),"time page black background/header");
+      check(TestFs::reads == reads,"time page read SD");
+    }
+    clockData.valid = false; clockData.syncState = TimeService::SyncState::Idle;
+    clockData.error = TimeService::Error::None;
+    d.clear();calibration.renderDetail(0,3,0,d,wifiTime,&ui24);save(d,"time-invalid");
+    check(calibration.handleDetailInput(0,3,false,false,true,100,wifiTime,wifi) && timeRequests==1,
+          "time OK did not request sync");
+    clockData.syncState = TimeService::SyncState::Syncing;
+    check(calibration.handleDetailInput(0,3,false,false,true,101,wifiTime,wifi) && timeCancels==1,
+          "time OK did not cancel sync");
+    check(!calibration.handleDetailBack(0,3,wifiTime) && timeCancels==2,
+          "time Left did not cancel and return");
+    clockData = {};
+    printf("PASS: time calibration state frames, zero SD reads and OK/Left interactions\n");
+    SettingsPage aboutPage;
+    const size_t aboutReads=TestFs::reads;
+    d.clear();aboutPage.renderDetail(0,7,0,0,d,"设备ID：123456789ABC","Flash空间：16 MB","SD卡：3.6G可用/3.8G总容量",wifi,wifiTime,&ui20);save(d,"about-resident20");
+    uint8_t heroFrame[8064];d.captureFrame(heroFrame);
+    check(!framePixel(heroFrame,d,20,52),"about hero background not white");
+    check(framePixel(heroFrame,d,33,52),"about hero icon not black");
+    size_t titleInk=0;
+    for(int y=40;y<63;++y)for(int x=72;x<300;++x)
+      if(framePixel(heroFrame,d,x,y))++titleInk;
+    check(titleInk>50,"about hero title not black");
+    check(TestFs::reads==aboutReads,"about cards read SD");
+    WifiPage wifiPage;
+    wifiState=WifiProvisionService::State::Idle;
+    wifiPage.prepareEnter(wifi);wifiPage.beginFonts(ui20,ui24);
+    for(int i=0;i<1000;++i)wifiPage.update(wifi);
+    auto renderWifi=[&](const char* name) { d.clear();wifiPage.render(d,0,wifi,wifiTime,&external,&large);save(d,name); };
+    check(wifiPage.needsFullFont20(wifi) && !wifiPage.needsFullFont14(wifi),"history full-font demand");
+    renderWifi("wifi-history");
+    const size_t historyReads=TestFs::reads;
+    renderWifi("wifi-history");
+    check(TestFs::reads==historyReads,"warm network list still reads SD");
+    uint8_t historyFrame[8064];d.captureFrame(historyFrame);
+    check(framePixel(historyFrame,d,0,0),"WiFi page background is not black");
+    check(!framePixel(historyFrame,d,30,37),"WiFi focus capsule missing");
+    wifiPage.handleInput(false,false,false,true,1000,wifi,wifiTime);renderWifi("wifi-detail");
+    wifiPage.handleInput(false,false,true,false,1001,wifi,wifiTime);
+    wifiPage.handleInput(false,false,false,true,1002,wifi,wifiTime);renderWifi("wifi-forget-confirm");
+    check(wifiPage.needsFullFont14(wifi),"forget network needs full font");
+    check(networks.count()==3,"forget before confirm");
+    wifiPage.handleInput(false,false,false,true,1003,wifi,wifiTime);
+    check(networks.count()==3,"default confirmation was destructive");
+    wifiPage.handleInput(true,false,false,false,1004,wifi,wifiTime);
+    for(int i=0;i<3;++i)wifiPage.handleInput(false,false,true,false,1005+i,wifi,wifiTime);
+    renderWifi("wifi-add-selected");
+    wifiPage.handleInput(false,false,false,true,1010,wifi,wifiTime);
+    const size_t confirmReads=TestFs::reads;
+    renderWifi("wifi-start-confirm");
+    check(TestFs::reads==confirmReads,"fixed start dialog still reads SD");
+    uint8_t confirmBefore[8064],confirmPartial[8064],confirmFull[8064];
+    d.captureFrame(confirmBefore);
+    wifiPage.handleInput(false,false,true,false,1011,wifi,wifiTime);
+    check(wifiPage.renderConfirmationFocusOnly(d),"focus-only render not selected");
+    check(TestFs::reads==confirmReads,"focus-only dialog reads SD");
+    d.captureFrame(confirmPartial);save(d,"wifi-start-selected");
+    check(memcmp(confirmBefore,confirmPartial,sizeof(confirmPartial)),"focus did not change");
+    for(int16_t y=0;y<168;++y)for(int16_t x=0;x<384;++x)
+      if(x<24||x>243||y<101||y>128)
+        check(framePixel(confirmBefore,d,x,y)==framePixel(confirmPartial,d,x,y),"focus changed static text");
+    renderWifi("wifi-start-selected-full");d.captureFrame(confirmFull);
+    check(!memcmp(confirmPartial,confirmFull,sizeof(confirmFull)),"partial dialog differs from full frame");
+    check(TestFs::reads==confirmReads,"repeated dialog still reads SD");
+    wifiPage.handleInput(false,false,false,true,1012,wifi,wifiTime);
+    check(wifiState==WifiProvisionService::State::Idle,"hotspot started before busy frame");
+    check(!wifiPage.afterPresent(1012,wifi),"hotspot started without busy render");
+    renderWifi("wifi-starting");
+    check(wifiState==WifiProvisionService::State::Idle,"busy render enabled radio");
+    check(wifiPage.afterPresent(1013,wifi)&&wifiState==WifiProvisionService::State::PortalReady,"hotspot not started after presentation");
+    check(!wifiPage.afterPresent(1014,wifi),"hotspot started twice");
+    printf("PASS: WiFi fixed dialog/focus SD reads=0; partial frame matches full; hotspot deferred until presentation\n");
+    for(const auto& entry:std::vector<std::pair<WifiProvisionService::State,const char*>>{
+        {WifiProvisionService::State::PortalReady,"wifi-portal"},
+        {WifiProvisionService::State::Connecting,"wifi-connecting"},
+        {WifiProvisionService::State::Failed,"wifi-failed"},
+        {WifiProvisionService::State::PortalTimeout,"wifi-timeout"},
+        {WifiProvisionService::State::SyncingTime,"wifi-syncing"},
+        {WifiProvisionService::State::Connected,"wifi-connected"}}) {
+      wifiState=entry.first;wifiPage.update(wifi);renderWifi(entry.second);
+      if(entry.first==WifiProvisionService::State::PortalReady) {
+        uint8_t frame[8064];d.captureFrame(frame);
+        check(framePixel(frame,d,270,43),"QR top finder missing");
+        check(!framePixel(frame,d,258,93),"QR quiet zone missing");
+        check(framePixel(frame,d,250,93),"QR leaked outside white frame");
+      }
+    }
+    // Dynamic network text is the only reason to request full fonts.
+    wifiState=WifiProvisionService::State::Connecting;
+    check(wifiPage.needsFullFont14(wifi),"connecting lacks dynamic font");
+    // Empty and full-capacity lists use the same production input/render path.
+    while(networks.count())check(networks.forget(0),"clear history");
+    wifiState=WifiProvisionService::State::Idle;wifiPage.prepareEnter(wifi);
+    check(!wifiPage.needsFullFont14(wifi) && !wifiPage.needsFullFont20(wifi),"empty WiFi requested full fonts");
+    const size_t emptyReads=TestFs::reads;
+    renderWifi("wifi-empty");
+    wifiPage.endFonts();wifiPage.beginFonts(ui20,ui24);
+    renderWifi("wifi-empty-reentry");
+    check(TestFs::reads==emptyReads,"empty/reentry WiFi reads SD");
+    wifiPage.handleInput(false,false,false,true,1100,wifi,wifiTime);
+    wifiPage.handleInput(false,false,false,true,1101,wifi,wifiTime);
+    check(networks.count()==0&&wifiState==WifiProvisionService::State::Idle,"empty add default did not cancel");
+    check(networks.save(std::string(32,'W').c_str(),"pw",{}),"seed long SSID");
+    for(int i=0;i<4;++i){char name[20];snprintf(name,sizeof(name),"Saved-%d",i);check(networks.save(name,"pw",{}),"fill history");}
+    wifiPage.prepareEnter(wifi);
+    for(int i=0;i<5;++i)wifiPage.handleInput(false,false,true,false,1110+i,wifi,wifiTime);
+    renderWifi("wifi-full-add");
+    wifiPage.handleInput(false,false,false,true,1120,wifi,wifiTime);
+    renderWifi("wifi-replace");
+    wifiPage.handleInput(false,false,false,true,1121,wifi,wifiTime);
+    renderWifi("wifi-replace-confirm");
+    wifiPage.handleInput(false,false,false,true,1122,wifi,wifiTime);
+    check(networks.count()==5,"replacement default deleted a record");
+    wifiPage.handleInput(true,false,false,false,1123,wifi,wifiTime);
+    for(int i=0;i<4;++i)wifiPage.handleInput(false,true,false,false,1124+i,wifi,wifiTime);
+    wifiPage.handleInput(false,false,false,true,1130,wifi,wifiTime);
+    wifiPage.handleInput(false,false,true,false,1131,wifi,wifiTime);
+    wifiPage.handleInput(false,false,false,true,1132,wifi,wifiTime);
+    wifiPage.handleInput(false,false,true,false,1133,wifi,wifiTime);
+    wifiPage.handleInput(false,false,false,true,1134,wifi,wifiTime);
+    check(networks.count()==4,"confirmed forget did not remove exactly one record");
+    wifiPage.endFonts();
     AnswersBookPage answers;answers.handleDetailEnter(9,0);
     d.clear();answers.renderDetail(9,0,0,d,1000,&external,&large);save(d,"answer-prompt");
     answers.handleDetailInput(9,0,false,false,true,1000);
@@ -502,9 +718,14 @@ int main() {
     timerDone.handleDetailInput(6,0,false,false,false,false,true,0);
     check(timerDone.update(61000),"timer did not finish");
     d.clear();timerDone.renderDetail(6,0,0,d,61000,&large);save(d,"timer-done");
+    uint8_t timerFull[8064],timerSubset[8064];d.captureFrame(timerFull);
+    const size_t timerReads=TestFs::reads;
+    d.clear();timerDone.renderDetail(6,0,0,d,61000,&ui24);d.captureFrame(timerSubset);
+    check(!memcmp(timerFull,timerSubset,sizeof(timerFull)) && TestFs::reads==timerReads,
+          "timer resident title differs or reads SD");
     reader.reset();
   }
-  external.end();large.end();cache.end();
+  external.end();large.end();ui20.end();ui24.end();cache.end();
   check(!TestFs::handles && !TestPsram::used,"final leak");
   std::printf("PASS: cached glyphs, 13 home entries, portrait/USB/popups/settings; offline reads=0; peak PSRAM=%zu; errors/cancel/retry/nested scopes/cleanup\n",TestPsram::peak);
   return 0;

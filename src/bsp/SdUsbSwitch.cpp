@@ -1,4 +1,5 @@
 #include "SdUsbSwitch.h"
+#include "SdCardSession.h"
 
 #include <Arduino.h>
 #include "BoardConfig.h"
@@ -13,6 +14,7 @@ void SdUsbSwitch::begin() {
 
 void SdUsbSwitch::setEnabled(bool enabled) {
   if (enabled == enabled_) return;
+  SdCardSession::invalidate();
   // Log before switching: the HIGH route may disconnect the ESP32 USB serial port.
   LogI("SDUSB", "GPIO%d=%s %s", BoardConfig::kPinSdUsbSelect, enabled ? "HIGH" : "LOW",
        enabled ? "SD_MMC released; enable USB-to-SD bridge"

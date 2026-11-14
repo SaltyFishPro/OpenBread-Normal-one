@@ -1,4 +1,6 @@
 #include "SdBitmapFont.h"
+#include "UiFontCodepoints.h"
+#include "../bsp/SdCardSession.h"
 
 #include <Arduino.h>
 #include <cstdio>
@@ -8,6 +10,10 @@
 #include "../log/Log.h"
 
 namespace {
+struct VerifiedFont { uint32_t generation = 0; uint8_t header[64] = {}; };
+VerifiedFont verifiedFonts[3];
+uint8_t nextVerified = 0;
+
 uint16_t le16(const uint8_t* p) { return p[0] | (uint16_t(p[1]) << 8U); }
 uint32_t le32(const uint8_t* p) { return le16(p) | (uint32_t(le16(p + 2)) << 16U); }
 bool scalar(uint32_t cp) { return cp <= 0x10FFFFU && !(cp >= 0xD800U && cp <= 0xDFFFU); }
@@ -75,6 +81,7 @@ void SdBitmapFont::closeCurrent() {
   }
   file_.close();
   commonFile_.close();
+  subsetMemory_.end();
   checkPhase_ = CheckPhase::Font;
   commonCount_ = 0;
   ++session_;
@@ -86,14 +93,13 @@ void SdBitmapFont::closeCurrent() {
 }
 
 void SdBitmapFont::clearVerified() {
-  memset(verifiedHeaders_, 0, sizeof(verifiedHeaders_));
-  nextVerified_ = 0;
+  for (auto& verified : verifiedFonts) verified.generation = 0;
+  nextVerified = 0;
 }
 
 void SdBitmapFont::end() {
   closeCurrent();
   releaseCache();
-  clearVerified();
 }
 
 bool SdBitmapFont::fail(Error error) {
@@ -102,11 +108,13 @@ bool SdBitmapFont::fail(Error error) {
        static_cast<unsigned long>(verifyOffset_));
   file_.close();
   commonFile_.close();
+  subsetMemory_.end();
   checkPhase_ = CheckPhase::Font;
   commonCount_ = 0;
   clearCache();
   releaseCache();
   clearVerified();
+  generation_ = SdCardSession::generation();
   state_ = State::Error;
   error_ = error;
   changed_ = true;
@@ -114,12 +122,22 @@ bool SdBitmapFont::fail(Error error) {
 }
 
 bool SdBitmapFont::open(uint16_t pixelSize, bool useExternalCache) {
+  return openFile(pixelSize, useExternalCache, false);
+}
+
+bool SdBitmapFont::openUiSubset(uint16_t pixelSize) {
+  return openFile(pixelSize, false, true);
+}
+
+bool SdBitmapFont::openFile(uint16_t pixelSize, bool useExternalCache, bool uiSubset) {
   closeCurrent();
   if (!useExternalCache) releaseCache();
   metrics_.pixelSize = pixelSize;
+  generation_ = SdCardSession::generation();
+  uiSubset_ = uiSubset;
   verifyOffset_ = 0;
   char path[32];
-  snprintf(path, sizeof(path), "/Font/font-%u.bin", pixelSize);
+  snprintf(path, sizeof(path), uiSubset ? "/Font/font-%u.ui.bin" : "/Font/font-%u.bin", pixelSize);
   LogI("FONT", "open %s", path);
   if (!file_.open(path)) return fail(Error::OpenFailed);
   uint8_t* header = header_;
@@ -128,9 +146,11 @@ bool SdBitmapFont::open(uint16_t pixelSize, bool useExternalCache) {
       le16(header + 6) != 64U || le16(header + 8) != kRecordBytes ||
       le16(header + 18) != 1U) return fail(Error::Header);
   const uint16_t size = le16(header + 10);
+  if (uiSubset && le32(header + 40) != sizeof(UiFontCodepoints::kValues) / sizeof(uint32_t))
+    return fail(Error::Header);
   if (size < 6U || size > 128U) return fail(Error::Header);
   if (size != pixelSize) return fail(Error::SizeMismatch);
-  for (uint8_t i = 40; i < sizeof(header_); ++i) {
+  for (uint8_t i = uiSubset ? 44 : 40; i < sizeof(header_); ++i) {
     if (header[i] != 0U) return fail(Error::Header);
   }
   metrics_.ascent = static_cast<int16_t>(le16(header + 12));
@@ -144,11 +164,21 @@ bool SdBitmapFont::open(uint16_t pixelSize, bool useExternalCache) {
       bitmapOffset_ != 64U + metrics_.glyphCount * kRecordBytes ||
       le32(header + 32) != file_.size() || bitmapOffset_ > file_.size())
     return fail(Error::Header);
+  fileBytes_ = file_.size();
   expectedChecksum_ = le32(header + 36);
+  if (uiSubset) {
+    if (subsetMemory_.allocate(fileBytes_)) {
+      memcpy(subsetMemory_.data(), header, sizeof(header_));
+    } else {
+      LogW("FONT", "ui size=%u PSRAM unavailable; using SD fallback", pixelSize);
+    }
+  }
   if (useExternalCache) beginCache();
-  for (const auto& verified : verifiedHeaders_) {
-    if (memcmp(verified, header, sizeof(header_)) == 0) {
-      LogD("FONT", "size=%u CRC32=reused (same SD session/header)", pixelSize);
+  for (const auto& verified : verifiedFonts) {
+    if (!uiSubset && verified.generation == generation_ &&
+        memcmp(verified.header, header, sizeof(header_)) == 0) {
+      LogI("FONT", "size=%u CRC32=reused sd_session=%lu", pixelSize,
+           static_cast<unsigned long>(generation_));
       beginCommonIndex();
       return true;
     }
@@ -163,27 +193,56 @@ bool SdBitmapFont::open(uint16_t pixelSize, bool useExternalCache) {
 
 void SdBitmapFont::tick() {
   if (state_ != State::Checking) return;
+  if (!currentCard()) { fail(Error::Read); return; }
   if (checkPhase_ == CheckPhase::CommonHeader) { beginCommonIndex(); return; }
   if (checkPhase_ == CheckPhase::CommonData) { tickCommonIndex(); return; }
   uint8_t block[1024];
   const uint32_t startMs = millis();
   // Yield after 4 ms or 32 KiB. A single blocking SD read can exceed the time budget.
-  for (uint8_t i = 0; i < 32U && verifyOffset_ < file_.size(); ++i) {
+  for (uint32_t processed = 0; processed < 32U * 1024U && verifyOffset_ < file_.size();) {
     const uint32_t left = file_.size() - verifyOffset_;
-    const size_t length = left < sizeof(block) ? left : sizeof(block);
-    if (!file_.readAt(verifyOffset_, block, length)) { fail(Error::Read); return; }
-    checksum_ = crc32(checksum_, block, length);
+    const size_t chunk = subsetMemory_.data() ? 8U * 1024U : sizeof(block);
+    const size_t length = left < chunk ? left : chunk;
+    uint8_t* data = subsetMemory_.data()
+        ? static_cast<uint8_t*>(subsetMemory_.data()) + verifyOffset_ : block;
+    if (!file_.readAt(verifyOffset_, data, length)) { fail(Error::Read); return; }
+    checksum_ = crc32(checksum_, data, length);
     verifyOffset_ += length;
+    processed += length;
     if (millis() - startMs >= 4U) break;
   }
   if (verifyOffset_ != file_.size()) return;
   if ((checksum_ ^ 0xFFFFFFFFU) != expectedChecksum_) { fail(Error::Crc); return; }
-  memcpy(verifiedHeaders_[nextVerified_], header_, sizeof(header_));
-  nextVerified_ = static_cast<uint8_t>((nextVerified_ + 1U) % kVerifiedFiles);
+  if (!uiSubset_) {
+    auto& verified = verifiedFonts[nextVerified];
+    verified.generation = generation_;
+    memcpy(verified.header, header_, sizeof(header_));
+    nextVerified = static_cast<uint8_t>((nextVerified + 1U) % 3U);
+  }
   LogI("FONT", "size=%u glyphs=%lu bytes=%lu CRC32=OK verify_ms=%lu", metrics_.pixelSize,
        static_cast<unsigned long>(metrics_.glyphCount),
        static_cast<unsigned long>(file_.size()),
        static_cast<unsigned long>(millis() - verifyStartMs_));
+  if (subsetMemory_.data()) {
+    // Validate the resident index before publishing it for binary search.
+    size_t cursor = 0;
+    constexpr size_t count = sizeof(UiFontCodepoints::kValues) / sizeof(uint32_t);
+    uint32_t previous = 0;
+    for (uint32_t i = 0; i < metrics_.glyphCount; ++i) {
+      Glyph glyph;
+      if (!readRecord(i, glyph)) return;
+      while (cursor < count && UiFontCodepoints::kValues[cursor] < glyph.codepoint) ++cursor;
+      if ((i && glyph.codepoint <= previous) || cursor == count ||
+          UiFontCodepoints::kValues[cursor] != glyph.codepoint) { fail(Error::Glyph); return; }
+      previous = glyph.codepoint;
+    }
+    file_.close();
+    state_ = State::Ready;
+    changed_ = true;
+    LogI("FONT", "ui resident size=%u bytes=%u; SD closed, render reads=0",
+         metrics_.pixelSize, static_cast<unsigned>(subsetMemory_.size()));
+    return;
+  }
   // Read the optional header on the next tick, keeping this tick within its
   // byte/time budget even when the NBFT payload ends exactly on a block limit.
   checkPhase_ = CheckPhase::CommonHeader;
@@ -201,10 +260,10 @@ void SdBitmapFont::disableCommonIndex(const char* reason) {
 }
 
 void SdBitmapFont::beginCommonIndex() {
-  if (!psramCache_) { disableCommonIndex("no PSRAM cache"); return; }
+  if (uiSubset_ || !psramCache_) { disableCommonIndex("no PSRAM cache"); return; }
   char path[40];
   snprintf(path, sizeof(path), "/Font/font-%u.common.bin", metrics_.pixelSize);
-  if (!commonFile_.open(path)) { disableCommonIndex("not found/open failed"); return; }
+  if (!commonFile_.open(path, false)) { disableCommonIndex("not found/open failed"); return; }
   uint8_t header[kCommonHeaderBytes];
   if (!commonFile_.readAt(0, header, sizeof(header))) {
     disableCommonIndex("header read"); return;
@@ -293,6 +352,19 @@ bool SdBitmapFont::consumeChanged() {
   return changed;
 }
 
+bool SdBitmapFont::currentCard() const {
+  return generation_ == SdCardSession::generation();
+}
+
+bool SdBitmapFont::readAt(uint32_t offset, uint8_t* data, size_t length) {
+  if (offset > fileBytes_ || length > fileBytes_ - offset) return false;
+  if (subsetMemory_.data()) {
+    memcpy(data, static_cast<const uint8_t*>(subsetMemory_.data()) + offset, length);
+    return true;
+  }
+  return currentCard() && file_.readAt(offset, data, length);
+}
+
 bool SdBitmapFont::readRecord(uint32_t index, Glyph& glyph) {
   const uint32_t blockStart = index / kIndexBlockRecords * kIndexBlockRecords;
   uint32_t* cachedStart = &indexBlockStart_;
@@ -306,7 +378,7 @@ bool SdBitmapFont::readRecord(uint32_t index, Glyph& glyph) {
     ++cacheStats_.indexMisses;
     const uint32_t remaining = metrics_.glyphCount - blockStart;
     const uint32_t count = remaining < kIndexBlockRecords ? remaining : kIndexBlockRecords;
-    if (!file_.readAt(64U + blockStart * kRecordBytes, records, count * kRecordBytes))
+    if (!readAt(64U + blockStart * kRecordBytes, records, count * kRecordBytes))
       return fail(Error::Read);
     *cachedStart = blockStart;
   } else {
@@ -322,7 +394,7 @@ bool SdBitmapFont::readRecord(uint32_t index, Glyph& glyph) {
   glyph.yOffset = static_cast<int16_t>(le16(p + 14));
   glyph.advance = static_cast<int16_t>(le16(p + 16));
   glyph.length = le32(p + 20);
-  const uint32_t bitmapBytes = file_.size() - bitmapOffset_;
+  const uint32_t bitmapBytes = fileBytes_ - bitmapOffset_;
   if (!scalar(glyph.codepoint) || le16(p + 18) != 0U || glyph.advance < 0 ||
       glyph.width > 1024U || glyph.height > 1024U ||
       ((glyph.width == 0U) != (glyph.height == 0U)) ||
@@ -335,6 +407,7 @@ bool SdBitmapFont::readRecord(uint32_t index, Glyph& glyph) {
 bool SdBitmapFont::glyph(uint32_t codepoint, Glyph& out) {
   out = Glyph{};
   if (state_ != State::Ready || !scalar(codepoint)) return false;
+  if (!subsetMemory_.data() && !currentCard()) return fail(Error::Read);
   CacheSlot* slots = glyphSet(codepoint);
   for (uint8_t i = 0; i < kGlyphWays; ++i) {
     const auto& slot = slots[i];
@@ -380,7 +453,7 @@ bool SdBitmapFont::glyph(uint32_t codepoint, Glyph& out) {
   slot.glyph = found ? candidate : Glyph{};
   slot.glyph.codepoint = codepoint;
   if (found && candidate.length <= kGlyphCacheBytes) {
-    if (!file_.readAt(bitmapOffset_ + candidate.offset, slot.bitmap, candidate.length))
+    if (!readAt(bitmapOffset_ + candidate.offset, slot.bitmap, candidate.length))
       return fail(Error::Read);
     const uint16_t stride = (candidate.width + 7U) / 8U;
     for (uint16_t row = 0; row < candidate.height; ++row) {
@@ -399,12 +472,14 @@ bool SdBitmapFont::validateRow(const Glyph& glyph, const uint8_t* data) const {
 }
 
 bool SdBitmapFont::readRow(const Glyph& glyph, uint16_t row, uint8_t* data, size_t capacity) {
+  if (state_ != State::Ready) return false;
+  if (!subsetMemory_.data() && !currentCard()) return fail(Error::Read);
   const uint16_t stride = (glyph.width + 7U) / 8U;
   if (state_ != State::Ready || glyph.session != session_ || !data ||
       glyph.width > 1024U || glyph.height > 1024U || row >= glyph.height ||
       stride > capacity || glyph.length != uint32_t(stride) * glyph.height ||
-      glyph.offset > file_.size() - bitmapOffset_ ||
-      glyph.length > file_.size() - bitmapOffset_ - glyph.offset) return false;
+      glyph.offset > fileBytes_ - bitmapOffset_ ||
+      glyph.length > fileBytes_ - bitmapOffset_ - glyph.offset) return false;
   const CacheSlot* slots = glyphSet(glyph.codepoint);
   for (uint8_t i = 0; i < kGlyphWays; ++i) {
     const auto& slot = slots[i];
@@ -416,7 +491,7 @@ bool SdBitmapFont::readRow(const Glyph& glyph, uint16_t row, uint8_t* data, size
       return true;
     }
   }
-  if (!file_.readAt(bitmapOffset_ + glyph.offset + row * stride, data, stride))
+  if (!readAt(bitmapOffset_ + glyph.offset + row * stride, data, stride))
     return fail(Error::Read);
   return validateRow(glyph, data) ? true : fail(Error::Glyph);
 }

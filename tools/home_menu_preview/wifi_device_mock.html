@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenBread · WiFi 配网布局预览</title>
+<style>
+  :root { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; color: #232722; background: #f1f2ed; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 40px 24px; }
+  button { font: inherit; cursor: pointer; }
+  button:focus-visible { outline: 3px solid #66835b; outline-offset: 4px; }
+  main { max-width: 1152px; margin: auto; }
+  .eyebrow { color: #697362; font-size: 12px; letter-spacing: 2px; }
+  .page-head { display: flex; justify-content: space-between; align-items: end; gap: 20px; margin: 12px 0 26px; }
+  h1 { font-size: 30px; font-weight: 500; letter-spacing: -1px; margin: 0 0 10px; }
+  p { margin: 0; line-height: 1.7; }
+  .intro { color: #697066; font-size: 14px; }
+  .tag { font-size: 12px; border: 1px solid #cbd0c4; padding: 7px 12px; border-radius: 30px; white-space: nowrap; }
+  .layout { display: grid; grid-template-columns: minmax(0, 848px) 260px; gap: 24px; align-items: start; }
+  .device { border-radius: 22px; background: #fff; border: 1px solid #dce0d5; padding: 24px; }
+  .caption { display: flex; justify-content: space-between; color: #797f75; font-size: 12px; margin-bottom: 18px; }
+  .screen-wrap { width: 100%; aspect-ratio: 384 / 168; overflow: hidden; background: #000; border-radius: 4px; }
+  .screen { position: relative; width: 384px; height: 168px; overflow: hidden; color: #fff; background: #000; transform-origin: top left; font-family: "Microsoft YaHei", sans-serif; font-size: 14px; line-height: 1; }
+  .screen * { box-sizing: border-box; }
+  .screen-head { position: absolute; top: 10px; left: 16px; right: 16px; height: 16px; display: flex; align-items: center; justify-content: space-between; font-size: 14px; }
+  .head-title { display: flex; align-items: center; gap: 7px; }
+  .head-title svg { width: 16px; height: 16px; }
+  .steps { display: flex; gap: 6px; align-items: center; }
+  .steps i { width: 5px; height: 5px; border: 1px solid white; border-radius: 50%; }
+  .steps i.on { background: white; }
+  .steps i.active { width: 16px; border-radius: 3px; background: white; }
+  .body { position: absolute; inset: 37px 0 29px; }
+  .hero-icon { position: absolute; left: 26px; top: 20px; width: 58px; height: 58px; }
+  svg { display: block; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .hero-copy { position: absolute; top: 13px; left: 112px; right: 16px; }
+  .hero-copy h2 { font-size: 24px; font-weight: 400; line-height: 30px; margin: 0 0 8px; }
+  .hero-copy p { font-size: 14px; line-height: 23px; white-space: nowrap; }
+  .network { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; overflow: hidden; text-overflow: ellipsis; }
+  .screen-foot { position: absolute; bottom: 10px; left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: center; height: 18px; font-size: 14px; }
+  .screen-foot span { display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+  .keycap { font-size: 14px; font-weight: 400; border: 1px solid #fff; padding: 2px 5px; border-radius: 4px; line-height: 14px; }
+  .portal-copy { position: absolute; left: 16px; top: 1px; width: 232px; }
+  .portal-copy h2 { font-size: 20px; font-weight: 400; line-height: 26px; margin: 0 0 4px; }
+  .portal-copy p { font-size: 14px; line-height: 20px; white-space: nowrap; }
+  .portal-copy .network { margin-bottom: 4px; font-family: Consolas, monospace; }
+  .qr { position: absolute; width: 111px; height: 111px; right: 16px; top: -6px; image-rendering: pixelated; border-radius: 4px; }
+  .confirm-copy { padding: 0 24px; }
+  .confirm-copy h2 { font-size: 24px; font-weight: 400; margin: 0 0 6px; line-height: 30px; }
+  .confirm-copy p { font-size: 14px; line-height: 20px; }
+  .choices { display: flex; gap: 12px; margin-top: 8px; }
+  .choice { height: 28px; width: 104px; border: 1px solid #fff; border-radius: 15px; font-size: 14px; background: #000; color: #fff; }
+  .choice.selected { background: #fff; color: #000; }
+  .history-list { position: absolute; left: 16px; right: 16px; top: 0; }
+  .network-row { display: flex; align-items: center; gap: 9px; width: 100%; height: 25px; margin-bottom: 1px; border: 1px solid transparent; border-radius: 14px; padding: 0 10px; background: #000; color: #fff; text-align: left; font-size: 20px; line-height: 23px; }
+  .network-row.selected, .device-action.selected { border-color: #fff; }
+  .network-row svg { flex: 0 0 17px; width: 17px; height: 17px; }
+  .network-row .network { flex: 1; min-width: 0; white-space: nowrap; }
+  .network-row .row-arrow { font-size: 14px; }
+  .add-network { position: absolute; left: 16px; right: 16px; top: 81px; height: 21px; border: 1px solid transparent; border-radius: 12px; background: #000; color: #fff; text-align: left; padding: 0 10px; font-size: 14px; }
+  .add-network.selected { background: #fff; color: #000; }
+  .list-note { position: absolute; left: 26px; top: 85px; font-size: 14px; }
+  .detail-name { position: absolute; left: 16px; right: 16px; top: 0; margin: 0; font-weight: 400; font-size: 20px; line-height: 26px; white-space: nowrap; }
+  .detail-meta { position: absolute; left: 16px; right: 16px; top: 30px; font-size: 14px; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .detail-actions { position: absolute; left: 16px; right: 16px; top: 51px; }
+  .device-action { width: 100%; height: 24px; margin-bottom: 3px; text-align: left; border: 1px solid transparent; border-radius: 13px; padding: 0 10px; color: #fff; background: #000; font-size: 14px; }
+  .device-action.selected::before { content: '› '; }
+  .failure-title { position: absolute; left: 16px; top: 0; margin: 0; font-size: 20px; font-weight: 400; line-height: 26px; }
+  .failure-copy { position: absolute; left: 16px; right: 16px; top: 31px; line-height: 20px; font-size: 14px; white-space: nowrap; }
+  .failure-actions { position: absolute; left: 16px; right: 16px; top: 78px; display: flex; gap: 10px; }
+  .failure-actions .device-action { text-align: center; }
+  .confirmation-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sample-field { margin: 0 0 12px; }
+  .sample-field label { display: block; font-size: 12px; color: #697362; margin-bottom: 7px; }
+  .sample-field input { width: 100%; padding: 10px 12px; border: 1px solid #cbd3c2; border-radius: 8px; background: #fff; color: #293725; font: inherit; font-size: 13px; }
+  .sample-field input:disabled { opacity: .4; }
+  .demo-controls { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 15px; }
+  .demo-controls button { font-size: 12px; color: #697362; background: transparent; border: 1px solid #d0d6c7; border-radius: 6px; padding: 7px 10px; }
+  .keys { display: flex; gap: 8px; justify-content: center; margin: 24px 0 18px; }
+  .keys button { border: 1px solid #d8ddcf; border-radius: 9px; background: #f7f8f4; color: #596150; min-width: 42px; height: 38px; padding: 0 12px; font-size: 13px; }
+  .keys .ok { background: #293725; color: #fff; border-color: #293725; min-width: 100px; }
+  .status { border-top: 1px solid #e8ebe1; padding-top: 16px; color: #666f5f; font-size: 13px; min-height: 58px; }
+  aside { padding: 12px 0; }
+  aside h2 { font-size: 16px; font-weight: 500; margin: 0 0 8px; }
+  aside p { font-size: 13px; color: #787f70; margin-bottom: 18px; }
+  .simulation { width: 100%; text-align: left; padding: 11px 14px; border-radius: 9px; border: 1px solid #d5dbcc; background: #fff; color: #3c4934; font-size: 13px; margin-bottom: 9px; }
+  button:hover:not(:disabled) { filter: brightness(.94); }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  .aside-rule { border-top: 1px solid #d8ddcf; margin: 14px 0 20px; }
+  .scenario-head { margin: 28px 0 12px; display: flex; justify-content: space-between; color: #6b7462; font-size: 13px; }
+  .scenarios { display: flex; flex-wrap: wrap; gap: 8px; }
+  .scenarios button { background: transparent; border: 1px solid #d0d6c7; color: #697362; border-radius: 20px; padding: 7px 13px; font-size: 13px; }
+  .scenarios button[aria-pressed="true"] { color: #fff; background: #293725; border-color: #293725; }
+  .note { font-size: 12px; color: #818777; margin-top: 20px; }
+  @media (max-width: 900px) { body { padding: 24px 16px; } .layout { grid-template-columns: 1fr; } aside { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } aside h2, aside p, .sample-field { grid-column: 1 / -1; } .aside-rule { display: none; } .simulation { margin: 0; } .page-head .tag { display: none; } }
+  @media (max-width: 440px) { .device { padding: 12px; border-radius: 14px; } .keys { gap: 5px; } .keys button { padding: 0 7px; min-width: 30px; } .keys .ok { min-width: 80px; } }
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">OPENBREAD / INTERFACE STUDY</div>
+  <header class="page-head"><div><h1>熟悉的网络，轻松再连接。</h1><p class="intro">WiFi 配网与连接记录 · 黑白屏交互预览</p></div><span class="tag">384 × 168 · 14 / 20 / 24 px</span></header>
+  <div class="layout">
+    <section class="device">
+      <div class="caption"><span>设备显示区域</span><span id="state-label">准备连接</span></div>
+      <div class="screen-wrap"><div class="screen" id="screen" role="group" aria-label="WiFi 配网设备画面"></div></div>
+      <div class="keys" aria-label="设备按键"><button data-key="left" aria-label="返回">← 返回</button><button data-key="up" aria-label="上">↑</button><button class="ok" data-key="ok">OK 确认</button><button data-key="down" aria-label="下">↓</button><button data-key="right" aria-label="右">→</button></div>
+      <p class="status" id="status" aria-live="polite"></p>
+    </section>
+    <aside>
+      <h2>模拟手机与网络</h2><p>已保存网络可直接连接；添加新网络时，再通过手机提交信息。</p>
+      <div class="sample-field"><label for="network-name">手机提交的网络名称（示例）</label><input id="network-name" value="OpenBread-Studio" disabled autocomplete="off" spellcheck="false"></div>
+      <button class="simulation" id="send" disabled>① 手机提交 WiFi 信息</button>
+      <button class="simulation" id="success" disabled>② 连接成功</button>
+      <button class="simulation" id="fail" disabled>模拟密码错误</button>
+      <button class="simulation" id="unavailable" disabled>模拟网络不在附近</button>
+      <button class="simulation" id="timeout" disabled>模拟热点超时</button>
+      <div class="aside-rule"></div>
+      <button class="simulation" id="sync" disabled>③ 完成时间校准</button>
+      <button class="simulation" id="reset">重新开始</button>
+    </aside>
+  </div>
+  <div class="scenario-head"><span>预览入口</span><span>上下选择 · OK 确认 · 左键返回</span></div>
+  <nav class="scenarios" id="scenarios" aria-label="配网预览入口"></nav>
+  <div class="demo-controls"><button id="demo-restore">恢复 3 条示例记录</button><button id="demo-empty">体验无记录</button><button id="demo-full">体验记录已满（5 条）</button></div>
+  <p class="note">仅为 HTML 交互方案，未修改固件。示例连接记录保存在此浏览器中，不保存密码，不连接真实 WiFi。列表展示最近成功连接记录，不代表网络当前可用；预览容量暂设为 5 条。实际字形以设备 SD 字体为准。</p>
+</main>
+<script>
+  'use strict';
+  const qr = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAG8AAABvAQAAAADKvqPNAAABUUlEQVR4nNWUsWrDMBCG7+KCMtldCyo25CWUSWNexyFLpzjuXruvk02d/BQBUQe6WpkUUP2XdMomja0mHZxO3/33cwy6O1jcR0R/MyRMRM1AjZFE5Rx7ywgXGh+1bZDw0UeVq/V0JbdMonLLr2JTJbaQq9OuTetX28t11Qlb+Hgy+IH7p0+qWo5LB2Cm0PjfS6yy4+eFynhz7tcJlX3phgyDZBOrTJhVKAbLGDsdT8aQOWS9kVsfGzfdvJELmdPYiQQMUc4aB0pgXhAfT7u2YpxJJFhUjb0PBWSd1KAlQgvMKu5n97LqBM/X6pVsFMN5yrUlMbrouAnOYNZZi7BFXGfnLQ9yr4kSdAbgAJjSDSmu44ard/V9SFgFDmGvQuHLKSodwRm5NTho4gSM29HsjtnbuopjGFkLyz7J/A6hFlk72FzFkyeiWktStogy8z9c5j/IPc6TYb9hdgAAAABJRU5ErkJggg==';
+  const paths = {
+    wifi: '<path d="M8 23a25 25 0 0 1 42 0M15 31a16 16 0 0 1 28 0M23 39a7 7 0 0 1 12 0"/><circle cx="29" cy="47" r="1.5" fill="currentColor"/>',
+    phone: '<rect x="15" y="4" width="28" height="50" rx="5"/><path d="M24 10h10M26 47h6M23 28l5 5 10-12"/>',
+    connecting: '<circle cx="29" cy="29" r="23" stroke-dasharray="5 6"/><path d="M18 29h22m-7-7 7 7-7 7"/>',
+    check: '<circle cx="29" cy="29" r="23"/><path d="m17 29 8 8 16-17"/>',
+    clock: '<circle cx="29" cy="29" r="23"/><path d="M29 14v16l10 6"/>',
+    error: '<circle cx="29" cy="29" r="23"/><path d="M29 16v17m0 8v1"/>',
+    timeout: '<circle cx="29" cy="29" r="23"/><path d="M29 14v16l10 6M10 10l38 38"/>'
+  };
+  const icon = (name, className = '') => `<svg class="${className}" viewBox="0 0 58 58" aria-hidden="true">${paths[name]}</svg>`;
+  const capacity = 5;
+  const storageKey = 'openbread-wifi-history-preview-v1';
+  const demoNetworks = [
+    { ssid: 'OpenBread-Home', lastUsed: '2026-11-13T09:30:00+08:00' },
+    { ssid: '工作室 WiFi', lastUsed: '2026-11-12T18:20:00+08:00' },
+    { ssid: 'XiaoYu-Hotspot', lastUsed: '2026-11-11T12:00:00+08:00' }
+  ];
+  const screens = {
+    history: { label: '已保存网络' },
+    idle: { label: '无连接记录', step: 0, title: '添加第一个网络', icon: 'wifi', lines: ['用手机完成 WiFi 配置', '连接成功后自动保存'], action: '添加网络' },
+    detail: { label: '网络详情' },
+    full: { label: '选择替换记录' },
+    portal: { label: '等待手机连接', step: 1 },
+    connecting: { label: '正在连接', step: 2, title: '正在连接', icon: 'connecting' },
+    hold: { label: '连接成功', step: 2, title: '网络已连接', icon: 'check' },
+    syncing: { label: '正在校时', step: 2, title: '同步设备时间', icon: 'clock', lines: ['网络连接成功', '校时完成后自动关闭 WiFi'] },
+    connected: { label: '配网完成', step: 3, title: '一切准备就绪', icon: 'check', lines: ['网络信息已保存 · 时间已同步', 'WiFi 已关闭'], action: '查看记录' },
+    failed: { label: '连接失败', step: 2 },
+    timeout: { label: '热点超时', step: 1, title: '热点已关闭', icon: 'timeout', lines: ['等待连接超时', '原有连接记录保持不变'], action: '重新开启' }
+  };
+  const screen = document.querySelector('#screen');
+  const scenarioNav = document.querySelector('#scenarios');
+  const phoneName = document.querySelector('#network-name');
+  const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const validName = value => typeof value === 'string' && value.trim().length > 0 && new TextEncoder().encode(value).length <= 32 && !/[\x00-\x1f\x7f]/.test(value);
+  let storageAvailable = true;
+  function loadNetworks() {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw === null) return demoNetworks.map(item => ({...item}));
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) throw new Error('Invalid demo data');
+      const seen = new Set();
+      return parsed.filter(item => {
+        if (!item || !validName(item.ssid) || seen.has(item.ssid) || !Number.isFinite(Date.parse(item.lastUsed))) return false;
+        seen.add(item.ssid);
+        return true;
+      }).slice(0, capacity).sort((a,b) => Date.parse(b.lastUsed) - Date.parse(a.lastUsed));
+    } catch { return demoNetworks.map(item => ({...item})); }
+  }
+  let records = loadNetworks();
+  let state = records.length ? 'history' : 'idle';
+  let focus = 0, actionFocus = 0, choiceFocus = 0, confirmation = null;
+  let detailSsid = '', targetSsid = '', source = 'saved', replaceSsid = null;
+  let failureReason = 'password', timer = null;
+  function persist() {
+    try { localStorage.setItem(storageKey, JSON.stringify(records)); }
+    catch { storageAvailable = false; }
+  }
+  persist();
+  scenarioNav.innerHTML = '<button data-state="history" aria-pressed="false">已保存网络</button><button data-state="add" aria-pressed="false">添加新网络</button>';
+  function footer(left, right = '') {
+    return `<div class="screen-foot"><span>← ${left}</span>${right ? `<span><b class="keycap">OK</b>${right}</span>` : ''}</div>`;
+  }
+  function hints() {
+    if (confirmation) return '上下键选择，OK 确认，左键取消。默认选中取消；也可点选屏幕按钮。';
+    const text = {
+      history: '上下选择，OK 查看网络并连接。列表按最近成功连接排序；不会自动扫描或自动连接。',
+      idle: '还没有保存的网络。按 OK 开启配网热点，连接成功后才会新增记录。',
+      detail: '上下选择「连接此网络」或「忘记网络」，OK 执行。左键返回列表。',
+      full: '已保存 5 条。上下选择要替换的记录；连接成功后才替换，失败或取消会保留原记录。',
+      portal: replaceSsid ? `成功连接新网络后将替换「${replaceSsid}」。手机可在右侧提交示例网络名称。` : '模拟扫码加入热点，在右侧填写网络名称并提交。支持重复名称；仅成功后保存。',
+      connecting: source === 'saved' ? '直接使用已保存的信息连接，无需开启配网热点。可模拟成功、密码错误或网络不在附近。' : '正在连接手机提交的网络。当前尚未保存；可模拟连接成功或失败。',
+      hold: '连接成功，记录已保存。模拟热点保留 6 秒后自动校时，左键可提前继续校时。',
+      syncing: '正在校时；完成后关闭 WiFi。左键可停止校时并关闭 WiFi，已成功保存的记录仍保留。',
+      connected: '已保存最近成功连接记录，WiFi 已关闭。OK 或左键返回已保存网络。',
+      failed: source === 'saved' ? '原记录已保留。上下选择重试或重新配网；重新配网需确认开启热点。左键返回。' : '未保存失败的网络。上下选择重试或回手机修改信息；原有记录保持不变。',
+      timeout: '热点已关闭，原有记录未改变。OK 可重新开启热点，左键返回已保存网络。'
+    };
+    return text[state];
+  }
+  function listMarkup(replacing) {
+    const start = Math.max(0, Math.min(focus - 1, records.length - 3));
+    const rows = records.slice(start, start + 3).map((record,index) => {
+      const i = start + index;
+      return `<button class="network-row ${focus === i ? 'selected' : ''}" data-record="${i}" aria-label="${replacing ? '替换' : '查看'} ${esc(record.ssid)}" aria-current="${focus === i}">${icon('wifi')}<span class="network">${esc(record.ssid)}</span><span class="row-arrow">›</span></button>`;
+    }).join('');
+    const bottom = replacing ? '<span class="list-note">连接成功后才替换</span>' : `<button class="add-network ${focus === records.length ? 'selected' : ''}" data-add>＋ 添加新网络</button>`;
+    return `<div class="history-list">${rows}</div>${bottom}`;
+  }
+  function draw() {
+    const view = screens[state];
+    const listPage = ['history','detail','full'].includes(state);
+    const dots = [1,2,3].map(n => `<i class="${n < view.step ? 'on' : n === view.step ? 'active' : ''}"></i>`).join('');
+    let body, foot;
+    if (confirmation) {
+      body = `<div class="confirm-copy"><h2>${esc(confirmation.title)}</h2><p class="confirmation-note">${esc(confirmation.note)}</p><div class="choices"><button class="choice ${choiceFocus === 0 ? 'selected' : ''}" data-choice="0">取消</button><button class="choice ${choiceFocus === 1 ? 'selected' : ''}" data-choice="1">${esc(confirmation.action)}</button></div></div>`;
+      foot = footer('取消','确认');
+    } else if (state === 'history' || state === 'full') {
+      body = listMarkup(state === 'full');
+      foot = footer(state === 'full' ? '返回' : '设置', focus === records.length ? '添加' : state === 'full' ? '选择' : '查看');
+    } else if (state === 'detail') {
+      const record = records.find(item => item.ssid === detailSsid);
+      const date = record ? new Date(record.lastUsed).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}) : '';
+      body = `<h2 class="detail-name network">${esc(detailSsid)}</h2><div class="detail-meta">上次成功连接  ${date}</div><div class="detail-actions"><button class="device-action ${actionFocus === 0 ? 'selected' : ''}" data-detail="0">连接此网络</button><button class="device-action ${actionFocus === 1 ? 'selected' : ''}" data-detail="1">忘记网络</button></div>`;
+      foot = footer('列表','确认');
+    } else if (state === 'portal') {
+      body = `<div class="portal-copy"><h2>扫码加入设备热点</h2><p class="network">OpenBread-Setup-1A2B</p><p>连接后，在手机页面填写 WiFi</p><p>未弹出？打开 192.168.4.1</p></div><img class="qr" src="${qr}" alt="示例设备热点二维码">`;
+      foot = footer('关闭热点');
+    } else if (state === 'failed') {
+      const reason = failureReason === 'password' ? '密码可能已变更，请检查后重试' : '未找到此网络，请确认距离与路由器';
+      body = `<h2 class="failure-title">${failureReason === 'password' ? '连接未成功' : '网络不在附近'}</h2><div class="failure-copy"><div class="network">${esc(targetSsid)}</div><div>${reason}</div></div><div class="failure-actions"><button class="device-action ${actionFocus === 0 ? 'selected' : ''}" data-failure="0">重试连接</button><button class="device-action ${actionFocus === 1 ? 'selected' : ''}" data-failure="1">${source === 'saved' ? '重新配网' : '修改网络信息'}</button></div>`;
+      foot = footer('关闭并返回','确认');
+    } else {
+      let lines = view.lines;
+      if (state === 'connecting') lines = [esc(targetSsid), source === 'saved' ? '正在使用已保存的网络信息' : '请保持手机连接设备热点'];
+      if (state === 'hold') lines = [esc(targetSsid), '设备 IP  192.168.1.128'];
+      body = `${icon(view.icon,'hero-icon')}<div class="hero-copy"><h2>${view.title}</h2>${lines.map(line => `<p class="network">${line}</p>`).join('')}</div>`;
+      foot = footer(state === 'hold' ? '继续校时' : state === 'connecting' ? '取消连接' : '返回',view.action);
+    }
+    const title = state === 'full' ? '选择要替换的网络' : listPage ? '已保存网络' : 'WiFi 配网';
+    const headRight = listPage ? `<span>${state === 'history' ? `${records.length} / ${capacity} 已保存` : state === 'full' ? `${focus + 1} / ${records.length}` : '网络详情'}</span>` : `<span class="steps" aria-label="步骤 ${view.step} / 3">${dots}</span>`;
+    screen.innerHTML = `<div class="screen-head"><span class="head-title">${icon('wifi')}${title}</span>${headRight}</div><div class="body">${body}</div>${foot}`;
+    screen.setAttribute('aria-label', confirmation ? confirmation.title : `WiFi：${view.label}`);
+    document.querySelector('#state-label').textContent = confirmation ? confirmation.title : view.label;
+    document.querySelector('#status').textContent = hints() + (storageAvailable ? '' : ' 浏览器禁止本地保存；本次记录仅在当前页面有效。');
+    const canSubmit = !confirmation && source === 'portal' && ['portal','failed'].includes(state);
+    document.querySelector('#send').disabled = !canSubmit;
+    phoneName.disabled = !canSubmit;
+    for (const id of ['success','fail','unavailable']) document.querySelector(`#${id}`).disabled = !!confirmation || state !== 'connecting';
+    document.querySelector('#timeout').disabled = !!confirmation || source !== 'portal' || !['portal','connecting','failed'].includes(state);
+    document.querySelector('#sync').disabled = !!confirmation || state !== 'syncing';
+    scenarioNav.querySelectorAll('button').forEach(button => button.setAttribute('aria-pressed',String(button.dataset.state === state && !confirmation)));
+  }
+  function setState(next) {
+    clearTimeout(timer);
+    state = next;
+    confirmation = null;
+    draw();
+    if (state === 'hold') timer = setTimeout(() => setState('syncing'),6000);
+  }
+  function home(message) {
+    clearTimeout(timer);
+    replaceSsid = null;
+    targetSsid = '';
+    focus = Math.min(focus,records.length);
+    setState(records.length ? 'history' : 'idle');
+    if (message) document.querySelector('#status').textContent = message;
+  }
+  function confirm(options) {
+    confirmation = options;
+    choiceFocus = 0;
+    draw();
+  }
+  function openPortalConfirmation(replacement = null, updating = '') {
+    const title = updating ? '重新配置网络？' : replacement ? '替换并添加网络？' : '开启配网热点？';
+    const note = updating ? `成功后更新：${updating}` : replacement ? `新增成功后替换：${replacement}` : '开启后，用手机扫码连接设备。';
+    confirm({title, note, action: '开启热点', run: () => {
+      if (updating) phoneName.value = updating;
+      source = 'portal'; replaceSsid = replacement; targetSsid = ''; setState('portal');
+    }});
+  }
+  function addNetwork() {
+    if (records.length >= capacity) { focus = records.length - 1; setState('full'); return; }
+    openPortalConfirmation();
+  }
+  function activateRecord() {
+    const record = records[focus];
+    if (!record) return;
+    if (state === 'full') { openPortalConfirmation(record.ssid); return; }
+    detailSsid = record.ssid;
+    actionFocus = 0;
+    setState('detail');
+  }
+  function saveSuccess() {
+    const same = records.findIndex(record => record.ssid === targetSsid);
+    if (same >= 0) records.splice(same,1);
+    else if (records.length >= capacity) {
+      const replacement = records.findIndex(record => record.ssid === replaceSsid);
+      if (replacement < 0) { home('记录已满。请重新选择要替换的网络。'); return; }
+      records.splice(replacement,1);
+    }
+    records.unshift({ssid: targetSsid,lastUsed:new Date().toISOString()});
+    persist();
+    focus = 0;
+    replaceSsid = null;
+    setState(source === 'portal' ? 'hold' : 'syncing');
+  }
+  function detailAction() {
+    if (actionFocus === 0) { source = 'saved'; targetSsid = detailSsid; replaceSsid = null; setState('connecting'); return; }
+    confirm({title:'忘记这个网络？',note:detailSsid,action:'忘记网络',run:() => {
+      records = records.filter(record => record.ssid !== detailSsid);
+      persist();
+      focus = Math.min(focus,Math.max(0,records.length - 1));
+      home('记录已移除；再次连接这个网络时需要重新配网。');
+    }});
+  }
+  function failureAction() {
+    if (actionFocus === 0) { setState('connecting'); return; }
+    if (source === 'portal') { setState('portal'); return; }
+    openPortalConfirmation(records.length >= capacity ? targetSsid : null, targetSsid);
+  }
+  function key(name) {
+    if (confirmation) {
+      if (name === 'left') { confirmation = null; draw(); }
+      else if (name === 'up') { choiceFocus = 0; draw(); }
+      else if (name === 'down') { choiceFocus = 1; draw(); }
+      else if (name === 'ok') {
+        const pending = confirmation;
+        confirmation = null;
+        if (choiceFocus === 1) pending.run(); else draw();
+      }
+      return;
+    }
+    if (name === 'left') {
+      if (state === 'hold') { setState('syncing'); return; }
+      if (state === 'history' || state === 'idle') { document.querySelector('#status').textContent = '已模拟返回设置。此预览保留 WiFi 页面，便于继续体验。'; return; }
+      home(state === 'syncing' ? '已停止校时并关闭 WiFi；连接记录已保存。' : undefined);
+      return;
+    }
+    if (name === 'up' || name === 'down') {
+      const delta = name === 'up' ? -1 : 1;
+      if (state === 'history' || state === 'full') focus = Math.max(0,Math.min(focus + delta,records.length - (state === 'full' ? 1 : 0)));
+      else if (state === 'detail' || state === 'failed') actionFocus = Math.max(0,Math.min(actionFocus + delta,1));
+      draw();
+      return;
+    }
+    if (name !== 'ok') return;
+    if (state === 'history' || state === 'full') { if (state === 'history' && focus === records.length) addNetwork(); else activateRecord(); }
+    else if (state === 'idle') addNetwork();
+    else if (state === 'detail') detailAction();
+    else if (state === 'failed') failureAction();
+    else if (state === 'connected') home();
+    else if (state === 'timeout') openPortalConfirmation(replaceSsid);
+  }
+  function submitPhone() {
+    const name = phoneName.value;
+    if (!validName(name)) { document.querySelector('#status').textContent = '请填写 1–32 字节的网络名称，不能只填空格或包含控制字符。中文通常每字占 3 字节。'; return; }
+    targetSsid = name;
+    source = 'portal';
+    setState('connecting');
+  }
+  function demoPage(next) {
+    home();
+    if (next === 'add') addNetwork();
+  }
+  function loadDemo(kind) {
+    records = kind === 'empty' ? [] : demoNetworks.map(record => ({...record}));
+    if (kind === 'full') records.push({ssid:'Cafe-Guest',lastUsed:'2026-11-10T10:00:00+08:00'},{ssid:'Travel-WiFi',lastUsed:'2026-11-09T10:00:00+08:00'});
+    persist(); focus = 0; home();
+  }
+  document.querySelectorAll('[data-key]').forEach(button => button.onclick = () => key(button.dataset.key));
+  document.querySelector('#send').onclick = submitPhone;
+  document.querySelector('#success').onclick = saveSuccess;
+  document.querySelector('#fail').onclick = () => { failureReason = 'password'; actionFocus = 0; setState('failed'); };
+  document.querySelector('#unavailable').onclick = () => { failureReason = 'unavailable'; actionFocus = 0; setState('failed'); };
+  document.querySelector('#timeout').onclick = () => setState('timeout');
+  document.querySelector('#sync').onclick = () => setState('connected');
+  document.querySelector('#reset').onclick = () => { focus = 0; home('已返回网络列表，已保存的记录保持不变。'); };
+  document.querySelector('#demo-restore').onclick = () => loadDemo('normal');
+  document.querySelector('#demo-empty').onclick = () => loadDemo('empty');
+  document.querySelector('#demo-full').onclick = () => loadDemo('full');
+  scenarioNav.onclick = event => { const button = event.target.closest('[data-state]'); if (button) demoPage(button.dataset.state); };
+  screen.onclick = event => {
+    const choice = event.target.closest('[data-choice]');
+    if (choice) { choiceFocus = Number(choice.dataset.choice); key('ok'); return; }
+    const record = event.target.closest('[data-record]');
+    if (record) { focus = Number(record.dataset.record); activateRecord(); return; }
+    if (event.target.closest('[data-add]')) { addNetwork(); return; }
+    const detail = event.target.closest('[data-detail]');
+    if (detail) { actionFocus = Number(detail.dataset.detail); detailAction(); return; }
+    const failure = event.target.closest('[data-failure]');
+    if (failure) { actionFocus = Number(failure.dataset.failure); failureAction(); }
+  };
+  document.addEventListener('keydown',event => {
+    if (event.target instanceof HTMLInputElement) return;
+    if (event.target instanceof HTMLButtonElement && !event.target.closest('.keys') && (event.key === 'Enter' || event.key === ' ')) return;
+    const map = {ArrowLeft:'left',ArrowRight:'right',ArrowUp:'up',ArrowDown:'down',Enter:'ok',Escape:'left',Backspace:'left'};
+    if (map[event.key]) { event.preventDefault(); if (!event.repeat) key(map[event.key]); }
+  });
+  new ResizeObserver(entries => { screen.style.transform = `scale(${entries[0].contentRect.width / 384})`; }).observe(document.querySelector('.screen-wrap'));
+  draw();
+</script>
+</body>
+</html>

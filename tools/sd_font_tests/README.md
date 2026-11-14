@@ -33,7 +33,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/sd_font_tests/build.ps
 - 四种旋转、负坐标、裁剪、白色墨迹和缺字框；三字号合计 18 组与 Python 参考图逐像素比较。
 - 额外以同样三份字库和最多 7500 条 NBCI 运行 18 组像素核对，每种内存模式合计 36 组。当前用户导出的 7080 字索引若存在，会逐字比较三个字号全部常用字的度量与点阵，不修改源输出。
 - 校验每 tick 的 32KiB 上限、4ms 时间预算、模拟慢卡和计时回绕、检查中取消、关闭后不再读文件；缓存命中及缺字命中不重复读卡。
-- 同次会话中切回已校验字号不重扫 NBFT payload：无 NBCI 时只读 64 bytes 文件头，有 NBCI 则额外重新加载/校验该索引，不重复查询 SD 容量与根目录。整页样张重绘读取 0 bytes。OK 重试、重新进入、文件头变化和 NBFT I/O 错误使校验记录失效。
+- 同次 SD 会话中切回已校验字号，或普通 end 后由另一服务打开，不重扫 NBFT payload：无 NBCI 时只读 64 bytes 文件头，有 NBCI 则额外重新加载/校验该索引，不重复查询 SD 容量与根目录。整页样张重绘读取 0 bytes。OK 重试、重新进入、文件头变化和 NBFT I/O 错误使校验记录失效。
 - 65,537 条索引、32 位二分查找、超缓存字形按行读取、旧会话字形拒绝。
 - 截断、错误文件头、字号不符、CRC 损坏、字形偏移/补位错误、文件读取失败及重试；文件句柄关闭和字号双向循环。
 - PSRAM 模式与无 PSRAM 回退模式分别运行，均核对 18 组像素。模拟分配失败、连续空闲块不足、内存预算、切换字号复用分配、异常/退出/析构释放和同组缓存冲突覆盖。
@@ -50,6 +50,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/sd_font_tests/build.ps
 
 ## 验证边界
 
-`FS.h` / `SD_MMC.h` 使用电脑只读文件代替真实 SD；物理挂载由 `SdCardService::refresh()` 的测试替身提供。`Arduino.h` 在共用预览替身上提供可控时钟，文件读取可注入延迟以检查预算；切换测试卡时显式 `end()` 模拟会话失效。`esp_heap_caps.h` 替身使用主机内存模拟外部堆，记录申请、释放及峰值；它不证明目标板实际剩余 PSRAM 或访问速度。显示缓冲布局、旋转及绘制沿用生产驱动，Arduino/SPI 接口使用主机替身。
+`FS.h` / `SD_MMC.h` 使用电脑只读文件代替真实 SD；物理挂载由 `SdCardService::refresh()` 的测试替身提供。`Arduino.h` 在共用预览替身上提供可控时钟，文件读取可注入延迟以检查预算；切换测试卡时显式调用 `SdCardSession::invalidate()` 模拟会话失效。`esp_heap_caps.h` 替身使用主机内存模拟外部堆，记录申请、释放及峰值；它不证明目标板实际剩余 PSRAM 或访问速度。显示缓冲布局、旋转及绘制沿用生产驱动，Arduino/SPI 接口使用主机替身。
 
 工具未运行完整 `UiManager` 或自检父页面，不能用此结果替代实际返回路由、GPIO16 切换、SD_MMC 时序、热拔卡、屏幕残影和功耗验收。父页面退出清理与 SD 交接路径另做代码检查，实机清单见 [SD 点阵字库](../../docs/SD_BITMAP_FONTS.md)。涉及生产代码修改后仍须完整 `pio run`。

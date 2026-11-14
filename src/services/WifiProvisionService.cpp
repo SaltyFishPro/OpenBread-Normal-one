@@ -8,9 +8,6 @@
 
 namespace {
 constexpr uint8_t kDnsPort = 53;
-constexpr const char* kPrefsNs = "wifi";
-constexpr const char* kPrefsKeySsid = "ssid";
-constexpr const char* kPrefsKeyPass = "pass";
 
 void jsonEscape(char* out, size_t capacity, const char* value) {
   if (capacity == 0) {
@@ -78,8 +75,9 @@ void WifiProvisionService::tick(uint32_t nowMs, TimeService& time) {
 
   // Only accept station success while this service is actively connecting.
   // This avoids stealing externally managed sessions (for example OTA checks).
-  if (state_ == State::Connecting && (WiFi.status() == WL_CONNECTED || hasStaIp())) {
-    finishProvisionSuccess(nowMs);
+  if (state_ == State::Connecting && WiFi.status() == WL_CONNECTED && hasStaIp() &&
+      WiFi.SSID() == targetSsid_) {
+    finishProvisionSuccess(nowMs, time);
     return;
   }
 
@@ -103,11 +101,6 @@ void WifiProvisionService::tick(uint32_t nowMs, TimeService& time) {
   }
 
   const wl_status_t s = WiFi.status();
-  if (s == WL_CONNECTED || hasStaIp()) {
-    finishProvisionSuccess(nowMs);
-    return;
-  }
-
   if ((nowMs - connectStartMs_) < kConnectTimeoutMs) {
     return;
   }
@@ -120,37 +113,53 @@ void WifiProvisionService::tick(uint32_t nowMs, TimeService& time) {
 
   Error error = Error::Timeout;
   if (s == WL_CONNECT_FAILED) {
-    LogW("WIFI", "connect failed: auth; setup AP remains active");
+    LogW("WIFI", "connect failed: auth portal=%u", portalActive_);
     error = Error::AuthFailed;
   } else if (s == WL_NO_SSID_AVAIL) {
-    LogW("WIFI", "connect failed: ap not found; setup AP remains active");
+    LogW("WIFI", "connect failed: ap not found portal=%u", portalActive_);
     error = Error::ApNotFound;
   } else {
-    LogW("WIFI", "connect failed: timeout; setup AP remains active");
+    LogW("WIFI", "connect failed: timeout portal=%u", portalActive_);
   }
   // Stop this station attempt without touching the setup AP, so the phone can
   // show the failure and retry through the same page.
   WiFi.disconnect(false, false);
+  if (!portalActive_) cleanupRadio(false);
   setState(State::Failed, error);
 }
 
-void WifiProvisionService::startPortal(uint32_t nowMs, Purpose purpose) {
+void WifiProvisionService::startPortal(uint32_t nowMs, Purpose purpose,
+                                        int8_t replacement, const char* prefill) {
   if (!canStartPortal()) {
     return;
   }
+  const uint32_t startedMs = millis();
+  LogI("WIFI", "portal start requested");
 
+  char initial[33] = {};
+  if (prefill) snprintf(initial, sizeof(initial), "%s", prefill);
+  replacementSsid_[0] = '\0';
+  const auto* replace = replacement >= 0 ? networks_.info(static_cast<uint8_t>(replacement)) : nullptr;
+  if (replace) snprintf(replacementSsid_, sizeof(replacementSsid_), "%s", replace->ssid);
+  clearTarget();
+  snprintf(targetSsid_, sizeof(targetSsid_), "%s", initial);
+  fromSaved_ = false;
+  saveStatus_ = SaveStatus::None;
   purpose_ = purpose;
 
   const uint32_t chip = static_cast<uint32_t>(ESP.getEfuseMac() & 0xFFFFU);
   snprintf(apSsid_, sizeof(apSsid_), "OpenBread-Setup-%04X", static_cast<unsigned>(chip));
 
   cleanupRadio(false);
+  const uint32_t cleanupMs = millis()-startedMs;
   radioActive_ = true;
   WiFi.mode(WIFI_AP_STA);
   WiFi.setSleep(false);
   WiFi.softAPdisconnect(true);
+  const uint32_t driverMs = millis()-startedMs-cleanupMs;
   if (!WiFi.softAP(apSsid_)) {
-    LogE("WIFI", "portal start failed AP='%s'", apSsid_);
+    LogE("WIFI", "portal start failed AP='%s' elapsed_ms=%lu", apSsid_,
+         static_cast<unsigned long>(millis()-startedMs));
     cleanupRadio(false);
     setState(State::Failed, Error::Unknown);
     return;
@@ -166,14 +175,19 @@ void WifiProvisionService::startPortal(uint32_t nowMs, Purpose purpose) {
   dns_.start(kDnsPort, "*", WiFi.softAPIP());
   server_.begin();
 
-  portalStartMs_ = nowMs;
+  portalStartMs_ = nowMs + (millis()-startedMs);
   setState(State::PortalReady, Error::None);
+  LogI("WIFI", "portal ready elapsed_ms=%lu cleanup_ms=%lu driver_ms=%lu",
+       static_cast<unsigned long>(millis()-startedMs),
+       static_cast<unsigned long>(cleanupMs),static_cast<unsigned long>(driverMs));
 }
 
 void WifiProvisionService::stopPortal() {
-  dns_.stop();
-  server_.stop();
-  WiFi.softAPdisconnect(true);
+  if (portalActive_) {
+    dns_.stop();
+    server_.stop();
+    WiFi.softAPdisconnect(true);
+  }
   portalActive_ = false;
   holdEndMs_ = 0;
 }
@@ -226,7 +240,7 @@ bool WifiProvisionService::canStartPortal() const {
 }
 
 bool WifiProvisionService::canRetryConnect() const {
-  return portalActive_ && state_ == State::Failed && targetSsid_[0] != '\0';
+  return state_ == State::Failed && error_ != Error::Unknown && targetSsid_[0] != '\0';
 }
 
 bool WifiProvisionService::retryConnect() {
@@ -234,6 +248,12 @@ bool WifiProvisionService::retryConnect() {
     return false;
   }
   requestConnecting();
+  return true;
+}
+
+bool WifiProvisionService::editPortal() {
+  if (!portalActive_ || state_ != State::Failed) return false;
+  setState(State::PortalReady, Error::None);
   return true;
 }
 
@@ -302,7 +322,14 @@ void WifiProvisionService::handleConnect() {
 
   const String ssid = server_.arg("ssid");
   const String pass = server_.hasArg("pass") ? server_.arg("pass") : String();
-  if (ssid.length() == 0 || ssid.length() > 32 || pass.length() > 64) {
+  bool invalidName = ssid.length() == 0 || ssid.length() > 32;
+  bool nonSpace = false;
+  for (size_t i = 0; i < ssid.length(); ++i) {
+    const uint8_t c = static_cast<uint8_t>(ssid[i]);
+    invalidName |= c < 0x20 || c == 0x7F;
+    nonSpace |= c != ' ';
+  }
+  if (invalidName || !nonSpace || pass.length() > 64) {
     server_.send(400, "application/json", "{\"ok\":false,\"error\":\"invalid_input\"}");
     return;
   }
@@ -342,18 +369,23 @@ void WifiProvisionService::startConnecting(uint32_t nowMs) {
   // Keep the setup AP alive while the station connects. The phone uses it to
   // poll progress and to retry after a failure.
   radioActive_ = true;
-  WiFi.mode(WIFI_AP_STA);
+  WiFi.mode(portalActive_ ? WIFI_AP_STA : WIFI_STA);
   WiFi.setSleep(false);
   WiFi.disconnect(false, false);
   memset(staIp_, 0, sizeof(staIp_));
   WiFi.begin(targetSsid_, targetPass_);
   connectStartMs_ = nowMs;
   holdEndMs_ = 0;
-  LogI("WIFI", "STA connect requested; setup AP stays active");
+  LogI("WIFI", "STA connect requested source=%s portal=%u", fromSaved_ ? "saved" : "phone", portalActive_);
   setState(State::Connecting, Error::None);
 }
 
-void WifiProvisionService::requestConnecting() { connectPending_ = true; }
+void WifiProvisionService::requestConnecting() {
+  connectPending_ = true;
+  radioActive_ = true;
+  saveStatus_ = SaveStatus::None;
+  setState(State::Connecting, Error::None);
+}
 
 void WifiProvisionService::setState(State next, Error err) {
   if (state_ == next && error_ == err) {
@@ -374,25 +406,50 @@ void WifiProvisionService::updateStaIpCache() {
   snprintf(staIp_, sizeof(staIp_), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
 }
 
-void WifiProvisionService::saveCredentials() {
-  if (!prefs_.begin(kPrefsNs, false)) {
+void WifiProvisionService::saveCredentials(const TimeService& time) {
+  WifiNetworkStore::LastUsed used{};
+  if (time.snapshot().valid) {
+    const auto& now = time.snapshot().now;
+    used = {now.year, now.month, now.day, now.hour, now.minute};
+  }
+  const int8_t replacement = networks_.find(replacementSsid_);
+  if (networks_.find(targetSsid_) < 0 && networks_.count() == WifiNetworkStore::kCapacity && replacement < 0) {
+    saveStatus_ = SaveStatus::Full;
+    LogW("WIFI", "connected but history full; existing records retained");
     return;
   }
-  prefs_.putString(kPrefsKeySsid, targetSsid_);
-  prefs_.putString(kPrefsKeyPass, targetPass_);
-  prefs_.end();
+  const bool saved = networks_.save(targetSsid_, targetPass_, used,
+      replacement < 0 ? WifiNetworkStore::kNoIndex : static_cast<uint8_t>(replacement));
+  saveStatus_ = saved ? SaveStatus::Saved : SaveStatus::StorageError;
+  LogI("WIFI", "history save=%u count=%u", static_cast<unsigned>(saveStatus_), networks_.count());
 }
 
 void WifiProvisionService::loadCredentials() {
   clearTarget();
-  if (!prefs_.begin(kPrefsNs, true)) {
-    return;
-  }
-  const String ssid = prefs_.getString(kPrefsKeySsid, "");
-  const String pass = prefs_.getString(kPrefsKeyPass, "");
-  prefs_.end();
-  ssid.toCharArray(targetSsid_, sizeof(targetSsid_));
-  pass.toCharArray(targetPass_, sizeof(targetPass_));
+  if (!networks_.begin()) LogE("WIFI", "saved networks could not be loaded");
+  (void)networks_.credentials(0, targetSsid_, sizeof(targetSsid_), targetPass_, sizeof(targetPass_));
+  LogI("WIFI", "saved networks loaded count=%u", networks_.count());
+}
+
+bool WifiProvisionService::connectSaved(uint8_t index) {
+  if (radioActive_ || !networks_.info(index)) return false;
+  clearTarget();
+  if (!networks_.credentials(index, targetSsid_, sizeof(targetSsid_), targetPass_, sizeof(targetPass_))) return false;
+  fromSaved_ = true;
+  purpose_ = Purpose::TimeSync;
+  replacementSsid_[0] = '\0';
+  LogI("WIFI", "user selected saved network index=%u", index);
+  requestConnecting();
+  return true;
+}
+
+bool WifiProvisionService::forgetNetwork(uint8_t index) {
+  if (radioActive_ || !networks_.forget(index)) return false;
+  clearTarget();
+  (void)networks_.credentials(0, targetSsid_, sizeof(targetSsid_), targetPass_, sizeof(targetPass_));
+  changed_ = true;
+  LogI("WIFI", "network forgotten index=%u remaining=%u", index, networks_.count());
+  return true;
 }
 
 void WifiProvisionService::clearTarget() {
@@ -401,9 +458,9 @@ void WifiProvisionService::clearTarget() {
   memset(staIp_, 0, sizeof(staIp_));
 }
 
-void WifiProvisionService::finishProvisionSuccess(uint32_t nowMs) {
+void WifiProvisionService::finishProvisionSuccess(uint32_t nowMs, TimeService& time) {
   updateStaIpCache();
-  saveCredentials();
+  saveCredentials(time);
   if (purpose_ == Purpose::FontSetup) {
     LogI("WIFI", "connected for font setup ip=%s", staIp_);
     cleanupRadio(true);
@@ -411,8 +468,8 @@ void WifiProvisionService::finishProvisionSuccess(uint32_t nowMs) {
     return;
   }
   if (!portalActive_) {
-    LogW("WIFI", "connected without setup AP ip=%s", staIp_);
-    setState(State::Connected, Error::None);
+    LogI("WIFI", "saved network connected ip=%s; starting time sync", staIp_);
+    finishPortalHold(nowMs, time);
     return;
   }
   holdEndMs_ = nowMs + kSuccessHoldMs;

@@ -2,8 +2,8 @@
 
 #include <Arduino.h>
 #include <DNSServer.h>
-#include <Preferences.h>
 #include <WebServer.h>
+#include "WifiNetworkStore.h"
 
 class TimeService;
 
@@ -28,11 +28,19 @@ public:
     Unknown
   };
   enum class Purpose : uint8_t { TimeSync, FontSetup };
+  enum class SaveStatus : uint8_t { None, Saved, Full, StorageError };
 
   bool begin();
   void tick(uint32_t nowMs, TimeService& time);
 
-  void startPortal(uint32_t nowMs, Purpose purpose = Purpose::TimeSync);
+  void startPortal(uint32_t nowMs, Purpose purpose = Purpose::TimeSync,
+                   int8_t replacement = -1, const char* prefill = nullptr);
+  bool connectSaved(uint8_t index);
+  bool forgetNetwork(uint8_t index);
+  const WifiNetworkStore& networks() const { return networks_; }
+  bool fromSavedNetwork() const { return fromSaved_; }
+  SaveStatus saveStatus() const { return saveStatus_; }
+  int8_t replacementIndex() const { return networks_.find(replacementSsid_); }
   void stopPortal();
   void cancelProvision(TimeService& time);
   void finishOnlineSession();
@@ -45,6 +53,7 @@ public:
   bool canStartPortal() const;
   bool canRetryConnect() const;
   bool retryConnect();
+  bool editPortal();
   uint32_t portalRemainingSeconds(uint32_t nowMs) const;
   uint32_t holdRemainingSeconds(uint32_t nowMs) const;
   bool consumeChanged();
@@ -66,10 +75,10 @@ private:
   void setState(State next, Error err = Error::None);
   bool hasStaIp() const;
   void updateStaIpCache();
-  void saveCredentials();
+  void saveCredentials(const TimeService& time);
   void loadCredentials();
   void clearTarget();
-  void finishProvisionSuccess(uint32_t nowMs);
+  void finishProvisionSuccess(uint32_t nowMs, TimeService& time);
   void finishPortalHold(uint32_t nowMs, TimeService& time);
   void cleanupRadio(bool keepStation);
   const char* stateText() const;
@@ -82,7 +91,7 @@ private:
 
   DNSServer dns_;
   WebServer server_{80};
-  Preferences prefs_;
+  WifiNetworkStore networks_;
 
   State state_ = State::Idle;
   Error error_ = Error::None;
@@ -92,6 +101,9 @@ private:
   bool routesReady_ = false;
   bool connectPending_ = false;
   Purpose purpose_ = Purpose::TimeSync;
+  bool fromSaved_ = false;
+  SaveStatus saveStatus_ = SaveStatus::None;
+  char replacementSsid_[33] = {};
 
   uint32_t portalStartMs_ = 0;
   uint32_t connectStartMs_ = 0;

@@ -23,6 +23,7 @@ public:
   State state() const { return state_; }
   const Glyph* glyph(uint32_t codepoint) const;
   size_t cacheBytes() const { return memory_.size(); }
+  bool currentCard() const;
 private:
   void fail(const char* reason);
   bool beginSubset();
@@ -48,6 +49,7 @@ private:
   size_t next_ = 0;
   size_t subsetCursor_ = 0;
   uint32_t startedMs_ = 0;
+  uint32_t generation_ = 0;
   State state_ = State::Idle;
   bool changed_ = false;
 };
