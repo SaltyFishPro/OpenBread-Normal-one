@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <Arduino.h>
 
@@ -19,6 +19,8 @@
 #include "../services/TimeService.h"
 #include "../services/WifiProvisionService.h"
 #include "../services/FontSetupService.h"
+#include "../services/DeviceSettings.h"
+#include "../services/DeviceAdminService.h"
 #include "PopupView.h"
 #include "Render1bpp.h"
 #include "pages/TimeCalibrationPage.h"
@@ -37,6 +39,7 @@
 #include "pages/SettingsPage.h"
 #include "pages/SystemUpdatePage.h"
 #include "pages/WifiPage.h"
+#include "pages/DeviceAdminPage.h"
 #include "../services/SdCardService.h"
 #include "../services/SdBitmapFont.h"
 #include "../services/UiFontCache.h"
@@ -98,7 +101,7 @@ private:
   void performFactoryReset();
   void initDeviceInfoCache();
   void renderDetail(int16_t yOffset = 0);
-  enum class ContentFontUse : uint8_t { None, Answers, Update, Reader, External, Timer, Wifi };
+  enum class ContentFontUse : uint8_t { None, Answers, Update, Reader, External, Timer, Wifi, About };
   void syncContentFonts();
   void closeContentFonts();
   void syncUiFont();
@@ -138,6 +141,7 @@ private:
   RemotePage remotePage_;
   SettingsPage settingsPage_;
   WifiPage wifiPage_;
+  DeviceAdminPage deviceAdminPage_;
   SystemUpdatePage systemUpdatePage_;
   BluetoothService bluetoothService_;
   RemoteService remoteService_;
@@ -146,6 +150,8 @@ private:
   TimeService timeService_;
   WifiProvisionService wifiProvisionService_;
   FontSetupService fontSetupService_;
+  DeviceSettings deviceSettings_;
+  DeviceAdminService deviceAdminService_;
   SdCardService sdCardService_;
   SdBitmapFont sdBitmapFont_;
   SdBitmapFont sdTitleFont_;

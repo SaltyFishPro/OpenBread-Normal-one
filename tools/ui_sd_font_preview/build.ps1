@@ -16,6 +16,7 @@ try {
     $sources = @(
         'tools/ui_sd_font_preview/test.cpp', 'tmp/ui-sd-font/fonts.o',
         'src/services/UiFontCache.cpp', 'src/services/SdBitmapFont.cpp',
+        'src/services/MusicLyrics.cpp', 'src/services/LrcParser.cpp', 'src/ui/pages/MusicPage.cpp', 'tools/ui_sd_font_preview/music_stub.cpp',
         'src/bsp/SdFontFile.cpp', 'src/bsp/SdFontCacheBuffer.cpp',
         'src/ui/SdBitmapText.cpp', 'src/ui/SdUiText.cpp', 'src/ui/DetailHeader.cpp',
         'src/ui/PopupView.cpp', 'src/ui/IconBitmap.cpp', 'src/ui/Segment7Font.cpp',

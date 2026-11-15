@@ -45,3 +45,6 @@ for name in names:
     start = text.index(f'const uint8_t {name}[')
     declarations.append(text[start:text.index(';\n', start)+1])
 (out / 'fonts.c').write_text('\n'.join(declarations), encoding='utf-8')
+
+(out/'valid/music').mkdir(exist_ok=True)
+(out/'valid/music/0.lrc').write_text('[00:00.00]让风轻轻穿过夜空\n[00:10.00]把每一刻收藏在心中\n[00:20.00]沿着微光向前走\n',encoding='utf-8')

@@ -65,8 +65,8 @@ int16_t Scope::render(void* self, int16_t x, int16_t y, const char* value,
   return advance;
 }
 
-FixedScope::FixedScope(DisplayMonoTft& display, const UiFontCache& cache)
-    : display_(display), cache_(cache), previous_(display.text().utf8Renderer()) {
+FixedScope::FixedScope(DisplayMonoTft& display, const UiFontCache& cache, bool includeAscii)
+    : display_(display), cache_(cache), includeAscii_(includeAscii), previous_(display.text().utf8Renderer()) {
   if (cache.state() == UiFontCache::State::Ready)
     display.text().setUTF8Renderer(u8g2_font_7x14_tf, this, measure, render);
 }
@@ -74,7 +74,7 @@ FixedScope::~FixedScope() { display_.text().setUTF8Renderer(previous_); }
 
 int16_t FixedScope::measure(void* self, const char* value) {
   auto& scope = *static_cast<FixedScope*>(self);
-  if (!hasUnicode(value)) {
+  if (!scope.includeAscii_ && !hasUnicode(value)) {
     auto& text = scope.display_.text();
     const auto renderer = text.utf8Renderer();
     text.setUTF8Renderer(nullptr, nullptr, nullptr, nullptr);
@@ -95,7 +95,7 @@ int16_t FixedScope::render(void* self, int16_t x, int16_t y, const char* value,
                             uint16_t fg, uint16_t bg, bool transparent) {
   auto& scope = *static_cast<FixedScope*>(self);
   auto& canvas = scope.display_.canvas();
-  if (!hasUnicode(value)) {
+  if (!scope.includeAscii_ && !hasUnicode(value)) {
     auto& text = scope.display_.text();
     const auto renderer = text.utf8Renderer();
     text.setUTF8Renderer(nullptr, nullptr, nullptr, nullptr);

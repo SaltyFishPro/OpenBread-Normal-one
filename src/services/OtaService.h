@@ -4,6 +4,7 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <mbedtls/sha256.h>
+#include <esp_ota_ops.h>
 
 class OtaService {
 public:
@@ -61,6 +62,7 @@ public:
   bool requestCheck(uint32_t nowMs);
   bool requestDownload(uint32_t nowMs);
   bool requestApply();
+  void setKeepAccessPoint(bool enabled) { keepAccessPoint_ = enabled; }
   void cancel();
 
   State state() const;
@@ -136,6 +138,10 @@ private:
   char postApplyMessage_[96] = {0};
   bool downloadSessionActive_ = false;
   bool shaActive_ = false;
+  bool keepAccessPoint_ = false;
+  bool flashSessionActive_ = false;
+  esp_ota_handle_t flashHandle_ = 0;
+  const esp_partition_t* targetPartition_ = nullptr;
   HTTPClient downloadHttp_;
   WiFiClientSecure downloadClient_;
   mbedtls_sha256_context shaCtx_{};

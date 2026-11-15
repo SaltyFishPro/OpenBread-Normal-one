@@ -37,9 +37,9 @@
 
 ## 字体部署
 
-新增文案已生成 815 个固定码点，14-ui 常驻缓存 61,940 bytes。SD 卡需更新三个 `font-*.ui.bin`，完整字库仍保留。首次开机必需六份字体文件，大小和哈希见 [首次开机字体安装](FIRST_BOOT_FONT_SETUP.md)。
+新增文案已生成 817 个固定码点，14-ui 常驻缓存 62,092 bytes。SD 卡需更新三个 `font-*.ui.bin`，完整字库仍保留。首次开机必需六份字体文件，大小和哈希见 [首次开机字体安装](FIRST_BOOT_FONT_SETUP.md)。
 
-`tools/font_builder/output/normal-one-fonts-wifi.zip` 内含 `Font/` 文件夹：可解压到 SD 根目录。服务器上传该文件夹内的文件至现有字体目录；三个 UI 子集有更新，需要同步清理对应 CDN 缓存。本地生成文件不代表服务器已经上传成功。
+`tools/font_builder/output/normal-one-fonts-music.zip` 内含 `Font/` 文件夹：可解压到 SD 根目录。服务器上传该文件夹内的文件至现有字体目录；三个 UI 子集有更新，需要同步清理对应 CDN 缓存。本地生成文件不代表服务器已经上传成功。
 
 ## 验证
 

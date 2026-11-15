@@ -20,22 +20,22 @@ constexpr File kFiles[] = {
     {"font-14.bin", 2269533U,
      "4dd04cceb3efb9a307cdc54e03d2bf69a3b2fd1e069feffbbaabb5ca23c60884",
      14, 44650U, 0xDFCFEB1BU},
-    {"font-14.ui.bin", 39972U,
-     "d526a05746da567d9e3416dce82e340806f6a18fa218d6885bdaf43f7107b15c",
-     14, 814U, 0x99DD9B38U},
+    {"font-14.ui.bin", 40178U,
+     "b217c5e7ca7971c1b237a451b95410d796bab65b89f170a8c1de281c3e8d4c0e",
+     14, 818U, 0x47B47ED5U},
     {"font-20.bin", 3342737U,
      "2ce6aedd66c52fc34887e66c30e538d8e1b506e749ddb1f1ec354665c0ed528a",
      20, 44650U, 0x1BFCA471U},
-    {"font-20.ui.bin", 61042U,
-     "db554f0b985b8ac65370e99c383f5fbef2c822e8a21cce3cb52704ced6e883f9",
-     20, 814U, 0xB5B9B258U},
+    {"font-20.ui.bin", 61372U,
+     "8ba43d3f1d51eb11aca8c29a625900af96c7eb8c0680352dc4513e3c0d9d2007",
+     20, 818U, 0x16709341U},
     {"font-24.bin", 4004358U,
      "143a68bb1557b23b24d64953743cfb64bf81a9dffef95cc185a067c1d09cbb1b",
      24, 44650U, 0xEFA0F389U},
-    {"font-24.ui.bin", 70020U,
-     "3f9b10ea9aa65734bf8e4c3c4c6bfaaeb782b196608781c1b0f7c208f55fd22a",
-     24, 814U, 0x9BB82F67U},
+    {"font-24.ui.bin", 70386U,
+     "e58a4d0fc807a259b114382ef475f9ea41b34f49333b09873b890acccd13904e",
+     24, 818U, 0xC5289C6FU},
 };
 constexpr uint8_t kFileCount = sizeof(kFiles) / sizeof(kFiles[0]);
-constexpr uint32_t kTotalBytes = 9787662U;
+constexpr uint32_t kTotalBytes = 9788564U;
 }  // namespace FontBundle

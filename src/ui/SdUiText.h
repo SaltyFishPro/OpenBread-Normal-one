@@ -35,7 +35,7 @@ private:
 // Outer renderer for menu/headers/popups. Inner content scopes restore it.
 class FixedScope {
 public:
-  FixedScope(DisplayMonoTft& display, const UiFontCache& cache);
+  FixedScope(DisplayMonoTft& display, const UiFontCache& cache, bool includeAscii = false);
   ~FixedScope();
   FixedScope(const FixedScope&) = delete;
   FixedScope& operator=(const FixedScope&) = delete;
@@ -45,6 +45,7 @@ private:
                          uint16_t fg, uint16_t bg, bool transparent);
   DisplayMonoTft& display_;
   const UiFontCache& cache_;
+  bool includeAscii_;
   U8G2_FOR_ST73XX::Utf8Renderer previous_;
 };
 }

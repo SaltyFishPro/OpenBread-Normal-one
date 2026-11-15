@@ -3,7 +3,6 @@
 #include "OtaReleaseNotes.h"
 
 #include <Preferences.h>
-#include <Update.h>
 #include <WiFi.h>
 
 #include <cctype>
@@ -165,7 +164,7 @@ bool OtaService::requestCheck(uint32_t nowMs) {
   cleanupDownloadSession();
 
   WiFi.disconnect(false, false);
-  WiFi.mode(WIFI_STA);
+  WiFi.mode(keepAccessPoint_ ? WIFI_AP_STA : WIFI_STA);
   WiFi.setSleep(false);
   WiFi.begin(staSsid_, staPass_);
 
@@ -211,7 +210,7 @@ bool OtaService::requestDownload(uint32_t nowMs) {
   totalBytes_ = manifest_.size;
 
   WiFi.disconnect(false, false);
-  WiFi.mode(WIFI_STA);
+  WiFi.mode(keepAccessPoint_ ? WIFI_AP_STA : WIFI_STA);
   WiFi.setSleep(false);
   WiFi.begin(staSsid_, staPass_);
 
@@ -244,6 +243,12 @@ bool OtaService::requestApply() {
   prefs.putString(kOtaExpectedVer, manifest_.version);
   prefs.end();
 
+  if (!targetPartition_ || esp_ota_set_boot_partition(targetPartition_) != ESP_OK) {
+    LogE("OTA", "failed to select verified boot partition");
+    setState(State::Error, Error::UpdateFinalizeFailed);
+    return false;
+  }
+
   setState(State::Applying, Error::None);
   LogI("OTA", "apply confirmed, restart to boot new firmware target_build=%lu target_ver=%s",
          static_cast<unsigned long>(manifest_.build), manifest_.version);
@@ -254,6 +259,11 @@ bool OtaService::requestApply() {
 
 void OtaService::cancel() {
   if (phase_ == CheckPhase::None) {
+    if (state_ == State::ReadyToApply) {
+      targetPartition_ = nullptr;
+      setState(State::Idle, Error::None);
+      LogI("OTA", "discarded downloaded firmware");
+    }
     return;
   }
   LogI("OTA", "ota action canceled by user");
@@ -322,7 +332,7 @@ bool OtaService::loadSavedCredentials() {
 
 void OtaService::cleanupRadio() {
   WiFi.disconnect(false, true);
-  WiFi.mode(WIFI_OFF);
+  WiFi.mode(keepAccessPoint_ ? WIFI_AP : WIFI_OFF);
 }
 
 void OtaService::clearProgress() {
@@ -512,12 +522,15 @@ bool OtaService::beginDownloadSession() {
     return false;
   }
 
-  if (!Update.begin(manifest_.size, U_FLASH)) {
-    LogE("OTA", "update begin failed err=%u", static_cast<unsigned>(Update.getError()));
+  targetPartition_ = esp_ota_get_next_update_partition(nullptr);
+  const esp_err_t beginResult = targetPartition_ ? esp_ota_begin(targetPartition_, manifest_.size, &flashHandle_) : ESP_FAIL;
+  if (beginResult != ESP_OK) {
+    LogE("OTA", "update begin failed err=%d", static_cast<int>(beginResult));
     cleanupDownloadSession();
     setState(State::Error, Error::UpdateBeginFailed);
     return false;
   }
+  flashSessionActive_ = true;
 
   mbedtls_sha256_starts(&shaCtx_, 0);
   shaActive_ = true;
@@ -569,8 +582,9 @@ bool OtaService::processDownloadChunk() {
     return false;
   }
 
-  if (Update.write(buf, static_cast<size_t>(readLen)) != static_cast<size_t>(readLen)) {
-    LogE("OTA", "update write failed err=%u", static_cast<unsigned>(Update.getError()));
+  const esp_err_t writeResult = esp_ota_write(flashHandle_, buf, static_cast<size_t>(readLen));
+  if (writeResult != ESP_OK) {
+    LogE("OTA", "update write failed err=%d", static_cast<int>(writeResult));
     abortDownloadSession(Error::UpdateWriteFailed);
     return false;
   }
@@ -619,8 +633,11 @@ bool OtaService::finalizeDownloadSession() {
     return false;
   }
 
-  if (!Update.end(false)) {
-    LogE("OTA", "update finalize failed err=%u", static_cast<unsigned>(Update.getError()));
+  const esp_err_t endResult = esp_ota_end(flashHandle_);
+  flashSessionActive_ = false;
+  if (endResult != ESP_OK) {
+    targetPartition_ = nullptr;
+    LogE("OTA", "update finalize failed err=%d", static_cast<int>(endResult));
     cleanupDownloadSession();
     setState(State::Error, Error::UpdateFinalizeFailed);
     return false;
@@ -632,6 +649,11 @@ bool OtaService::finalizeDownloadSession() {
 }
 
 void OtaService::cleanupDownloadSession() {
+  if (flashSessionActive_) {
+    esp_ota_abort(flashHandle_);
+    flashSessionActive_ = false;
+    targetPartition_ = nullptr;
+  }
   if (downloadSessionActive_) {
     downloadHttp_.end();
     downloadSessionActive_ = false;
@@ -647,7 +669,6 @@ void OtaService::cleanupDownloadSession() {
 }
 
 void OtaService::abortDownloadSession(Error err) {
-  Update.abort();
   cleanupDownloadSession();
   setState(State::Error, err);
 }

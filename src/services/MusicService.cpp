@@ -96,6 +96,11 @@ void MusicService::tick(uint32_t nowMs) {
       (nowMs - pauseStartMs_) >= kPausePowerOffMs) {
     suspendForPauseTimeout();
   }
+  if (lyrics_.state() == MusicLyrics::State::Loading && nowMs - lastLyricsReadMs_ >= 20U) {
+    lastLyricsReadMs_ = nowMs;
+    lyrics_.tick();
+    if (lyrics_.state() != MusicLyrics::State::Loading) markChanged();
+  }
 
   if ((playbackState_ == PlaybackState::Playing || playbackState_ == PlaybackState::Opening) &&
       (nowMs - lastHpCheckMs_) >= kHpCheckIntervalMs) {
@@ -224,6 +229,7 @@ void MusicService::processListScan(SdCardService& sd) {
 }
 
 void MusicService::exitMusic(SdCardService& sd) {
+  lyrics_.end();
   (void)stop();
   audio_.stopSong();
   dac_.powerOff();
@@ -544,6 +550,7 @@ bool MusicService::toggleFavorite(const TrackInfo& track) {
 }
 
 bool MusicService::playTrack(uint32_t absoluteIndex) {
+  lyrics_.end();
   clearAudioDebug();
   if (trackCount_ == 0 || absoluteIndex >= trackCount_) {
     failPlayback("track index invalid");
@@ -572,6 +579,7 @@ bool MusicService::playTrack(uint32_t absoluteIndex) {
   openingStartMs_ = millis();
   lastAudioInfoMs_ = openingStartMs_;
   playbackState_ = PlaybackState::Opening;
+  lyrics_.begin(currentTrack_.path);
   LogI("AUDIO", "play file=%s", currentTrack_.path);
   markChanged();
   return true;
@@ -602,6 +610,7 @@ bool MusicService::togglePause(uint32_t nowMs) {
 }
 
 bool MusicService::stop() {
+  lyrics_.end();
   if (playbackState_ == PlaybackState::Stopped) {
     return true;
   }
@@ -757,6 +766,7 @@ bool MusicService::advanceAfterTrackEnd() {
 }
 
 void MusicService::failPlayback(const char* error) {
+  lyrics_.end();
   audio_.stopSong();
   dac_.powerOff();
   playbackState_ = PlaybackState::Error;

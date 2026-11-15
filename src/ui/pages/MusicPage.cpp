@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <algorithm>
 
 #include "../../bsp/DisplayMonoTft.h"
 #include "../../log/Log.h"
@@ -245,37 +246,26 @@ void drawRevealedLabel(DisplayMonoTft& display, uint8_t index, int16_t yOffset,
 }
 
 void drawMusicNavFrame(DisplayMonoTft& display, uint8_t selectedIndex, bool favoriteEnabled,
-                       int16_t yOffset, float progress) {
-  auto& canvas = display.canvas();
-  progress = clamp01(progress);
-
-  DrawUtils::drawRoundRect(canvas, kPlayerBarX, static_cast<int16_t>(yOffset + kPlayerBarY),
-                           kPlayerBarWidth, kPlayerBarHeight, kPlayerBarRadius,
-                           ST7305_COLOR_BLACK, ST7305_COLOR_BLACK);
-
-  for (uint8_t i = 0; i < kTabCount; ++i) {
-    if (i == selectedIndex && progress > 0.0f) {
-      continue;
-    }
-    drawBitmapIcon(canvas, iconForTab(i, favoriteEnabled), tabCenterX(i),
-                   static_cast<int16_t>(yOffset + kTabY + kTabHeight / 2),
-                   ST7305_COLOR_WHITE);
+                       int16_t yOffset, float) {
+  auto& canvas=display.canvas(); auto& text=display.text();
+  text.setFont(u8g2_font_7x14_tf); text.setFontMode(1);
+  text.setForegroundColor(ST7305_COLOR_BLACK); text.setBackgroundColor(ST7305_COLOR_WHITE);
+  DrawUtils::drawClippedFilledRect(canvas,16,yOffset+128,367,yOffset+128,ST7305_COLOR_BLACK);
+  if(selectedIndex==0) {
+    text.drawUTF8(16,yOffset+153,"< 返回");
+    text.drawUTF8(165,yOffset+153,"> 工具");
+    text.drawUTF8(291,yOffset+153,"OK 播放");
+    return;
   }
-
-  if (progress > 0.0f) {
-    const float easedProgress = easeOutCubic(progress);
-    const int16_t selectedX = tabX(selectedIndex);
-    const int16_t pillWidth = lerpInt(kTabHeight, kTabWidth, easedProgress);
-    const int16_t pillX = static_cast<int16_t>(selectedX + (kTabWidth - pillWidth) / 2);
-    const int16_t iconX =
-        lerpInt(tabCenterX(selectedIndex), static_cast<int16_t>(selectedX + 21), easedProgress);
-
-    DrawUtils::drawRoundRect(canvas, pillX, static_cast<int16_t>(yOffset + kTabY), pillWidth,
-                             kTabHeight, kTabRadius, ST7305_COLOR_WHITE, ST7305_COLOR_WHITE);
-    drawBitmapIcon(canvas, iconForTab(selectedIndex, favoriteEnabled), iconX,
-                   static_cast<int16_t>(yOffset + kTabY + kTabHeight / 2),
-                   ST7305_COLOR_BLACK);
-    drawRevealedLabel(display, selectedIndex, yOffset, progress);
+  text.drawUTF8(16,yOffset+153,"< 返回列表");
+  const char* labels[]={favoriteEnabled?"已收藏":"收藏","音量"};
+  for(uint8_t i=0;i<2;++i) {
+    const int16_t x=175+i*91;
+    const bool selected=selectedIndex==i+1;
+    if(selected)DrawUtils::drawRoundRect(canvas,x,yOffset+135,82,24,12,ST7305_COLOR_BLACK,ST7305_COLOR_BLACK);
+    text.setForegroundColor(selected?ST7305_COLOR_WHITE:ST7305_COLOR_BLACK);
+    const int16_t w=text.getUTF8Width(labels[i]);
+    text.drawUTF8(x+(82-w)/2,yOffset+152,labels[i]);
   }
 }
 
@@ -375,123 +365,49 @@ void drawMusicListProgress(DisplayMonoTft& display, const MusicService& music,
 }
 
 void drawMusicList(DisplayMonoTft& display, const MusicService& music, uint16_t pageIndex,
-                   uint8_t rowIndex, uint32_t nowMs, bool focusAnimating,
-                   uint8_t focusFromRow, uint8_t focusToRow,
-                   uint32_t focusAnimStartMs, int16_t xOffset, SdBitmapFont* font) {
-  auto& canvas = display.canvas();
-  auto& text = display.text();
-
-  canvas.drawFilledRectangle(static_cast<int16_t>(kListAreaX + xOffset), kListAreaY,
-                             translatedRightEdge(xOffset, kListAreaWidth - 1),
-                             static_cast<int16_t>(kListAreaHeight - 1), ST7305_COLOR_WHITE);
-  text.setFont(u8g2_font_7x14_tf);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setFontMode(1);
-
-  if (music.listState() != MusicService::ListState::Ready) {
-    const char* state = listStateText(music.listState());
-    text.drawUTF8(TextUtils::centeredTextXInBox(text, state, xOffset, kListAreaWidth), 52, state);
-    if (music.errorText()[0] != '\0') {
-      text.setFont(u8g2_font_7x14_tf);
-      text.drawUTF8(static_cast<int16_t>(xOffset + 8), 76, music.errorText());
-    }
+                   uint8_t rowIndex, uint32_t nowMs, bool, uint8_t, uint8_t,
+                   uint32_t, int16_t xOffset, SdBitmapFont* font) {
+  auto& c=display.canvas();auto& t=display.text();
+  DrawUtils::drawClippedFilledRect(c,xOffset,0,xOffset+383,127,ST7305_COLOR_WHITE);
+  t.setFont(u8g2_font_7x14_tf);t.setFontMode(1);
+  t.setForegroundColor(ST7305_COLOR_BLACK);t.setBackgroundColor(ST7305_COLOR_WHITE);
+  t.drawUTF8(xOffset+16,22,"音乐");
+  char count[24];snprintf(count,sizeof(count),"%lu 首",static_cast<unsigned long>(music.trackCount()));
+  t.drawUTF8(xOffset+368-t.getUTF8Width(count),21,count);
+  DrawUtils::drawClippedFilledRect(c,xOffset+16,29,xOffset+367,29,ST7305_COLOR_BLACK);
+  if(music.listState()!=MusicService::ListState::Ready) {
+    const char* msg=listStateText(music.listState());
+    t.drawUTF8(TextUtils::centeredTextXInBox(t,msg,xOffset,384),77,msg);return;
+  }
+  if(!SdUiText::ready(font,32)) {
+    const bool failed=font && font->state()==SdBitmapFont::State::Error;
+    const char* msg=failed?"字体加载失败":"正在加载音乐列表...";
+    t.drawUTF8(TextUtils::centeredTextXInBox(t,msg,xOffset,384),77,msg);
+    if(failed)t.drawUTF8(xOffset+100,103,"OK 重试  Left 返回");
     return;
   }
-
-  // Do not reveal a partially covered song list while the full font is being
-  // checked. Fixed status text still uses the outer compact UI font scope.
-  if (!SdUiText::ready(font, 32)) {
-    const bool failed = font && font->state() == SdBitmapFont::State::Error;
-    const char* status = failed ? "字体加载失败" : "正在加载音乐列表...";
-    text.drawUTF8(TextUtils::centeredTextXInBox(text, status, xOffset, kListAreaWidth), 48, status);
-    if (failed) {
-      const char* hint = "OK 重试  Left 返回";
-      text.drawUTF8(TextUtils::centeredTextXInBox(text, hint, xOffset, kListAreaWidth), 76, hint);
+  const auto& page=music.page();
+  for(uint8_t i=0;i<page.count;++i) {
+    const int16_t top=35+i*30;const bool selected=i==rowIndex;
+    if(selected)DrawUtils::drawRoundRect(c,xOffset+16,top,352,27,13,ST7305_COLOR_BLACK,ST7305_COLOR_BLACK);
+    char name[MusicService::kMaxNameLen];snprintf(name,sizeof(name),"%s",page.tracks[i].name);
+    char* dot=strrchr(name,'.');if(dot && dot!=name)*dot=0;
+    const uint16_t color=selected?ST7305_COLOR_WHITE:ST7305_COLOR_BLACK;
+    const SdBitmapText::Clip clip={static_cast<int16_t>(xOffset+28),static_cast<int16_t>(top+2),
+                                  static_cast<int16_t>(xOffset+320),static_cast<int16_t>(top+24)};
+    int16_t x=xOffset+28;
+    const int32_t textWidth=SdBitmapText::measureUTF8(*font,name);
+    if(selected && textWidth>290) {
+      const uint32_t overflow=static_cast<uint32_t>(textWidth-290);
+      const uint32_t phase=(nowMs/70U)%(overflow+30U);
+      x-=phase>15?static_cast<int16_t>(std::min<uint32_t>(overflow,phase-15)):0;
     }
-    return;
+    SdBitmapText::drawUTF8(c,*font,x,top+19,name,color,clip);
+    t.setForegroundColor(color);t.setBackgroundColor(selected?ST7305_COLOR_BLACK:ST7305_COLOR_WHITE);
+    if(music.currentTrack().path[0] && music.currentTrackIndex()==uint32_t(pageIndex)*MusicService::kRowsPerPage+i)
+      t.drawUTF8(xOffset+335,top+19,"*");
+    else if(selected)t.drawUTF8(xOffset+336,top+19,">");
   }
-
-  const MusicService::Page& page = music.page();
-  if (page.count == 0) {
-    return;
-  }
-
-  // Track names are external UTF-8 data and must use the full SD font. The
-  // navigation labels are drawn later under the outer fixed-UI font scope.
-  SdUiText::Scope fullFontText(display, font);
-  rowIndex = min<uint8_t>(rowIndex, static_cast<uint8_t>(page.count - 1U));
-
-  char selectedLine[96];
-  makeMusicListLine(page, rowIndex, selectedLine, sizeof(selectedLine));
-  int16_t toFocusX = 0;
-  int16_t toFocusY = 0;
-  int16_t toFocusW = 0;
-  int16_t toFocusH = 0;
-  musicListFocusRect(text, selectedLine, musicListBaselineY(rowIndex), xOffset, toFocusX, toFocusY,
-                     toFocusW, toFocusH);
-
-  int16_t focusX = toFocusX;
-  int16_t focusY = toFocusY;
-  int16_t focusW = toFocusW;
-  int16_t focusH = toFocusH;
-  if (focusAnimating && focusFromRow < page.count && focusToRow < page.count) {
-    char fromLine[96];
-    makeMusicListLine(page, focusFromRow, fromLine, sizeof(fromLine));
-    int16_t fromFocusX = 0;
-    int16_t fromFocusY = 0;
-    int16_t fromFocusW = 0;
-    int16_t fromFocusH = 0;
-    musicListFocusRect(text, fromLine, musicListBaselineY(focusFromRow), xOffset, fromFocusX,
-                       fromFocusY, fromFocusW, fromFocusH);
-    const uint32_t elapsed = nowMs - focusAnimStartMs;
-    const float progress = elapsed >= kListFocusAnimationDurationMs
-                               ? 1.0f
-                               : static_cast<float>(elapsed) /
-                                     static_cast<float>(kListFocusAnimationDurationMs);
-    focusX = easeOutCubicInt(fromFocusX, toFocusX, progress);
-    focusY = easeOutCubicInt(fromFocusY, toFocusY, progress);
-    focusW = easeOutCubicInt(fromFocusW, toFocusW, progress);
-    focusH = easeOutCubicInt(fromFocusH, toFocusH, progress);
-  }
-
-  DrawUtils::drawRoundRect(canvas, focusX, focusY, focusW, focusH, kListFocusRadius,
-                           ST7305_COLOR_BLACK, ST7305_COLOR_BLACK);
-
-  for (uint8_t i = 0; i < page.count; ++i) {
-    const int16_t baselineY = musicListBaselineY(i);
-    const bool selected = i == rowIndex;
-    int16_t rowFocusX = 0;
-    int16_t rowFocusY = 0;
-    int16_t rowFocusW = 0;
-    int16_t rowFocusH = 0;
-    if (selected) {
-      text.setForegroundColor(ST7305_COLOR_WHITE);
-      text.setBackgroundColor(ST7305_COLOR_BLACK);
-      text.setFontMode(0);
-    } else {
-      text.setForegroundColor(ST7305_COLOR_BLACK);
-      text.setBackgroundColor(ST7305_COLOR_WHITE);
-      text.setFontMode(1);
-    }
-
-    char line[96];
-    makeMusicListLine(page, i, line, sizeof(line));
-    if (selected) {
-      musicListFocusRect(text, line, baselineY, xOffset, rowFocusX, rowFocusY, rowFocusW,
-                         rowFocusH);
-    }
-    const int16_t selectedMaskRight =
-        selected ? static_cast<int16_t>(rowFocusX + rowFocusW - 1)
-                 : translatedRightEdge(xOffset, kListAreaWidth - 1);
-    drawClippedText(display, line, static_cast<int16_t>(xOffset + kListTextX), baselineY,
-                    translatedRightEdge(xOffset, kListTextMaxRight), selectedMaskRight,
-                    translatedRightEdge(xOffset, kListAreaWidth - 1), selected, nowMs);
-  }
-
-  const uint32_t selectedAbsolute =
-      static_cast<uint32_t>(pageIndex) * MusicService::kRowsPerPage + rowIndex;
-  drawMusicListProgress(display, music, selectedAbsolute, xOffset);
 }
 
 int16_t playerControlCenterY(uint8_t index) {
@@ -933,29 +849,61 @@ const char* playerTitleFor(const MusicService& music, uint8_t rowIndex) {
 }
 
 void drawPlayerPreviewSurface(DisplayMonoTft& display, const MusicService& music,
-                              uint8_t rowIndex, uint32_t nowMs, bool playing, SdBitmapFont* font) {
-  auto& canvas = display.canvas();
-  auto& text = display.text();
-  canvas.drawFilledRectangle(kPlayerAreaX, kPlayerAreaY,
-                             static_cast<int16_t>(kPlayerAreaX + kPlayerAreaWidth - 1),
-                             static_cast<int16_t>(kPlayerAreaY + kPlayerAreaHeight - 1),
-                             ST7305_COLOR_WHITE);
-
-  text.setFont(u8g2_font_7x14_tf);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setFontMode(1);
-  {
-    SdUiText::Scope fullFontText(display, font);
-    drawMaskedScrollingText(display, playerTitleFor(music, rowIndex), kPlayerTitleX, kPlayerTitleY,
-                            kPlayerTitleWidth, kPlayerTitleHeight, kPlayerTitleBaselineY, nowMs,
-                            kTitleScrollPeriodMs);
+                              uint8_t rowIndex, uint32_t, bool playing, SdBitmapFont* font,
+                              SdBitmapFont* large, uint8_t control, int16_t lyricShift) {
+  auto& canvas=display.canvas();auto& text=display.text();
+  DrawUtils::drawClippedFilledRect(canvas,0,0,383,167,ST7305_COLOR_WHITE);
+  text.setFont(u8g2_font_7x14_tf);text.setFontMode(1);
+  text.setForegroundColor(ST7305_COLOR_BLACK);text.setBackgroundColor(ST7305_COLOR_WHITE);
+  char name[MusicService::kMaxNameLen];snprintf(name,sizeof(name),"%s",playerTitleFor(music,rowIndex));
+  char* dot=strrchr(name,'.');if(dot && dot!=name)*dot=0;
+  const SdBitmapText::Clip titleClip={16,2,263,24};
+  if(SdUiText::ready(font))SdBitmapText::drawUTF8(canvas,*font,16,20,name,ST7305_COLOR_BLACK,titleClip);
+  else text.drawUTF8(16,20,name);
+  const char* status=playing?"播放中":"已暂停";
+  text.drawUTF8(368-text.getUTF8Width(status),20,status);
+  DrawUtils::drawClippedFilledRect(canvas,16,26,367,26,ST7305_COLOR_BLACK);
+  const MusicLyrics& lyrics=music.lyrics();
+  const int current=lyrics.current(music.currentSeconds()*1000U);
+  auto lyric=[&](const char* line,int16_t baseline,SdBitmapFont* face,int16_t top,int16_t bottom) {
+    if(!line || !*line || !SdUiText::ready(face))return;
+    const int32_t length=SdBitmapText::measureUTF8(*face,line);
+    const int16_t x=static_cast<int16_t>(std::max<int32_t>(16,(384-length)/2));
+    const SdBitmapText::Clip clip={16,top,367,bottom};
+    SdBitmapText::drawUTF8(canvas,*face,x,baseline,line,ST7305_COLOR_BLACK,clip);
+  };
+  if(lyrics.state()==MusicLyrics::State::Ready) {
+    lyric(lyrics.line(current-1),46+lyricShift,font,28,49);
+    lyric(lyrics.line(current),69+lyricShift,SdUiText::ready(large)?large:font,47,73);
+    lyric(lyrics.line(current+1),91+lyricShift,font,72,95);
+  } else if(lyrics.state()==MusicLyrics::State::Loading) {
+    const char* label="正在加载歌词";
+    text.drawUTF8((384-text.getUTF8Width(label))/2,65,label);
+  } else {
+    canvas.drawCircle(192,56,19,ST7305_COLOR_BLACK);
+    canvas.drawCircle(192,56,4,ST7305_COLOR_BLACK);
+    const char* label="暂无歌词";text.drawUTF8((384-text.getUTF8Width(label))/2,91,label);
   }
-  drawAudioOutputIndicator(display, music.headphonesInserted());
-  drawPlayerSpectrum(display, music, nowMs, playing);
-  drawPlayerProgress(display, music.currentSeconds(), music.durationSeconds());
-  drawPlayerTimes(display, music.currentSeconds(), music.durationSeconds());
-  drawPlayerLyrics(display, music, nowMs, music.currentSeconds(), playing);
+  char cur[10],total[10];formatTime(music.currentSeconds(),cur,sizeof(cur));
+  formatDurationTime(music.durationSeconds(),total,sizeof(total));
+  text.drawUTF8(16,109,cur);text.drawUTF8(368-text.getUTF8Width(total),109,total);
+  DrawUtils::drawClippedFilledRect(canvas,62,102,321,103,ST7305_COLOR_BLACK);
+  if(music.durationSeconds()) {
+    const uint32_t position=std::min(music.currentSeconds(),music.durationSeconds());
+    DrawUtils::drawClippedFilledRect(canvas,62,101,62+259ULL*position/music.durationSeconds(),104,ST7305_COLOR_BLACK);
+  }
+  const char* labels[]={playing?"暂停":"播放",music.shuffleEnabled()?"随机":"顺序","上一首","下一首"};
+  for(uint8_t i=0;i<4;++i) {
+    const int16_t x=16+i*89;const bool active=i==control;
+    if(active)DrawUtils::drawRoundRect(canvas,x,115,82,27,13,ST7305_COLOR_BLACK,ST7305_COLOR_BLACK);
+    text.setForegroundColor(active?ST7305_COLOR_WHITE:ST7305_COLOR_BLACK);
+    text.setBackgroundColor(active?ST7305_COLOR_BLACK:ST7305_COLOR_WHITE);
+    text.drawUTF8(x+(82-text.getUTF8Width(labels[i]))/2,134,labels[i]);
+  }
+  text.setForegroundColor(ST7305_COLOR_BLACK);text.setBackgroundColor(ST7305_COLOR_WHITE);
+  text.drawUTF8(16,162,"< 返回列表");
+  const char* footer="上下 选择 OK 确认";
+  text.drawUTF8(368-text.getUTF8Width(footer),162,footer);
 }
 
 void drawPlayerTransitionFrame(DisplayMonoTft& display, const MusicService& music,
@@ -1046,7 +994,16 @@ bool MusicPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool 
 
   if (playerViewState_ == PlayerViewState::Player) {
     if (leftEdge) {
-      startPlayerTransition(false, nowMs);
+      const uint32_t index = music.currentTrackIndex();
+      if (index < music.trackCount()) {
+        const uint16_t page = index / MusicService::kRowsPerPage;
+        if (page == pageIndex_ || music.loadPage(page)) {
+          pageIndex_ = page;
+          rowIndex_ = index % MusicService::kRowsPerPage;
+          refreshFavoriteState(music);
+        }
+      }
+      playerViewState_ = PlayerViewState::List;
       return true;
     }
     if (upEdge) {
@@ -1099,72 +1056,33 @@ bool MusicPage::handleDetailInput(uint8_t homeFocus, uint8_t sectionFocus, bool 
 
   if (playerViewState_ == PlayerViewState::Entering ||
       playerViewState_ == PlayerViewState::Leaving) {
-    if (leftEdge) {
-      startPlayerTransition(false, nowMs);
-      return true;
-    }
+    if (leftEdge) playerViewState_ = PlayerViewState::List;
     return leftEdge || rightEdge || upEdge || downEdge || okEdge;
   }
-
   if (leftEdge) {
-    const uint8_t nextIndex = (selectedIndex_ == 0) ? static_cast<uint8_t>(kTabCount - 1)
-                                                    : static_cast<uint8_t>(selectedIndex_ - 1);
-    startSelectionAnimation(nextIndex, nowMs);
-    refreshFavoriteState(music);
-    return true;
+    if (selectedIndex_ != 0) { selectedIndex_=0; return true; }
+    return false;
   }
-
   if (rightEdge) {
-    startSelectionAnimation(static_cast<uint8_t>((selectedIndex_ + 1) % kTabCount), nowMs);
-    refreshFavoriteState(music);
+    selectedIndex_=1; refreshFavoriteState(music); return true;
+  }
+  if (upEdge || downEdge) {
+    if (selectedIndex_) selectedIndex_=upEdge?1:2;
+    else { moveListFocus(upEdge?-1:1,nowMs,music); refreshFavoriteState(music); }
     return true;
   }
-
-  const bool listScrollEnabled =
-      selectedIndex_ == static_cast<uint8_t>(NavTab::Music) ||
-      selectedIndex_ == static_cast<uint8_t>(NavTab::Favorite) ||
-      selectedIndex_ == static_cast<uint8_t>(NavTab::Volume) ||
-      selectedIndex_ == static_cast<uint8_t>(NavTab::Info);
-  if (listScrollEnabled) {
-    if (upEdge) {
-      moveListFocus(-1, nowMs, music);
-      refreshFavoriteState(music);
-      return true;
-    }
-    if (downEdge) {
-      moveListFocus(1, nowMs, music);
-      refreshFavoriteState(music);
-      return true;
-    }
-  }
-
-  if (okEdge && selectedIndex_ == static_cast<uint8_t>(NavTab::Info)) {
-    if (!playSelectedTrack(music)) {
-      return true;
-    }
-    selectionAnimating_ = false;
-    listFocusAnimating_ = false;
-    setPlayerUiPlaying(isPlaybackActive(music), nowMs);
-    playerUiShuffle_ = music.shuffleEnabled();
-    startPlayerTransition(true, nowMs);
+  if (!okEdge) return false;
+  if (selectedIndex_==1) {
+    const auto* track=focusedTrack(music);
+    if(track && music.toggleFavorite(*track))refreshFavoriteState(music);
     return true;
   }
-
-  if (okEdge && selectedIndex_ == static_cast<uint8_t>(NavTab::Volume)) {
-    PopupView::open(volumePopup_, nowMs);
-    return true;
+  if (selectedIndex_==2) { PopupView::open(volumePopup_,nowMs); return true; }
+  if (playSelectedTrack(music)) {
+    playerControlIndex_=0;
+    playerViewState_=PlayerViewState::Player;
   }
-
-  if (okEdge && selectedIndex_ == static_cast<uint8_t>(NavTab::Favorite)) {
-    const MusicService::TrackInfo* track = focusedTrack(music);
-    if (track == nullptr || !music.toggleFavorite(*track)) {
-      return false;
-    }
-    refreshFavoriteState(music);
-    return true;
-  }
-
-  return false;
+  return true;
 }
 
 bool MusicPage::handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus, MusicService& music,
@@ -1183,49 +1101,51 @@ bool MusicPage::handleDetailBack(uint8_t homeFocus, uint8_t sectionFocus, MusicS
 
 bool MusicPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
                              DisplayMonoTft& display, const MusicService& music,
-                             uint32_t nowMs, SdBitmapFont* font) {
+                             uint32_t nowMs, SdBitmapFont* font, SdBitmapFont* large) {
   if (!isMusicListSelection(homeFocus, sectionFocus)) {
     return false;
   }
+  if (yOffset != 0) return true;
 
   (void)prepareListFont(music, font);
   const float progress = selectionAnimating_ ? selectionProgress(nowMs) : 1.0f;
   const bool listFocusAnimating = isListFocusAnimating(nowMs);
 
   if (playerViewState_ != PlayerViewState::List) {
-    const bool playerAnimating = isPlayerTransitionAnimating(nowMs);
-    const float playerProgress = playerTransitionProgress(nowMs);
-
-    if (playerViewState_ == PlayerViewState::Leaving && !playerAnimating) {
-      playerViewState_ = PlayerViewState::List;
-      playerTransitionStartProgress_ = 0.0f;
-      playerTransitionTargetProgress_ = 0.0f;
-      drawMusicList(display, music, pageIndex_, rowIndex_, nowMs, listFocusAnimating,
-                    listFocusFromRow_, listFocusToRow_, listFocusAnimStartMs_, 0, font);
-      drawMusicNavFrame(display, selectedIndex_, favoriteEnabled_, yOffset, 1.0f);
-    } else {
-      drawPlayerTransitionFrame(display, music, pageIndex_, rowIndex_, nowMs,
-                                listFocusAnimating, listFocusFromRow_, listFocusToRow_,
-                                listFocusAnimStartMs_, playerProgress, font);
+    playerViewState_ = PlayerViewState::Player;
+    playerUiPlaying_ = isPlaybackActive(music);
+    playerUiShuffle_ = music.shuffleEnabled();
+    const int lyric = music.lyrics().current(music.currentSeconds() * 1000U);
+    if (lyric != previousLyric_) {
+      previousLyric_ = lyric;
+      lyricChangeMs_ = nowMs;
     }
-
-    if (playerViewState_ == PlayerViewState::Entering && !playerAnimating) {
-      playerViewState_ = PlayerViewState::Player;
-      playerTransitionStartProgress_ = 1.0f;
-      playerTransitionTargetProgress_ = 1.0f;
-    }
-    if (playerViewState_ == PlayerViewState::Player) {
-      playerUiPlaying_ = isPlaybackActive(music);
-      playerUiShuffle_ = music.shuffleEnabled();
-      drawPlayerPreviewSurface(display, music, rowIndex_, nowMs, playerUiPlaying_, font);
-      drawPlayerSideControls(display, playerControlIndex_, playerUiPlaying_, playerUiShuffle_);
-    }
+    const uint32_t elapsed = nowMs - lyricChangeMs_;
+    const int16_t shift = lyric >= 0 && elapsed < 200U ? static_cast<int16_t>((200U - elapsed) / 10U) : 0;
+    drawPlayerPreviewSurface(display, music, rowIndex_, nowMs, playerUiPlaying_, font, large, playerControlIndex_, shift);
     if (!listFocusAnimating) {
       listFocusAnimating_ = false;
     }
     return true;
   }
 
+  if (music.listState() == MusicService::ListState::Ready && large &&
+      large->state() == SdBitmapFont::State::Checking && SdUiText::ready(font,32)) {
+    auto& canvas=display.canvas();auto& text=display.text();
+    DrawUtils::drawClippedFilledRect(canvas,0,0,383,127,ST7305_COLOR_WHITE);
+    text.setFont(u8g2_font_7x14_tf);text.setFontMode(1);
+    text.setForegroundColor(ST7305_COLOR_BLACK);text.setBackgroundColor(ST7305_COLOR_WHITE);
+    const char* message="正在准备字体";
+    text.drawUTF8(TextUtils::centeredTextXInBox(text,message,0,384),77,message);
+    drawMusicNavFrame(display,selectedIndex_,favoriteEnabled_,yOffset,1.0f);
+    return true;
+  }
+
+  longNameVisible_ = false;
+  if (music.listState() == MusicService::ListState::Ready && rowIndex_ < music.page().count &&
+      SdUiText::ready(font, 32)) {
+    longNameVisible_ = SdBitmapText::measureUTF8(*font, music.page().tracks[rowIndex_].name) > 290;
+  }
   drawMusicList(display, music, pageIndex_, rowIndex_, nowMs, listFocusAnimating,
                 listFocusFromRow_, listFocusToRow_, listFocusAnimStartMs_, 0, font);
   drawMusicNavFrame(display, selectedIndex_, favoriteEnabled_, yOffset, progress);
@@ -1282,33 +1202,22 @@ bool MusicPage::needsAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus,
                                     uint32_t nowMs) const {
   return isMusicListSelection(homeFocus, sectionFocus) &&
          (selectionAnimating_ || isListFocusAnimating(nowMs) ||
+          longNameVisible_ ||
           PopupView::isAnimating(volumePopup_.anim) ||
           playerViewState_ == PlayerViewState::Entering ||
           playerViewState_ == PlayerViewState::Leaving ||
           playerViewState_ == PlayerViewState::Player);
 }
 
-bool MusicPage::needsNavAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus,
-                                       uint32_t nowMs) const {
-  (void)nowMs;
-  return isMusicListSelection(homeFocus, sectionFocus) &&
-         playerViewState_ == PlayerViewState::List && selectionAnimating_ &&
-         !PopupView::isVisible(volumePopup_.anim);
-}
-
-bool MusicPage::needsListAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus,
-                                        uint32_t nowMs) const {
-  return isMusicListSelection(homeFocus, sectionFocus) &&
-         playerViewState_ == PlayerViewState::List && isListFocusAnimating(nowMs) &&
-         !PopupView::isVisible(volumePopup_.anim);
-}
+bool MusicPage::needsNavAnimationFrame(uint8_t, uint8_t, uint32_t) const { return false; }
+bool MusicPage::needsListAnimationFrame(uint8_t, uint8_t, uint32_t) const { return false; }
 
 uint32_t MusicPage::detailFrameIntervalMs(uint8_t homeFocus, uint8_t sectionFocus) const {
   // 音量弹窗的进场/退场按 60fps 出帧，其余动画保持 30fps。
   if (PopupView::isAnimating(volumePopup_.anim)) {
     return kPopupFrameIntervalMs;
   }
-  return isMusicListSelection(homeFocus, sectionFocus) ? kAnimationFrameIntervalMs : 0U;
+  return isMusicListSelection(homeFocus, sectionFocus) ? 250U : 0U;
 }
 
 void MusicPage::startSelectionAnimation(uint8_t nextIndex, uint32_t nowMs) {
@@ -1369,20 +1278,19 @@ void MusicPage::moveListFocus(int8_t delta, uint32_t nowMs, MusicService& music)
   const uint8_t oldRow = rowIndex_;
   int32_t index = static_cast<int32_t>(selectedAbsoluteIndex()) + delta;
   if (index < 0) {
-    index = static_cast<int32_t>(music.trackCount() - 1U);
+    return;
   } else if (index >= static_cast<int32_t>(music.trackCount())) {
-    index = 0;
+    return;
   }
 
   const uint16_t newPage = static_cast<uint16_t>(index / MusicService::kRowsPerPage);
   const uint8_t newRow = static_cast<uint8_t>(index % MusicService::kRowsPerPage);
   if (newPage != pageIndex_) {
-    if (music.loadPage(newPage)) {
-      pageIndex_ = newPage;
-    }
+    if (!music.loadPage(newPage)) return;
+    pageIndex_ = newPage;
     listFocusAnimating_ = false;
   } else if (newRow != oldRow) {
-    listFocusAnimating_ = true;
+    listFocusAnimating_ = false;
     listFocusFromRow_ = oldRow;
     listFocusToRow_ = newRow;
     listFocusAnimStartMs_ = nowMs;
@@ -1527,4 +1435,7 @@ void MusicPage::resetStateUnchecked() {
   preparedFontSession_ = 0;
   preparedFontPage_ = 0;
   listFontPrepared_ = false;
+  longNameVisible_ = false;
+  previousLyric_ = -2;
+  lyricChangeMs_ = 0;
 }

@@ -6,13 +6,14 @@
 
 #include "../bsp/DacDriver.h"
 #include "SdCardService.h"
+#include "MusicLyrics.h"
 
 class MusicService {
 public:
   static constexpr uint8_t kMaxNameLen = 64;
   static constexpr uint8_t kMaxPathLen = 96;
   static constexpr uint8_t kMaxAudioDebugLen = 96;
-  static constexpr uint8_t kRowsPerPage = 4;
+  static constexpr uint8_t kRowsPerPage = 3;
   static constexpr uint8_t kMaxVolume = 21;
   static constexpr uint8_t kSpectrumBandCount = 16;
 
@@ -98,6 +99,7 @@ public:
   uint8_t volume() const;
   const char* errorText() const;
   const char* audioDebugText() const;
+  const MusicLyrics& lyrics() const { return lyrics_; }
 
   bool playTrack(uint32_t absoluteIndex);
   bool togglePause(uint32_t nowMs);
@@ -155,6 +157,7 @@ private:
   bool advanceAfterTrackEnd();
 
   Audio audio_;
+  MusicLyrics lyrics_;
   DacDriver dac_;
   ListState listState_ = ListState::Idle;
   PlaybackState playbackState_ = PlaybackState::Stopped;
@@ -172,6 +175,7 @@ private:
   uint32_t lastAudioInfoMs_ = 0;
   uint32_t pauseStartMs_ = 0;
   uint32_t lastHpCheckMs_ = 0;
+  uint32_t lastLyricsReadMs_ = 0;
   uint8_t volume_ = 12;
   bool changed_ = false;
   bool streamReady_ = false;

@@ -51,7 +51,8 @@ public:
                     const char* flashTotalText,
                     const char* sdStatusText,
                     const WifiProvisionService& wifi,
-                    const TimeService& time, SdBitmapFont* font = nullptr) const;
+                    const TimeService& time, SdBitmapFont* font,
+                    const char* deviceName, SdBitmapFont* nameFont) const;
 
   const char* confirmTitle(ConfirmKind kind) const;
   // 左侧安全项（默认选中）。

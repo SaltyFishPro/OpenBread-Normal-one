@@ -33,7 +33,7 @@ for path in sorted((root / 'src').rglob('*')):
     # provisioning page is a served web asset, not device UI text, so its
     # embedded HTML must not pull browser-only characters into the fixed subset.
     if path.suffix not in ('.h', '.cpp') or path == target or \
-            path.name in ('FirstBootPage.cpp', 'WifiPortalPage.cpp'):
+            path.name in ('FirstBootPage.cpp', 'WifiPortalPage.cpp', 'DeviceAdminService.cpp', 'DeviceAdminPageHtml.h'):
         continue
     source = path.read_text(encoding='utf-8')
     # Comments may conservatively add codepoints, but never remove UI literals.

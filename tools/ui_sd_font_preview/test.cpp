@@ -27,6 +27,7 @@
 #include "src/ui/pages/RemotePage.h"
 #include "src/ui/pages/SettingsPage.h"
 #include "src/ui/pages/WifiPage.h"
+#include "src/ui/pages/MusicPage.h"
 #include "src/ui/pages/AnswersBookPage.h"
 #include "src/ui/pages/ReaderPage.h"
 #include "src/ui/pages/SystemUpdatePage.h"
@@ -377,7 +378,8 @@ int main() {
         d.canvas().drawFilledRectangle(0,yOffset,d.width()-1,d.height()-1,ST7305_COLOR_WHITE);
       transitionSettings.renderDetail(0,SettingsPage::kAboutDeviceItemIndex,0,yOffset,d,
                                       "设备ID: 1234","Flash: 16MB","SD: ready",
-                                      transitionWifi,transitionTime);
+                                      transitionWifi,transitionTime,nullptr,
+                                      "OpenBread Normal One",nullptr);
     };
     d.clear(); motion.render(d,0,7000); d.captureFrame(motionStart);
     drawAboutTransition(d.height()); d.captureFrame(current);
@@ -495,9 +497,14 @@ int main() {
     d.canvas().setRotation(1);
     SettingsPage settings;WifiProvisionService wifi;
     check(settings.detailPageCount(0,7)==2,"about page count");
-    d.clear();settings.renderDetail(0,7,0,0,d,"设备ID：123456789ABC","Flash空间：16 MB","SD卡：3.6G可用/3.8G总容量",wifi,time);save(d,"about");
+    d.clear();settings.renderDetail(0,7,0,0,d,"设备ID：123456789ABC","Flash空间：16 MB","SD卡：3.6G可用/3.8G总容量",wifi,time,nullptr,"OpenBread Normal One",nullptr);save(d,"about");
     uint8_t aboutFrame[8064], versionFrame[8064]; d.captureFrame(aboutFrame);
     check(framePixel(aboutFrame,d,0,0),"about background not black");
+    // 设备名称必须来自设置（网页后台可改），不能是写死的字面量。
+    uint8_t nameFrame[8064];
+    d.clear();settings.renderDetail(0,7,0,0,d,"设备ID：123456789ABC","Flash空间：16 MB","SD卡：3.6G可用/3.8G总容量",wifi,time,nullptr,"OpenBread N16R8",nullptr);
+    d.captureFrame(nameFrame);
+    check(memcmp(aboutFrame,nameFrame,sizeof(aboutFrame)),"about device name does not follow settings");
     d.clear();d.text().setFont(u8g2_font_7x14_tf);d.text().setFontMode(1);
     d.text().setForegroundColor(ST7305_COLOR_WHITE);d.text().setBackgroundColor(ST7305_COLOR_BLACK);
     d.canvas().fill(0xFF);
@@ -505,12 +512,12 @@ int main() {
     d.text().drawUTF8(26,129,expectedVersion);d.captureFrame(versionFrame);
     for(int y=115;y<=132;++y)for(int x=26;x<155;++x)
       check(framePixel(aboutFrame,d,x,y)==framePixel(versionFrame,d,x,y),"about firmware version differs from FirmwareInfo");
-    d.clear();settings.renderDetail(0,7,1,0,d,"设备ID：123456789ABC","Flash空间：16 MB","SD卡：3.6G可用/3.8G总容量",wifi,time);save(d,"about-2");
+    d.clear();settings.renderDetail(0,7,1,0,d,"设备ID：123456789ABC","Flash空间：16 MB","SD卡：3.6G可用/3.8G总容量",wifi,time,nullptr,"OpenBread Normal One",nullptr);save(d,"about-2");
     d.captureFrame(versionFrame);check(memcmp(aboutFrame,versionFrame,sizeof(aboutFrame)),"about pages identical");
     wifiState=WifiProvisionService::State::Connected;
-    d.clear();settings.renderDetail(0,7,1,0,d,"设备ID：123456789ABC","Flash空间：16 MB","SD卡：3.6G可用/3.8G总容量",wifi,time);
+    d.clear();settings.renderDetail(0,7,1,0,d,"设备ID：123456789ABC","Flash空间：16 MB","SD卡：3.6G可用/3.8G总容量",wifi,time,nullptr,"OpenBread Normal One",nullptr);
     d.captureFrame(aboutFrame);check(!memcmp(aboutFrame,versionFrame,sizeof(aboutFrame)),"about displays WiFi state");
-    d.clear();settings.renderDetail(0,7,1,0,d,"设备ID：123456789ABC","Flash空间：16 MB","SD卡：未插入",wifi,time);save(d,"about-no-sd");
+    d.clear();settings.renderDetail(0,7,1,0,d,"设备ID：123456789ABC","Flash空间：16 MB","SD卡：未插入",wifi,time,nullptr,"OpenBread Normal One",nullptr);save(d,"about-no-sd");
     wifiState=WifiProvisionService::State::Idle;
     printf("PASS: about cards, current firmware version pixels, SD states and no IP\n");
   }
@@ -571,9 +578,52 @@ int main() {
           "time Left did not cancel and return");
     clockData = {};
     printf("PASS: time calibration state frames, zero SD reads and OK/Left interactions\n");
+    {
+      // 网页后台可把设备名称改成任意汉字，关于设备页要能用完整 20 号字库画出来。
+      SettingsPage aboutName; d.clear();
+      aboutName.renderDetail(0,7,0,0,d,"设备ID：123456789ABC","Flash空间：16 MB",
+                             "SD卡：3.6G可用/3.8G总容量",wifi,wifiTime,nullptr,
+                             u8"小明的电子书",&large);
+      save(d,"about-name-full");
+      printf("PASS: about device name renders with the full 20px font\n");
+    }
+    {
+      MusicService music; MusicPage musicPage; SdCardService sd;
+      music.loadPage(0);
+      musicPage.resetState(1,0);
+      d.clear();musicPage.renderDetail(1,0,0,d,music,1000,&external,&large);save(d,"music-list");
+      uint8_t transitionBefore[8064], transitionAfter[8064];
+      d.captureFrame(transitionBefore);
+      musicPage.renderDetail(1,0,168,d,music,1050,&external,&large);
+      d.captureFrame(transitionAfter);
+      check(!memcmp(transitionBefore,transitionAfter,sizeof(transitionBefore)),"offscreen music transition altered frame");
+      check(musicPage.handleDetailInput(1,0,false,false,false,true,false,1100,music),"music down");
+      check(musicPage.handleDetailInput(1,0,false,false,false,false,true,1200,music),"music direct play");
+      auto& lyrics=const_cast<MusicLyrics&>(music.lyrics());
+      lyrics.begin("/music/0.mp3");for(int i=0;i<100 && lyrics.state()==MusicLyrics::State::Loading;++i)lyrics.tick();
+      check(lyrics.state()==MusicLyrics::State::Ready,"music lyrics fixture");
+      d.clear();musicPage.renderDetail(1,0,0,d,music,1300,&external,&large);
+      d.clear();musicPage.renderDetail(1,0,0,d,music,1600,&external,&large);save(d,"music-player-lyrics");
+      lyrics.end();
+      d.clear();musicPage.renderDetail(1,0,0,d,music,1700,&external,&large);save(d,"music-player-empty");
+      check(musicPage.handleDetailInput(1,0,true,false,false,false,false,1400,music),"player back");
+      d.clear();musicPage.renderDetail(1,0,0,d,music,1500,&external,&large);save(d,"music-playing-list");
+      check(musicPage.handleDetailInput(1,0,false,true,false,false,false,1600,music),"music tools");
+      d.clear();musicPage.renderDetail(1,0,0,d,music,1700,&external,&large);save(d,"music-tools");
+      check(musicPage.handleDetailInput(1,0,false,false,false,false,true,1800,music),"music favorite");
+      check(music.isFavorite(music.page().tracks[1]),"music favorite not saved");
+      check(musicPage.handleDetailInput(1,0,true,false,false,false,false,1900,music),"tools back");
+      check(musicPage.handleDetailInput(1,0,false,false,false,true,false,2000,music),"third row");
+      check(musicPage.handleDetailInput(1,0,false,false,false,true,false,2100,music),"next page");
+      check(music.page().pageIndex==1 && music.page().count==2,"music page boundary");
+      check(musicPage.handleDetailInput(1,0,false,false,true,false,false,2200,music),"previous page");
+      check(music.page().pageIndex==0 && music.page().count==3,"music reverse page boundary");
+      lyrics.end();
+      printf("PASS: music page draw, direct play, return and favorite\n");
+    }
     SettingsPage aboutPage;
     const size_t aboutReads=TestFs::reads;
-    d.clear();aboutPage.renderDetail(0,7,0,0,d,"设备ID：123456789ABC","Flash空间：16 MB","SD卡：3.6G可用/3.8G总容量",wifi,wifiTime,&ui20);save(d,"about-resident20");
+    d.clear();aboutPage.renderDetail(0,7,0,0,d,"设备ID：123456789ABC","Flash空间：16 MB","SD卡：3.6G可用/3.8G总容量",wifi,wifiTime,&ui20,"OpenBread Normal One",nullptr);save(d,"about-resident20");
     uint8_t heroFrame[8064];d.captureFrame(heroFrame);
     check(!framePixel(heroFrame,d,20,52),"about hero background not white");
     check(framePixel(heroFrame,d,33,52),"about hero icon not black");
@@ -582,6 +632,22 @@ int main() {
       if(framePixel(heroFrame,d,x,y))++titleInk;
     check(titleInk>50,"about hero title not black");
     check(TestFs::reads==aboutReads,"about cards read SD");
+    // 名称来自设置（网页后台可改）：换名字必须换像素；超长名称按格宽截断。
+    d.clear();aboutPage.renderDetail(0,7,0,0,d,"设备ID：123456789ABC","Flash空间：16 MB","SD卡：3.6G可用/3.8G总容量",wifi,wifiTime,&ui20,"OpenBread N16R8",nullptr);
+    uint8_t namedFrame[8064];d.captureFrame(namedFrame);
+    check(memcmp(heroFrame,namedFrame,sizeof(heroFrame)),"about name does not follow settings");
+    d.clear();aboutPage.renderDetail(0,7,0,0,d,"设备ID：123456789ABC","Flash空间：16 MB","SD卡：3.6G可用/3.8G总容量",wifi,wifiTime,&ui20,"",nullptr);
+    uint8_t blankFrame[8064];d.captureFrame(blankFrame);
+    d.clear();aboutPage.renderDetail(0,7,0,0,d,"设备ID：123456789ABC","Flash空间：16 MB","SD卡：3.6G可用/3.8G总容量",wifi,wifiTime,&ui20,"OpenBread Normal One Ultra Long",nullptr);
+    save(d,"about-name-long");
+    uint8_t longFrame[8064];d.captureFrame(longFrame);
+    bool outsideSame=true;
+    for(int y=0;y<168 && outsideSame;++y)for(int x=0;x<384;++x) {
+      const bool cell=x>=72 && x<=366 && y>=25 && y<=72;
+      if(!cell && framePixel(longFrame,d,x,y)!=framePixel(blankFrame,d,x,y)) { outsideSame=false; break; }
+    }
+    check(outsideSame,"about name drew outside its cell");
+    check(TestFs::reads==aboutReads,"about name rendering read SD");
     WifiPage wifiPage;
     wifiState=WifiProvisionService::State::Idle;
     wifiPage.prepareEnter(wifi);wifiPage.beginFonts(ui20,ui24);

@@ -26,7 +26,7 @@ public:
                         SdCardService& sd);
   bool renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
                     DisplayMonoTft& display, const MusicService& music, uint32_t nowMs,
-                    SdBitmapFont* font = nullptr);
+                    SdBitmapFont* font = nullptr, SdBitmapFont* large = nullptr);
   bool renderDetailNavOnly(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
                            DisplayMonoTft& display, uint32_t nowMs);
   bool renderDetailListOnly(uint8_t homeFocus, uint8_t sectionFocus, DisplayMonoTft& display,
@@ -90,4 +90,7 @@ private:
   uint32_t preparedFontSession_ = 0;
   uint16_t preparedFontPage_ = 0;
   bool listFontPrepared_ = false;
+  bool longNameVisible_ = false;
+  int previousLyric_ = -2;
+  uint32_t lyricChangeMs_ = 0;
 };

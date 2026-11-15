@@ -56,9 +56,37 @@ void drawAboutCard(DisplayMonoTft& display, int16_t x, int16_t y, int16_t width,
   text.drawUTF8(x + 10, y + 36, fitted);
 }
 
+// 设备名称由用户在网页后台输入：完整 20 号字库就绪时优先使用，未就绪时退回常驻子集；
+// 超宽时按 UTF-8 字符边界截断并补省略号，避免压出名称格。
+void drawDeviceName(DisplayMonoTft& display, SdBitmapFont* font, int16_t x, int16_t baseline,
+                    int16_t maxWidth, const char* name, SdBitmapText::Clip clip) {
+  char fitted[40] = {};
+  snprintf(fitted, sizeof(fitted), "%s", name ? name : "");
+  if (SdUiText::width(display, font, fitted) > maxWidth) {
+    const int16_t ellipsisWidth = SdUiText::width(display, font, "...");
+    const char* cursor = name;
+    size_t used = 0;
+    while (cursor && *cursor) {
+      const uint8_t bytes = TextUtils::utf8CharLen(*cursor);
+      if (used + bytes + 4 > sizeof(fitted)) break;
+      memcpy(fitted + used, cursor, bytes);
+      fitted[used + bytes] = '\0';
+      if (SdUiText::width(display, font, fitted) + ellipsisWidth > maxWidth) {
+        fitted[used] = '\0';
+        break;
+      }
+      used += bytes;
+      cursor += bytes;
+    }
+    memcpy(fitted + used, "...", 4);
+  }
+  SdUiText::draw(display, font, x, baseline, fitted, ST7305_COLOR_BLACK, clip);
+}
+
 void renderAboutDeviceDetail(DisplayMonoTft& display, uint8_t detailPageIndex, int16_t yOffset,
                              const char* deviceIdText, const char* flashTotalText,
-                             const char* sdStatusText, SdBitmapFont* ui20) {
+                             const char* sdStatusText, const char* deviceName,
+                             SdBitmapFont* nameFont, SdBitmapFont* ui20) {
   auto& canvas = display.canvas();
   auto& text = display.text();
   const int16_t width = static_cast<int16_t>(display.width());
@@ -89,8 +117,11 @@ void renderAboutDeviceDetail(DisplayMonoTft& display, uint8_t detailPageIndex, i
     const SdBitmapText::Clip clip = {72, static_cast<int16_t>(yOffset + 35),
                                      static_cast<int16_t>(width - 18),
                                      static_cast<int16_t>(yOffset + 65)};
-    SdUiText::draw(display, ui20, 72, yOffset + 59, "OpenBread Normal One",
-                   ST7305_COLOR_BLACK, clip);
+    // 用户名称可能包含子集以外的汉字或超出名称格宽度，完整 20 号字库优先。
+    SdBitmapFont* nameFace = nameFont;
+    if (!SdUiText::ready(nameFace) || nameFace->metrics().pixelSize != 20) nameFace = ui20;
+    drawDeviceName(display, nameFace, 72, yOffset + 59,
+                   static_cast<int16_t>(width - 18 - 72), deviceName, clip);
     text.setForegroundColor(ST7305_COLOR_BLACK);
     text.setBackgroundColor(ST7305_COLOR_WHITE);
     text.drawUTF8(72, yOffset + 77, "设备名称");
@@ -269,7 +300,8 @@ bool SettingsPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, uint8_t
                                 const char* deviceIdText, const char* flashTotalText,
                                 const char* sdStatusText,
                                 const WifiProvisionService& wifi,
-                                const TimeService& time, SdBitmapFont* font) const {
+                                const TimeService& time, SdBitmapFont* font,
+                                const char* deviceName, SdBitmapFont* nameFont) const {
   if (isUsbSerialSelection(homeFocus, sectionFocus)) {
     renderUsbSerialDetail(display, yOffset);
     return true;
@@ -280,7 +312,7 @@ bool SettingsPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, uint8_t
   }
 
   renderAboutDeviceDetail(display, detailPageIndex, yOffset, deviceIdText, flashTotalText,
-                          sdStatusText, font);
+                          sdStatusText, deviceName, nameFont, font);
   return true;
 }
 
