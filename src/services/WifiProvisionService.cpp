@@ -443,6 +443,13 @@ bool WifiProvisionService::connectSaved(uint8_t index) {
   return true;
 }
 
+bool WifiProvisionService::reconnectFontSetup() {
+  if (radioActive_ || purpose_ != Purpose::FontSetup || !targetSsid_[0]) return false;
+  LogI("WIFI", "font setup reconnect using retained credentials");
+  requestConnecting();
+  return true;
+}
+
 bool WifiProvisionService::forgetNetwork(uint8_t index) {
   if (radioActive_ || !networks_.forget(index)) return false;
   clearTarget();

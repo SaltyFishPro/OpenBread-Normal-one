@@ -12,7 +12,7 @@ static_assert(sizeof(UiFontCache::Glyph) * kCount <= UiFontCache::kBudgetBytes,
               "Fixed UI glyph cache exceeds its bounded PSRAM budget");
 constexpr char kSubsetPath[] = "/Font/font-14.ui.bin";
 constexpr size_t kSubsetChunkBytes = 8U * 1024U;
-constexpr size_t kSubsetMaxBytes = 128U * 1024U;
+constexpr size_t kSubsetMaxBytes = 512U * 1024U;
 constexpr size_t kParseBatchRecords = 64U;
 
 uint16_t le16(const uint8_t* p) { return p[0] | (uint16_t(p[1]) << 8U); }
@@ -77,7 +77,7 @@ void UiFontCache::tick() {
     fail("font state or line height"); return;
   }
   if (!glyphs_) {
-    if (!memory_.allocate(kCount * sizeof(Glyph))) { fail("UI PSRAM allocation"); return; }
+    if (!memory_.allocate(kCount * sizeof(Glyph), kBudgetBytes)) { fail("UI PSRAM allocation"); return; }
     glyphs_ = static_cast<Glyph*>(memory_.data());
     LogI("FONT", "ui extract glyphs=%u source_cache=%u common=%lu", static_cast<unsigned>(kCount),
          static_cast<unsigned>(source_.cacheBytes()),
@@ -88,6 +88,9 @@ void UiFontCache::tick() {
   uint8_t processed = 0;
   do {
     Glyph& cached = glyphs_[next_];
+    if (fillMissing_ && cached.length != UINT16_MAX) {
+      ++next_; ++processed; continue;
+    }
     cached = {};
     SdBitmapFont::Glyph glyph;
     if (source_.glyph(UiFontCodepoints::kValues[next_], glyph)) {
@@ -144,8 +147,8 @@ bool UiFontCache::beginSubset() {
       le16(header + 6) != 64U || le16(header + 8) != 24U ||
       le16(header + 10) != 14U || le16(header + 18) != 1U ||
       ascent < 0 || descent < 0 || lineGap < 0 ||
-      ascent + descent + lineGap > 32 || count < 1U || count > kCount ||
-      expectedCount != kCount || indexOffset != 64U ||
+      ascent + descent + lineGap > 32 || count < 1U || count > 7500U ||
+      expectedCount < count || expectedCount > 7500U || indexOffset != 64U ||
       bitmapOffset != 64U + count * 24U || fileSize != subsetFile_.size() ||
       fileSize < bitmapOffset || fileSize - 64U > kSubsetMaxBytes) {
     LogI("FONT", "ui subset header rejected expected=%u file_expected=%lu glyphs=%lu; fallback full font",
@@ -161,7 +164,7 @@ bool UiFontCache::beginSubset() {
     }
   }
   subsetSize_ = fileSize - 64U;
-  if (!subsetMemory_.allocate(subsetSize_)) {
+  if (!subsetMemory_.allocate(subsetSize_, kSubsetMaxBytes)) {
     LogI("FONT", "ui subset staging PSRAM unavailable; fallback full font");
     subsetFile_.close();
     return false;
@@ -205,7 +208,7 @@ void UiFontCache::tickSubset() {
          static_cast<unsigned long>(subsetSize_));
   }
   if (!glyphs_) {
-    if (!memory_.allocate(kCount * sizeof(Glyph))) { fail("UI PSRAM allocation"); return; }
+    if (!memory_.allocate(kCount * sizeof(Glyph), kBudgetBytes)) { fail("UI PSRAM allocation"); return; }
     glyphs_ = static_cast<Glyph*>(memory_.data());
     for (size_t i = 0; i < kCount; ++i) {
       glyphs_[i] = {};
@@ -227,7 +230,8 @@ void UiFontCache::tickSubset() {
     const int16_t yOffset = static_cast<int16_t>(le16(p + 14));
     const int16_t advance = static_cast<int16_t>(le16(p + 16));
     const uint32_t length = le32(p + 20);
-    if (le16(p + 18) != 0U || cp <= subsetPrevCp_ ||
+    if (le16(p + 18) != 0U || cp <= subsetPrevCp_ || cp > 0x10FFFFU ||
+        (cp >= 0xD800U && cp <= 0xDFFFU) || advance < 0 ||
         ((width == 0U) != (height == 0U)) || width > 32U || height > 32U ||
         length > 64U || length != uint32_t((width + 7U) / 8U) * height ||
         offset > bitmapBytes || length > bitmapBytes - offset) {
@@ -235,20 +239,18 @@ void UiFontCache::tickSubset() {
       return;
     }
     while (subsetCursor_ < kCount && UiFontCodepoints::kValues[subsetCursor_] < cp) ++subsetCursor_;
-    if (subsetCursor_ >= kCount || UiFontCodepoints::kValues[subsetCursor_] != cp) {
-      fallbackToFullFont("subset stale codepoints");
-      return;
+    if (subsetCursor_ < kCount && UiFontCodepoints::kValues[subsetCursor_] == cp) {
+      Glyph& cached = glyphs_[subsetCursor_];
+      cached.width = width;
+      cached.height = height;
+      cached.xOffset = xOffset;
+      cached.yOffset = yOffset;
+      cached.advance = advance;
+      cached.length = static_cast<uint16_t>(length);
+      if (length != 0U) memcpy(cached.bitmap, subsetData_ + indexBytes + offset, length);
+      ++subsetCursor_;
     }
-    Glyph& cached = glyphs_[subsetCursor_];
-    cached.width = width;
-    cached.height = height;
-    cached.xOffset = xOffset;
-    cached.yOffset = yOffset;
-    cached.advance = advance;
-    cached.length = static_cast<uint16_t>(length);
-    if (length != 0U) memcpy(cached.bitmap, subsetData_ + indexBytes + offset, length);
     subsetPrevCp_ = cp;
-    ++subsetCursor_;
     ++subsetParsed_;
     ++processed;
   } while (subsetParsed_ < subsetCount_ && processed < kParseBatchRecords &&
@@ -257,6 +259,17 @@ void UiFontCache::tickSubset() {
 }
 
 void UiFontCache::finishSubset() {
+  size_t missing = 0;
+  for (size_t i = 0; i < kCount; ++i)
+    if (glyphs_[i].length == UINT16_MAX && UiFontCodepoints::kValues[i] != 0xFFFDU) ++missing;
+  if (missing) {
+    freeSubset();
+    fillMissing_ = true;
+    next_ = 0;
+    LogI("FONT", "UI subset compatible; filling %u missing glyphs from full font", static_cast<unsigned>(missing));
+    if (!source_.open(14)) fail("open fallback font");
+    return;
+  }
   const uint32_t elapsedMs = millis() - startedMs_;
   const size_t bytes = cacheBytes();
   freeSubset();
@@ -270,6 +283,8 @@ void UiFontCache::finishSubset() {
 void UiFontCache::fallbackToFullFont(const char* reason) {
   LogI("FONT", "ui subset unavailable reason=%s; fallback full font", reason);
   freeSubset();
+  // A rejected subset must not leave any of its untrusted glyphs in the cache.
+  memory_.end(); glyphs_ = nullptr; next_ = 0; fillMissing_ = false;
   generation_ = SdCardSession::generation();
   if (!source_.open(14)) fail("open font");
 }
@@ -311,5 +326,6 @@ void UiFontCache::end() {
   freeSubset();
   source_.end(); memory_.end(); glyphs_ = nullptr; next_ = 0;
   state_ = State::Idle;
+  fillMissing_ = false;
 }
 bool UiFontCache::consumeChanged() { const bool result = changed_; changed_ = false; return result; }

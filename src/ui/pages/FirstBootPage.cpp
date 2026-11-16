@@ -13,6 +13,12 @@
 
 namespace {
 using State = FontSetupService::State;
+bool networkError(const FontSetupService& setup) {
+  if (setup.state() != State::Error) return false;
+  const auto error = setup.error();
+  return error == FontSetupService::Error::Http || error == FontSetupService::Error::Wifi ||
+         error == FontSetupService::Error::Hash;
+}
 
 const char* const kLabels[] = {"SD卡", "字库", "网络", "设置"};
 const char* const kWeekdays[] = {"日", "一", "二", "三", "四", "五", "六"};
@@ -37,6 +43,8 @@ Copy copyFor(const FontSetupService& setup) {
     case State::Error:
       if (setup.error() == FontSetupService::Error::NoSpace)
         return {"下载未完成", "SD卡空间不足  按OK重试", "OK 重试", ""};
+      if (setup.error() == FontSetupService::Error::Card)
+        return {"下载未完成", "请检查SD卡  按OK重试", "OK 重试", ""};
       if (setup.error() == FontSetupService::Error::Write)
         return {"下载未完成", "SD卡写入失败  按OK重试", "OK 重试", ""};
       if (setup.error() == FontSetupService::Error::Hash)
@@ -136,6 +144,23 @@ int16_t textWidth(DisplayMonoTft& display, const char* value) {
 }
 }  // namespace
 
+void FirstBootPage::handleInput(bool up, bool down, bool left, bool ok, uint32_t nowMs,
+                                FontSetupService& setup, SdCardService& sd,
+                                WifiProvisionService& wifi, TimeService& time) {
+  if (networkError(setup)) {
+    if (errorSinceMs_ != setup.stateSinceMs()) {
+      errorSinceMs_ = setup.stateSinceMs();
+      reconfigure_ = false;
+    }
+    if (left) { reconfigure_ = false; return; }
+    if (up || down) reconfigure_ = !reconfigure_;
+    if (ok) setup.confirm(nowMs, sd, wifi, reconfigure_);
+    return;
+  }
+  if (left) { setup.cancel(wifi, time); return; }
+  if (ok) setup.confirm(nowMs, sd, wifi);
+}
+
 void FirstBootPage::render(DisplayMonoTft& display, const FontSetupService& setup,
                            const WifiProvisionService& wifi, const TimeService& time,
                            uint8_t batteryPercent, bool batteryValid) const {
@@ -156,6 +181,7 @@ void FirstBootPage::render(DisplayMonoTft& display, const FontSetupService& setu
     drawText(display, 372 - textWidth(display, line), 17, line, false);
   }
 
+  if (!networkError(setup)) {
   const uint8_t focus = categoryFor(setup.state());
   const uint8_t order[] = {focus, static_cast<uint8_t>((focus + 1U) % 4U),
                            static_cast<uint8_t>((focus + 2U) % 4U)};
@@ -174,8 +200,30 @@ void FirstBootPage::render(DisplayMonoTft& display, const FontSetupService& setu
     }
   }
   canvas.drawFastHLine(14, 87, 356, ST7305_COLOR_WHITE);
+  }
 
   const Copy copy = copyFor(setup);
+  if (networkError(setup)) {
+    // Boot dialogs must use Flash glyphs: the SD fonts may still be absent.
+    DrawUtils::drawRoundRect(canvas, 18, 40, 348, 122, 10,
+                             ST7305_COLOR_BLACK, ST7305_COLOR_WHITE);
+    drawText(display, 34, 65, "下载未完成", true);
+    drawText(display, 34, 88, "是否重新配置WiFi？", false);
+    const char* reason = setup.error() == FontSetupService::Error::Hash ?
+        "字体包验证失败" : setup.error() == FontSetupService::Error::Wifi ?
+        "WiFi连接失败" : "下载连接失败";
+    drawText(display, 34, 109, reason, false);
+    const bool selected = errorSinceMs_ == setup.stateSinceMs() && reconfigure_;
+    const char* choices[] = {"否，重试下载", "是，重新配网"};
+    for (int i = 0; i < 2; ++i) {
+      const int x = 30 + i * 166;
+      if (selected == (i == 1))
+        DrawUtils::drawRoundRect(canvas, x, 125, 158, 27, 7,
+                                 ST7305_COLOR_BLACK, ST7305_COLOR_WHITE);
+      drawText(display, x + 8, 144, choices[i], false);
+    }
+    return;
+  }
   drawText(display, 18, 116, copy.title, true);
   const char* detail = copy.detail;
   if (setup.state() == State::Portal) detail = wifi.apSsid();
@@ -183,9 +231,12 @@ void FirstBootPage::render(DisplayMonoTft& display, const FontSetupService& setu
     const uint32_t tenths = static_cast<uint32_t>(
         (static_cast<uint64_t>(FontBundle::kTotalBytes) * setup.progressPercent() * 10U) /
         (100U * 1000000U));
-    snprintf(line, sizeof(line), "%lu.%lu / 9.6 MB  %u%%",
+    const uint32_t totalTenths = FontBundle::kTotalBytes / 100000U;
+    snprintf(line, sizeof(line), "%lu.%lu / %lu.%lu MB  %u%%",
              static_cast<unsigned long>(tenths / 10U),
-             static_cast<unsigned long>(tenths % 10U), setup.progressPercent());
+             static_cast<unsigned long>(tenths % 10U),
+             static_cast<unsigned long>(totalTenths / 10U),
+             static_cast<unsigned long>(totalTenths % 10U), setup.progressPercent());
     detail = line;
   }
   drawText(display, 18, 140, detail, false);

@@ -6,7 +6,17 @@
 
 ## 1Panel 上传
 
-现有 OTA 静态服务将宿主机 `/opt/openbread-ota/data` 映射为 `ota.openbread.net` 的网站根目录，见 [OTA 服务说明](OTA.md)。当前固件使用已上传的目录：
+下载或网络失败后显示“是否重新配置 WiFi？”，默认“否，重试下载”。Up/Down 切换，
+OK 执行选项，Left 回到默认选项。选择否会复用本次输入的凭据重新连接，不重新开放热点；
+选择是才重新配网。已完成且通过检查的文件跳过，失败文件重新下载，不支持文件内部断点续传。
+等待选择时关闭无线并释放 HTTP/临时文件，凭据只保留于现有配网服务；不额外复制或记录密码。
+SD 卡、空间和写入错误使用独立提示，OK 检查后优先复用原网络。
+没有可复用凭据（例如首次热点启动失败）时，重试仍会开启配网热点。
+串口可查 `[SETUP] retry requested` 和 `[WIFI] font setup reconnect`，不输出密码。
+主机回归：`tools/font_setup_tests/build.ps1`、`tools/wifi_device_tests/build.ps1`；
+实机需检查按钮焦点、断网重试、重新配网、字体校验与完成后的重启。
+
+现有 OTA 静态服务将宿主机 `/opt/openbread-ota/data` 映射为 `ota.openbread.net` 的网站根目录，见 [OTA 服务说明](OTA.md)。字体统一使用以下固定目录：
 
 ```text
 /opt/openbread-ota/data/ota/openbread-normal-one/Font/
@@ -17,24 +27,32 @@
 | 文件 | 大小（字节） | SHA-256 |
 |---|---:|---|
 | `font-14.bin` | 2,269,533 | `4dd04cceb3efb9a307cdc54e03d2bf69a3b2fd1e069feffbbaabb5ca23c60884` |
-| `font-14.ui.bin` | 40,178 | `b217c5e7ca7971c1b237a451b95410d796bab65b89f170a8c1de281c3e8d4c0e` |
+| `font-14.ui.bin` | 183,807 | `dc456168edf47250cf875bc69017f51d68fc8add078b2037eb1c2cb9c7f34a50` |
 | `font-20.bin` | 3,342,737 | `2ce6aedd66c52fc34887e66c30e538d8e1b506e749ddb1f1ec354665c0ed528a` |
-| `font-20.ui.bin` | 61,372 | `8ba43d3f1d51eb11aca8c29a625900af96c7eb8c0680352dc4513e3c0d9d2007` |
+| `font-20.ui.bin` | 285,946 | `660a7f1d0124194c40152cd3c8b1e0c0e979eccd697ef2c43a05034c3da99b04` |
 | `font-24.bin` | 4,004,358 | `143a68bb1557b23b24d64953743cfb64bf81a9dffef95cc185a067c1d09cbb1b` |
-| `font-24.ui.bin` | 70,386 | `e58a4d0fc807a259b114382ef475f9ea41b34f49333b09873b890acccd13904e` |
+| `font-24.ui.bin` | 325,805 | `83ce7b5f50d1956cd820a8568c4206c7ffb5702cc34bfa3e33a30110b88a1880` |
 
-公开地址格式为 `https://ota.openbread.net/ota/openbread-normal-one/Font/<文件名>`。在 1Panel 服务器上核对文件：
+公开地址格式为 `https://ota.openbread.net/ota/openbread-normal-one/Font/<文件名>`，注意 `Font` 的大小写。在 1Panel 服务器上核对文件：
 
 ```sh
 cd /opt/openbread-ota/data/ota/openbread-normal-one/Font
 sha256sum font-14.bin font-14.ui.bin font-20.bin font-20.ui.bin font-24.bin font-24.ui.bin
 ```
 
-再从外网逐份访问公开 HTTPS 地址，确认返回 `200`，下载大小和 SHA-256 与表格一致。本次在原目录更新三份 UI 子集后，需清除对应 URL 的 CDN 缓存，再核对哈希；完整字库没有变化。今后更换字体包可改用新版本目录并同步更新固件的 `FontBundle.h`，避免缓存旧文件与固件哈希不一致。
+再从外网逐份访问公开 HTTPS 地址，确认返回 `200`，下载大小和 SHA-256 与表格一致。本次在原目录更新三份 UI 子集后，需清除对应 URL 的 CDN 缓存，再核对哈希；完整字库没有变化。今后字体包仍使用该固定目录，更新文件时同步核对固件清单与 CDN 缓存。
 
 这些 NBFT 文件由 `SourceHanSansOLD-Normal-2.otf` 生成。仓库未包含该源字体的授权文件；公开上传前，请确认你有权重新分发生成的字形及所需的许可声明。
 
 ## 实机检查
+
+### 下载重试的连接清理
+
+字体请求禁用 HTTP keep-alive。成功、失败和取消时先停止 TLS，随后结束 HTTP 会话，最后由配网服务关闭无线，避免断网重连后访问上次残留的响应。等待用户选择期间不保持无线连接，也不自动循环下载。
+
+`[SETUP] font request url=...` 用于核对真实请求地址；`font transport closed before radio release` 表示 HTTP 会话已清理。404 会额外提示检查字体包目录和 CDN 缓存。404 是服务端文件不可用，重试机制无法代替上传文件。
+
+主机回归覆盖重复 404 后复用原 WiFi、HTTP 初始化失败、长度不符、响应体断开/超时、WiFi 掉线，以及原有重新配网、取消和跳过已安装文件。测试模型检查 TLS 在无线关闭前释放；真实 TLS/lwIP 崩溃是否消失仍需刷机反复重试确认。
 
 1. 不插 SD 卡开机，确认显示“请插入SD卡”，且没有自动开启 WiFi。
 2. 插入空卡并按 OK，确认显示“需要下载字体包”；再按 OK，连接屏幕上的热点并打开 `192.168.4.1`。

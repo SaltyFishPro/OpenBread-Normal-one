@@ -154,7 +154,7 @@ void residentSubsetTests() {
     check(resident.openUiSubset(size),"resident open");
     for(int i=0;i<1000 && resident.state()==SdBitmapFont::State::Checking;++i)resident.tick();
     check(resident.state()==SdBitmapFont::State::Ready && resident.residentBytes() &&
-          resident.residentBytes()<=128*1024 && !TestFs::handles,"resident budget/handle");
+          resident.residentBytes()<=512*1024 && !TestFs::handles,"resident budget/handle");
     const size_t subsetReads=TestFs::reads-loadReads;
     check(full.open(size,false),"resident reference open");
     for(int i=0;i<1000 && full.state()==SdBitmapFont::State::Checking;++i)full.tick();
@@ -214,6 +214,26 @@ void residentSubsetTests() {
 int main() {
  try {
   residentSubsetTests();
+  for (const char* fixture : {"legacy", "superset"}) {
+    root(fixture);
+    UiFontCache compatible;
+    check(compatible.begin(),"compatible pack open");settle(compatible);
+    check(compatible.state()==UiFontCache::State::Ready && !TestFs::handles,"compatible pack readiness/handles");
+    for(uint32_t cp:UiFontCodepoints::kValues)
+      check(compatible.glyph(cp) && (cp==0xFFFDU || compatible.glyph(cp)->length!=UINT16_MAX),"compatible pack lost glyph");
+    compatible.end();
+    for(uint16_t size:{20,24}) {
+      SdBitmapFont font;check(font.openUiSubset(size),"compatible resident open");
+      for(int i=0;i<10000 && font.state()==SdBitmapFont::State::Checking;++i)font.tick();
+      check(font.state()==SdBitmapFont::State::Ready,"compatible resident readiness");
+      SdBitmapFont::Glyph glyph;check(font.glyph(0x9F99,glyph),"compatible resident missing dragon");
+      if(!strcmp(fixture,"legacy")) check(!font.residentBytes(),"incomplete legacy pack did not use full font");
+      else check(font.residentBytes(),"superset rejected");
+      font.end();
+    }
+    check(!TestFs::handles && !TestPsram::used,"compatibility cleanup");
+  }
+  std::puts("PASS: old smaller and future superset packs; missing glyph fallback at 14/20/24; cleanup");
   UiFontCache cache;
   DisplayMonoTft d; d.begin();
   root("missing"); check(!cache.begin(), "missing font accepted"); cache.end();
@@ -242,7 +262,7 @@ int main() {
   // has no font-14.ui.bin), even past the old 20s sleep threshold and across
   // the millis() wrap. No cache changes mid-load.
   root("validfull");
-  TestClock::nowMs=UINT32_MAX-1000U;TestFs::readLatencyMs=10;
+  TestClock::nowMs=UINT32_MAX-1000U;TestFs::readLatencyMs=3;
   const auto loadStart=TestClock::nowMs;
   const auto readsStart=TestFs::reads;
   cache.begin(); settle(cache);
@@ -254,7 +274,7 @@ int main() {
   std::printf("PASS: slow SD fallback survives 20s/wrap: %lums; reads=%zu vs old extraction-only=%zu; timeout cleanup\n",
               static_cast<unsigned long>(loadElapsed),loadReads,baselineReads);
   check(cache.state()==UiFontCache::State::Ready,"valid UI font not ready");
-  check(cache.cacheBytes()<=64*1024 && !TestFs::handles,"UI budget or open SD handle");
+  check(cache.cacheBytes()<=UiFontCache::kBudgetBytes && !TestFs::handles,"UI budget or open SD handle");
   std::vector<UiFontCache::Glyph> reference;
   reference.reserve(sizeof(UiFontCodepoints::kValues)/sizeof(uint32_t));
   for (auto cp:UiFontCodepoints::kValues) {

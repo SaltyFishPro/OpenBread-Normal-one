@@ -36,6 +36,7 @@ public:
   void startPortal(uint32_t nowMs, Purpose purpose = Purpose::TimeSync,
                    int8_t replacement = -1, const char* prefill = nullptr);
   bool connectSaved(uint8_t index);
+  bool reconnectFontSetup();
   bool forgetNetwork(uint8_t index);
   const WifiNetworkStore& networks() const { return networks_; }
   bool fromSavedNetwork() const { return fromSaved_; }

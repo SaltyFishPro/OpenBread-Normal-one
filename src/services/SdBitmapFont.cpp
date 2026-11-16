@@ -146,7 +146,8 @@ bool SdBitmapFont::openFile(uint16_t pixelSize, bool useExternalCache, bool uiSu
       le16(header + 6) != 64U || le16(header + 8) != kRecordBytes ||
       le16(header + 18) != 1U) return fail(Error::Header);
   const uint16_t size = le16(header + 10);
-  if (uiSubset && le32(header + 40) != sizeof(UiFontCodepoints::kValues) / sizeof(uint32_t))
+  if (uiSubset && (le32(header + 40) < le32(header + 20) || le32(header + 40) > 7500U ||
+                   le32(header + 20) > 7500U))
     return fail(Error::Header);
   if (size < 6U || size > 128U) return fail(Error::Header);
   if (size != pixelSize) return fail(Error::SizeMismatch);
@@ -167,10 +168,12 @@ bool SdBitmapFont::openFile(uint16_t pixelSize, bool useExternalCache, bool uiSu
   fileBytes_ = file_.size();
   expectedChecksum_ = le32(header + 36);
   if (uiSubset) {
-    if (subsetMemory_.allocate(fileBytes_)) {
+    if (fileBytes_ > 512U * 1024U) return fail(Error::Header);
+    if (subsetMemory_.allocate(fileBytes_, 512U * 1024U)) {
       memcpy(subsetMemory_.data(), header, sizeof(header_));
     } else {
-      LogW("FONT", "ui size=%u PSRAM unavailable; using SD fallback", pixelSize);
+      LogW("FONT", "ui size=%u PSRAM unavailable; using full font fallback", pixelSize);
+      return open(pixelSize);
     }
   }
   if (useExternalCache) beginCache();
@@ -225,16 +228,32 @@ void SdBitmapFont::tick() {
        static_cast<unsigned long>(millis() - verifyStartMs_));
   if (subsetMemory_.data()) {
     // Validate the resident index before publishing it for binary search.
-    size_t cursor = 0;
-    constexpr size_t count = sizeof(UiFontCodepoints::kValues) / sizeof(uint32_t);
     uint32_t previous = 0;
     for (uint32_t i = 0; i < metrics_.glyphCount; ++i) {
       Glyph glyph;
       if (!readRecord(i, glyph)) return;
-      while (cursor < count && UiFontCodepoints::kValues[cursor] < glyph.codepoint) ++cursor;
-      if ((i && glyph.codepoint <= previous) || cursor == count ||
-          UiFontCodepoints::kValues[cursor] != glyph.codepoint) { fail(Error::Glyph); return; }
+      if (i && glyph.codepoint <= previous) { fail(Error::Glyph); return; }
       previous = glyph.codepoint;
+    }
+    // Older packs remain usable; if the current UI needs additional characters,
+    // use the full font instead of presenting missing-character boxes.
+    bool complete = true;
+    uint32_t index = 0;
+    Glyph candidate;
+    for (uint32_t cp : UiFontCodepoints::kValues) {
+      if (cp == 0xFFFDU) continue;
+      while (index < metrics_.glyphCount) {
+        if (!readRecord(index, candidate)) return;
+        if (candidate.codepoint >= cp) break;
+        ++index;
+      }
+      if (index == metrics_.glyphCount || candidate.codepoint != cp) { complete = false; break; }
+    }
+    if (!complete) {
+      const uint16_t pixelSize = metrics_.pixelSize;
+      LogI("FONT", "ui size=%u compatible old pack lacks UI glyphs; fallback full font", pixelSize);
+      (void)open(pixelSize);
+      return;
     }
     file_.close();
     state_ = State::Ready;

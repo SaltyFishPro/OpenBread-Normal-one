@@ -10,7 +10,7 @@ public:
   ~SdFontCacheBuffer() { end(); }
   SdFontCacheBuffer(const SdFontCacheBuffer&) = delete;
   SdFontCacheBuffer& operator=(const SdFontCacheBuffer&) = delete;
-  bool allocate(size_t bytes);
+  bool allocate(size_t bytes, size_t budget = kBudgetBytes);
   void end();
   void* data() const { return data_; }
   size_t size() const { return size_; }

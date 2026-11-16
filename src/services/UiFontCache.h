@@ -14,7 +14,7 @@ public:
     uint16_t length;
     uint8_t bitmap[64];
   };
-  static constexpr size_t kBudgetBytes = 64U * 1024U;
+  static constexpr size_t kBudgetBytes = 384U * 1024U;
   bool begin();  // Caller owns/mounts SD. Does not delay for CRC or glyph loading.
   void tick();
   void cancelLoad();
@@ -52,4 +52,5 @@ private:
   uint32_t generation_ = 0;
   State state_ = State::Idle;
   bool changed_ = false;
+  bool fillMissing_ = false;
 };

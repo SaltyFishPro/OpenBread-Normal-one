@@ -60,18 +60,25 @@ bool FontSetupService::fileLooksValid(const FontBundle::File& expected) const {
   char path[48];
   snprintf(path, sizeof(path), "%s/%s", FontBundle::kDirectory, expected.name);
   File file = SD_MMC.open(path, FILE_READ);
-  if (!file || file.isDirectory() || file.size() != expected.bytes) {
+  const bool ui = strstr(expected.name, ".ui.bin") != nullptr;
+  if (!file || file.isDirectory() || (!ui && file.size() != expected.bytes)) {
     file.close();
     return false;
   }
-  uint8_t header[40];
+  const uint32_t fileSize = file.size();
+  uint8_t header[64] = {};
   const bool read = file.read(header, sizeof(header)) == sizeof(header);
   file.close();
+  const uint32_t count = le32(header + 20);
+  const bool compatibleUi = ui && count > 0 && count <= 7500U &&
+      fileSize <= 512U * 1024U && le32(header + 24) == 64U &&
+      le32(header + 28) == 64U + count * 24U && fileSize >= le32(header + 28) &&
+      le32(header + 40) >= count && le32(header + 40) <= 7500U;
   return read && memcmp(header, "NBFT", 4) == 0 && le16(header + 4) == 1U &&
          le16(header + 6) == 64U && le16(header + 8) == 24U &&
          le16(header + 10) == expected.pixelSize && le16(header + 18) == 1U &&
-         le32(header + 20) == expected.glyphCount && le32(header + 32) == expected.bytes &&
-         le32(header + 36) == expected.payloadCrc;
+         le32(header + 32) == fileSize && (compatibleUi ||
+         (!ui && count == expected.glyphCount && le32(header + 36) == expected.payloadCrc));
 }
 
 bool FontSetupService::inspect(SdCardService& sd) {
@@ -96,18 +103,29 @@ bool FontSetupService::inspect(SdCardService& sd) {
 }
 
 void FontSetupService::confirm(uint32_t nowMs, SdCardService& sd,
-                               WifiProvisionService& wifi) {
+                               WifiProvisionService& wifi, bool reconfigure) {
   if (state_ == State::NeedCard) {
     setState(State::Checking, nowMs);
     return;
   }
   if (state_ != State::NeedFonts && state_ != State::Error) return;
+  const bool retry = state_ == State::Error && !reconfigure;
   if (sd.refresh() != SdCardService::Status::Ready || !sd.rootReadable()) {
     error_ = Error::Card;
     setState(State::NeedCard, nowMs);
     return;
   }
   if (inspect(sd)) return;
+  // abortOnlineSession releases radio resources but deliberately retains the
+  // submitted credentials. Reconnect only after an explicit user retry.
+  if (retry && wifi.reconnectFontSetup()) {
+    error_ = Error::None;
+    receivedBytes_ = 0;
+    LogI("SETUP", "retry requested: reuse WiFi, skip installed fonts");
+    setState(State::Connecting, nowMs);
+    return;
+  }
+  LogI("SETUP", "retry requested: open provisioning portal");
   wifi.startPortal(nowMs, WifiProvisionService::Purpose::FontSetup);
   if (wifi.state() != WifiProvisionService::State::PortalReady) {
     fail(Error::Wifi, "portal start");
@@ -119,6 +137,7 @@ void FontSetupService::confirm(uint32_t nowMs, SdCardService& sd,
 
 void FontSetupService::cancel(WifiProvisionService& wifi, TimeService& time) {
   if (state_ != State::Portal && state_ != State::Connecting) return;
+  closeDownload(true);
   wifi.cancelProvision(time);
   setState(State::NeedFonts, millis());
 }
@@ -150,8 +169,8 @@ void FontSetupService::tick(uint32_t nowMs, SdCardService& sd,
         return;
       case WifiProvisionService::State::Failed:
       case WifiProvisionService::State::PortalTimeout:
-        wifi.abortOnlineSession();
         fail(Error::Wifi, "wifi connection");
+        wifi.abortOnlineSession();
         return;
       default: return;
     }
@@ -209,12 +228,16 @@ bool FontSetupService::startNextFile(SdCardService& sd) {
   char url[128];
   snprintf(url, sizeof(url), "%s%s", FontBundle::kBaseUrl, expected.name);
   client_.setInsecure();
+  // A request must never retain a TLS socket across radio shutdown/reconnect.
+  http_.setReuse(false);
   http_.setTimeout(kHttpTimeoutMs);
+  LogI("SETUP", "font request url=%s", url);
   if (!http_.begin(client_, url)) { fail(Error::Http, "http begin"); return false; }
   downloadOpen_ = true;
   const int status = http_.GET();
   if (status != HTTP_CODE_OK || http_.getSize() != static_cast<int>(expected.bytes)) {
     LogE("SETUP", "font GET status=%d length=%d file=%s", status, http_.getSize(), expected.name);
+    if (status == 404) LogE("SETUP", "font not found: check server pack directory and CDN cache");
     fail(Error::Http, "http response");
     return false;
   }
@@ -267,8 +290,7 @@ void FontSetupService::finishFile() {
   hashOpen_ = false;
   partFile_.flush();
   partFile_.close();
-  http_.end();
-  downloadOpen_ = false;
+  closeTransport();
   if (!hashMatches(actual, expected.sha256)) { fail(Error::Hash, "sha256 mismatch"); return; }
   char destination[48];
   snprintf(destination, sizeof(destination), "%s/%s", FontBundle::kDirectory, expected.name);
@@ -288,10 +310,18 @@ void FontSetupService::finishFile() {
   changed_ = true;
 }
 
+void FontSetupService::closeTransport() {
+  // HTTPClient::end() can drain response bytes. Stop TLS first so it cannot
+  // read an old response; do this before any caller shuts down WiFi.
+  client_.stop();
+  if (downloadOpen_) http_.end();
+  if (downloadOpen_) LogI("SETUP", "font transport closed before radio release");
+  downloadOpen_ = false;
+}
+
 void FontSetupService::closeDownload(bool removePart) {
   partFile_.close();
-  if (downloadOpen_) http_.end();
-  downloadOpen_ = false;
+  closeTransport();
   if (hashOpen_) {
     mbedtls_sha256_free(&hash_);
     mbedtls_sha256_init(&hash_);

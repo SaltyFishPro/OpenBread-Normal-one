@@ -1,11 +1,11 @@
 """Export the fixed-UI subset of an NBFT v1 font as a small NBFT v1 file.
 
 The device loads `/Font/font-14.ui.bin` for fixed menus when it is present;
-when the file is absent, corrupt or stale it falls back to the full
+when the file is absent or corrupt it falls back to the full
 `/Font/font-14.bin` path. The subset keeps the NBFT v1 layout so the payload
 CRC and record rules stay identical to the full font. The first four bytes of
-the 24-byte reserved header area store the codepoint count of
-UiFontCodepoints.h so the firmware can detect a stale subset.
+the 24-byte reserved header area store the pack's requested codepoint count.
+The default common-v1 pack is immutable and independent of firmware strings.
 """
 
 from __future__ import annotations
@@ -34,6 +34,14 @@ def parse_ui_codepoints(header_path: Path) -> list[int]:
 def build_subset(font_path: Path, codepoints_path: Path) -> tuple[bytes, list[int]]:
     font = BitmapFont.load(font_path)
     points = parse_ui_codepoints(codepoints_path)
+    # A published common pack is independent of the current firmware's strings.
+    # New UI-only characters are supplied by the complete font at runtime.
+    charsets = Path(__file__).with_name('charsets')
+    if codepoints_path.name == 'UiFontCodepoints.h':
+        fixed = set(range(32, 127))
+        for name in ('common3500.txt', 'ui-common-v1-extra.txt'):
+            fixed.update(ord(c) for c in (charsets / name).read_text(encoding='utf-8') if c not in '\r\n')
+        points = sorted(fixed)
     records = bytearray()
     bitmaps = bytearray()
     missing: list[int] = []

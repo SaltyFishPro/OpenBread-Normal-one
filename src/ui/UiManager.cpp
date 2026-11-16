@@ -48,7 +48,7 @@ struct SubmenuContent {
 };
 
 const char* const kMusicItems[] = {"音乐列表", "收藏歌曲"};
-const char* const kReaderItems[] = {"单词阅读", "提词器"};
+const char* const kReaderItems[] = {"单词阅读", "提词器", "TXT 阅读"};
 const char* const kWirelessItems[] = {"蓝牙连接", "蓝牙拍照", "翻页器", "无线后台管理"};
 bool isAdminSelection(uint8_t home, uint8_t section) {
   return home == RemotePage::kHomeIndex && section == 3;
@@ -271,6 +271,8 @@ void UiManager::tick() {
   syncUiFont();
   syncContentFonts();
   syncResidentFonts();
+  if (state_ == UiState::Detail && TxtReaderPage::selected(homePage_.focusIndex(), sectionFocusIndex_) &&
+      txtReaderPage_.update(sdTitleFont_)) needsRedraw_ = true;
   if (state_ == UiState::Detail &&
       readerPage_.isStaticWordDetail(homePage_.focusIndex(), sectionFocusIndex_) &&
       readerPage_.updateMeaning(readerService_, sdBitmapFont_)) needsRedraw_ = true;
@@ -369,12 +371,8 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
 
   switch (state_) {
     case UiState::FirstBoot:
-      if (edges.ok) fontSetupService_.confirm(nowMs, sdCardService_, wifiProvisionService_);
-      if (edges.left || edges.leftLong) {
-        if (fontSetupService_.state() == FontSetupService::State::Portal ||
-            fontSetupService_.state() == FontSetupService::State::Connecting)
-          fontSetupService_.cancel(wifiProvisionService_, timeService_);
-      }
+      firstBootPage_.handleInput(edges.up, edges.down, edges.left || edges.leftLong,
+          edges.ok, nowMs, fontSetupService_, sdCardService_, wifiProvisionService_, timeService_);
       return;
     case UiState::Home: {
       syncHomeSubmenu();
@@ -436,6 +434,10 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         musicPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_, musicService_,
                                      sdCardService_);
         readerPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_, sdBitmapFont_);
+        if (TxtReaderPage::selected(homePage_.focusIndex(), sectionFocusIndex_)) {
+          closeContentFonts();
+          txtReaderPage_.enter(sdCardService_);
+        }
         gamesPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_);
         setRemotePagePortrait(remotePage_.isPortraitSelection(homePage_.focusIndex(),
                                                               sectionFocusIndex_));
@@ -474,6 +476,18 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
     }
 
     case UiState::Detail: {
+      if (TxtReaderPage::selected(homePage_.focusIndex(), sectionFocusIndex_)) {
+        if (edges.left || edges.leftLong || edges.up || edges.down || edges.ok) {
+          if (edges.ok && txtReaderPage_.needsScan()) closeContentFonts();
+          if (!txtReaderPage_.input(edges.left || edges.leftLong, edges.up, edges.down, edges.ok,
+                                    sdCardService_)) {
+            state_ = UiState::ToHomeTransition;
+            transitionStartMs_ = nowMs;
+          }
+          needsRedraw_ = true;
+        }
+        break;
+      }
       if (isAdminSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
         if (edges.left || edges.leftLong || edges.ok) {
           if (!deviceAdminPage_.input(edges.left || edges.leftLong, edges.ok, deviceAdminService_)) {
@@ -888,7 +902,7 @@ uint32_t UiManager::nextIdleDelayMs(uint32_t nowMs) const {
       sdTitleFont_.state() == SdBitmapFont::State::Checking ||
       residentFontsLoading() ||
       uiFont_.state() == UiFontCache::State::Loading ||
-      systemUpdatePage_.isPreparingLogs() || readerPage_.isPreparingMeaning()) {
+      systemUpdatePage_.isPreparingLogs() || readerPage_.isPreparingMeaning() || txtReaderPage_.busy()) {
     return kActivePollMs;
   }
 
@@ -910,7 +924,7 @@ void UiManager::updateCpuClock(uint32_t nowMs) {
       sdTitleFont_.state() == SdBitmapFont::State::Checking ||
       residentFontsLoading() ||
       uiFont_.state() == UiFontCache::State::Loading ||
-      systemUpdatePage_.isPreparingLogs() || readerPage_.isPreparingMeaning();
+      systemUpdatePage_.isPreparingLogs() || readerPage_.isPreparingMeaning() || txtReaderPage_.busy();
   // 满屏渲染后保持一段满速窗口；期间只画脏区域的局部帧可以降频执行。
   const bool uiActive = (nowMs - cpuBoostStartMs_) < kCpuBoostHoldMs;
 
@@ -1058,6 +1072,11 @@ void UiManager::render(uint32_t nowMs) {
                           percent,
                           powerDiagnosticService_.state() != PowerDiagnosticService::State::Failed);
   } else if (state_ == UiState::Home) {
+    homePage_.render(display_, 0, nowMs);
+  } else if (TxtReaderPage::selected(homePage_.focusIndex(), sectionFocusIndex_) &&
+             (state_ == UiState::ToDetailTransition || state_ == UiState::ToHomeTransition)) {
+    // The TXT page is initialized after entry and released before exit. Keep
+    // the home frame visible rather than rendering uninitialized/closed state.
     homePage_.render(display_, 0, nowMs);
   } else if (state_ == UiState::ToDetailTransition) {
     const uint32_t elapsedRaw = nowMs - transitionStartMs_;
@@ -1239,6 +1258,9 @@ void UiManager::renderDetail(int16_t yOffset) {
   } else if (musicPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
                                      musicService_, millis(), &sdBitmapFont_, &sdTitleFont_)) {
     handled = true;
+  } else if (TxtReaderPage::selected(homePage_.focusIndex(), sectionFocusIndex_)) {
+    txtReaderPage_.render(display_, sdBitmapFont_, sdTitleFont_, ui24Font_);
+    handled = true;
   } else if (readerPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
                                       readerService_, sdBitmapFont_, &sdTitleFont_)) {
     handled = true;
@@ -1293,6 +1315,7 @@ void UiManager::closeContentFonts() {
 void UiManager::syncUiFont() {
   const bool fixedPage = state_ == UiState::Detail &&
       (isAdminSelection(homePage_.focusIndex(), sectionFocusIndex_) ||
+       TxtReaderPage::selected(homePage_.focusIndex(), sectionFocusIndex_) ||
        settingsPage_.isWifiProvisionSelection(homePage_.focusIndex(), sectionFocusIndex_) ||
        timerPage_.isSelection(homePage_.focusIndex(), sectionFocusIndex_) ||
        settingsPage_.isAboutDeviceSelection(homePage_.focusIndex(), sectionFocusIndex_) ||
@@ -1334,6 +1357,7 @@ bool UiManager::residentFontsLoading() const {
 void UiManager::syncResidentFonts() {
   const bool fixedPage = state_ == UiState::Detail &&
       (isAdminSelection(homePage_.focusIndex(), sectionFocusIndex_) ||
+       TxtReaderPage::selected(homePage_.focusIndex(), sectionFocusIndex_) ||
        contentFontUse_ == ContentFontUse::Wifi || contentFontUse_ == ContentFontUse::Timer ||
        settingsPage_.isAboutDeviceSelection(homePage_.focusIndex(), sectionFocusIndex_) ||
        timeCalibrationPage_.isTimeCalibrationSelection(homePage_.focusIndex(), sectionFocusIndex_));
@@ -1382,6 +1406,7 @@ void UiManager::syncContentFonts() {
     const uint8_t home = homePage_.focusIndex();
     if (answersBookPage_.isSelection(home, sectionFocusIndex_)) next = ContentFontUse::Answers;
     else if (readerPage_.isStaticWordDetail(home, sectionFocusIndex_)) next = ContentFontUse::Reader;
+    else if (TxtReaderPage::selected(home, sectionFocusIndex_)) next = ContentFontUse::Txt;
     else if (settingsPage_.isOtaSelection(home, sectionFocusIndex_)) {
       const auto state = otaService_.state();
       if (state == OtaService::State::Idle || state == OtaService::State::UpToDate ||
@@ -1426,6 +1451,8 @@ void UiManager::syncContentFonts() {
   if (next == ContentFontUse::Answers)
     (void)sdTitleFont_.open(20, false);
   else if (next == ContentFontUse::External)
+    (void)sdTitleFont_.open(20);
+  else if (next == ContentFontUse::Txt)
     (void)sdTitleFont_.open(20);
   else if (next == ContentFontUse::About)
     (void)sdTitleFont_.open(20);

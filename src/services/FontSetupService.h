@@ -39,7 +39,8 @@ public:
 
   void begin(uint32_t nowMs);
   void tick(uint32_t nowMs, SdCardService& sd, WifiProvisionService& wifi);
-  void confirm(uint32_t nowMs, SdCardService& sd, WifiProvisionService& wifi);
+  void confirm(uint32_t nowMs, SdCardService& sd, WifiProvisionService& wifi,
+               bool reconfigure = false);
   void cancel(WifiProvisionService& wifi, TimeService& time);
   bool consumeChanged();
   State state() const { return state_; }
@@ -54,6 +55,7 @@ private:
   bool startNextFile(SdCardService& sd);
   void downloadChunk(uint32_t nowMs);
   void finishFile();
+  void closeTransport();
   void closeDownload(bool removePart);
   void fail(Error error, const char* stage);
   void setState(State state, uint32_t nowMs);

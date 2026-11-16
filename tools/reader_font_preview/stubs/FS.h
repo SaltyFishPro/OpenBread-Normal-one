@@ -26,20 +26,25 @@ class File {
 public:
   File() = default;
   explicit File(const std::string& path) : path_(path) {
-    if (failed() || !std::filesystem::exists(path)) return;
-    directory_ = std::filesystem::is_directory(path);
+    const auto native = std::filesystem::u8path(path);
+    if (failed() || !std::filesystem::exists(native)) return;
+    directory_ = std::filesystem::is_directory(native);
+#ifdef _WIN32
+    auto raw = directory_ ? nullptr : _wfopen(native.c_str(), L"rb");
+#else
     auto raw = directory_ ? nullptr : std::fopen(path.c_str(), "rb");
+#endif
     if (!directory_ && !raw) return;
     ++TestFs::handles;
     handle_ = std::make_shared<Handle>();
     handle_->file = raw;
     if (directory_) {
-      for (const auto& e : std::filesystem::directory_iterator(path))
-        handle_->entries.push_back(e.path().generic_string());
+      for (const auto& e : std::filesystem::directory_iterator(native))
+        handle_->entries.push_back(e.path().generic_u8string());
     } else {
-      size_ = std::filesystem::file_size(path);
+      size_ = std::filesystem::file_size(native);
     }
-    name_ = std::filesystem::path(path).filename().string();
+    name_ = native.filename().u8string();
   }
   explicit operator bool() const { return handle_ != nullptr; }
   bool isDirectory() const { return directory_; }

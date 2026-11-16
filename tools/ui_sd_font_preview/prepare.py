@@ -31,6 +31,19 @@ subset_data, subset_missing = build_subset(source, root / 'src/services/UiFontCo
 bad_subset = bytearray(subset_data)
 bad_subset[-1] ^= 0x80
 (out/'crc/Font/font-14.ui.bin').write_bytes(bytes(bad_subset))
+# Compatibility fixtures intentionally carry a different codepoint count.
+from font_ui_subset import parse_ui_codepoints
+points = parse_ui_codepoints(root / 'src/services/UiFontCodepoints.h')
+for case, selected in (('legacy', points[:200]), ('superset', sorted(set(points) | {0x9F98}))):
+    header = out / f'{case}.h'
+    header.write_text(','.join(hex(cp) for cp in selected), encoding='utf-8')
+    card = out / case / 'Font'
+    card.mkdir(parents=True, exist_ok=True)
+    for size in (14, 20, 24):
+        full = root / f'tools/font_builder/output/font-{size}.bin'
+        shutil.copyfile(full, card / full.name)
+        subset, _ = build_subset(full, header)
+        (card / f'font-{size}.ui.bin').write_bytes(subset)
 # validfull mirrors valid but without the ui subset, for the fallback path test.
 for name in ('font-14.bin', 'font-20.bin', 'font-24.bin', 'font-14.common.bin'):
     shutil.copyfile(out/f'valid/Font/{name}', out/f'validfull/Font/{name}')

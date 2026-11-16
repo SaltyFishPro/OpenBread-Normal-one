@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OpenBread · 留一页给自己</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#eeeee8;color:#24271f;font:14px/1.6 "Microsoft YaHei",sans-serif}main{max-width:1180px;margin:auto;padding:48px 28px}header{display:flex;align-items:end;justify-content:space-between;margin-bottom:26px}.eyebrow{color:#747969;margin-bottom:8px}h1{font-size:30px;letter-spacing:-1px;margin:0;font-weight:500}header p{margin:0;color:#747969}.layout{display:grid;grid-template-columns:minmax(0,1fr) 242px;gap:22px}.panel{background:#fafaf6;border:1px solid #d9dcd0;border-radius:22px;padding:28px}.label{display:flex;justify-content:space-between;gap:12px;color:#777c6d;margin-bottom:22px}.screen{overflow:hidden;background:#fff;border-radius:3px;box-shadow:0 0 0 1px #34362f,0 18px 45px #25282012;aspect-ratio:384/168}canvas{display:block;width:100%;height:100%;image-rendering:pixelated}.keys{display:flex;justify-content:center;gap:8px;margin:30px 0 14px;flex-wrap:wrap}button,.upload{font:inherit;cursor:pointer;border:1px solid #d6dacb;border-radius:10px;background:#f8f9f3;color:#34392c;padding:9px 14px;transition:background .15s}button:hover,.upload:hover{background:#e9eddf}button:focus-visible,.upload:focus-within{outline:2px solid #66744e;outline-offset:3px}button[aria-pressed=true]{background:#343d2b;color:#fff;border-color:#343d2b}.key-ok{background:#343d2b;color:#fff}.key-ok:hover{background:#4b593c}#hint{text-align:center;color:#707764;min-height:24px;margin:0}.notes{margin-top:28px;padding-top:20px;border-top:1px solid #dfe2d6;display:grid;grid-template-columns:1fr 1fr;gap:24px}.notes b{font-weight:500}.notes p,aside p{color:#7b806f;margin:5px 0 0;font-size:13px}aside h2{font-size:14px;font-weight:600;margin:0 0 14px}.scenes{display:grid;gap:8px}.scenes button{text-align:left}.divider{height:1px;background:#dfe2d6;margin:22px 0}.upload{display:block;text-align:center}input{position:absolute;width:1px;height:1px;opacity:0}.fine{font-size:12px;color:#848a79;margin-top:20px}#feedback{color:#526343;font-size:13px;min-height:22px;margin-top:12px}@media(max-width:850px){main{padding:26px 16px}.layout{grid-template-columns:1fr}header{display:block}header p{margin-top:10px}.panel{padding:20px}.notes{grid-template-columns:1fr;gap:12px}}
+</style></head>
+<body><main><header><div><div class="eyebrow">OpenBread / 阅读</div><h1>留一页，给自己。</h1></div><p>TXT 阅读器 · 交互设计预览</p></header>
+<div class="layout"><section class="panel"><div class="label"><span>设备屏幕 · 384 × 168</span><span id="caption">我的书架</span></div><div class="screen"><canvas id="screen" width="384" height="168" aria-label="TXT 阅读器设备画面"></canvas></div>
+<div class="keys"><button data-key="left">← 返回</button><button data-key="up">↑ 上</button><button data-key="down">↓ 下</button><button data-key="ok" class="key-ok">OK 确认</button></div><p id="hint" aria-live="polite"></p><div class="notes"><div><b>一本书，一个安静的界面</b><p>三行书架、清晰的胶囊焦点；正文只留下书名、文字和一条阅读进度。</p></div><div><b>从 /Books 开始</b><p>进入时检查文件夹，不存在则创建。将 TXT 放入后刷新书架，即可开始阅读。</p></div></div></section>
+<aside class="panel"><h2>体验场景</h2><div class="scenes"><button data-scene="shelf">我的书架</button><button data-scene="reading">继续阅读</button><button data-scene="empty">首次进入 · 创建 /Books</button><button data-scene="missing">SD 卡未插入</button><button data-scene="error">文件夹创建失败</button></div><div class="divider"></div><h2>试读自己的 TXT</h2><label class="upload">选择 UTF-8 文本<input id="file" type="file" accept=".txt,text/plain"></label><p>本地打开，不上传服务器。导入后自动进入正文。</p><div id="feedback" role="status"></div><div class="divider"></div><button id="theme">切换为黑底白字</button><p class="fine">屏幕内仅使用 14 / 20 / 24px，网页系统字体示意，不代表 SD 字体的实际字形。文件夹、SD 卡与进度均为模拟；当前标签页保留阅读位置，刷新后复位。尚未修改固件。</p></aside></div></main>
+<script>
+'use strict';
+const canvas=document.getElementById('screen'),c=canvas.getContext('2d');
+const samples=[
+ {name:'在路上，慢慢走',chapter:'第一章  山间来信',text:'清晨推开窗，风带着山里的凉意。远处的屋顶还藏在雾中，只有一条小路，安安静静地伸向树林。\n我把书放进背包，决定今天走得慢一些。不赶时间，也不急着寻找答案。\n路旁的树叶落了一地，脚步声轻得像是翻过一页纸。阳光穿过枝叶，在石阶上留下细碎的影子。\n原来许多美好的事，只需要停一停，就能看见。\n走过桥的时候，水流正在石头之间低声说话。我坐下来，等着一朵云慢慢走过。\n这一天没有特别的安排，却好像什么也没有错过。\n回程的路上，我捡起一片叶子，把它夹进书里。等到下次翻开，就能想起今天的风。'},
+ {name:'月光落在书页上',chapter:'序章  夜读',text:'灯亮起来的时候，窗外已经没有了声音。\n一本翻到一半的书，一杯温水，和一个可以慢下来的夜晚。\n月光落在书页上，像一封没有署名的来信。我读着那些熟悉的句子，也读着自己。\n白天没来得及听见的心事，在夜里渐渐清晰。\n合上书，风还在窗边。明天的故事，就留到明天再说。'},
+ {name:'写给明天的自己',chapter:'随笔  001',text:'不必把每一天都填满。留一点空白，给突然到来的好天气。\n今天的你，也许还没走到想去的地方，但已经比昨天多走了一段。\n把那些微小的进步记下来。它们很轻，却能带你走过很长的路。\n明天，记得吃早饭，看看天空，也记得给自己一点耐心。'},
+ {name:'山野手记',chapter:'小径',text:'沿着河流往上走，山会慢慢安静下来。\n草木有它们自己的季节，山间也有山间的时钟。\n我们偶尔需要走远一点，才会发现，最好的风景就在身旁。'}];
+let books=samples.map((b,i)=>({...b,page:i===0?1:0,mark:null})),selection=0,view='shelf',active=0,menuIndex=0,dark=false,jump=0,timer=null;
+const menuItems=['添加书签','跳转进度','黑底白字','返回书架'];
+const bg=()=>dark?'#000':'#fff',ink=()=>dark?'#fff':'#000';
+function text(s,x,y,size=14,color=ink(),align='left'){c.font=`${size}px "Microsoft YaHei",sans-serif`;c.fillStyle=color;c.textAlign=align;c.textBaseline='alphabetic';c.fillText(s,x,y)}
+function line(x,y,w,color=ink()){c.fillStyle=color;c.fillRect(x,y,w,1)}
+function pill(x,y,w,h,color=ink()){c.fillStyle=color;c.beginPath();c.roundRect(x,y,w,h,h/2);c.fill()}
+function fit(s,width,size=14){c.font=`${size}px "Microsoft YaHei",sans-serif`;if(c.measureText(s).width<=width)return s;let a=Array.from(s);while(a.length&&c.measureText(a.join('')+'…').width>width)a.pop();return a.join('')+'…'}
+function wrap(value){let lines=[];c.font='20px "Microsoft YaHei",sans-serif';for(const para of value.split(/\r\n|\r|\n/)){let row='　';for(const ch of para){if(c.measureText(row+ch).width>348){if(/[，。！？、；：）》」]/.test(ch)&&row.length>1){let last=Array.from(row).pop();lines.push(row.slice(0,-last.length));row=last+ch}else{lines.push(row);row=ch}}else row+=ch}lines.push(row)}return lines}
+function pages(book){let lines=wrap(book.text),out=[];for(let i=0;i<lines.length;i+=4)out.push(lines.slice(i,i+4));return out.length?out:[['（空白文本）']]}
+function pct(book){let n=pages(book).length;return Math.round((book.page+1)/n*100)}
+function bookIcon(x,y,color=ink()){c.strokeStyle=color;c.lineWidth=1;c.strokeRect(x+.5,y+.5,24,31);line(x+5,y+8,14,color);line(x+5,y+13,11,color);line(x+4,y,1,color);c.fillStyle=color;c.fillRect(x+4,y,1,31)}
+function footer(left,right){text(left,16,155);text(right,368,155,14,ink(),'right')}
+function drawShelf(){
+ text('我的书架',16,28,24);text('/Books',368,26,14,ink(),'right');line(16,39,352);
+ // The left rail is an editorial label, not a second focus area.
+ text('继续',16,68,14);text('阅读',16,94,20);text(String(books.length).padStart(2,'0')+' 本',16,119,14);
+ c.fillStyle=ink();c.fillRect(91,51,1,79);
+ let start=Math.max(0,Math.min(selection-1,books.length-3));
+ books.slice(start,start+3).forEach((b,i)=>{let idx=start+i,y=48+i*29,sel=idx===selection;
+  if(sel)pill(104,y,264,28);let color=sel?bg():ink();text(String(idx+1).padStart(2,'0'),116,y+20,14,color);text(fit(b.name,191,20),145,y+21,20,color);text('›',355,y+20,20,color,'right');
+ });
+ footer('↑↓ 选择',books[selection].page?'OK 继续阅读':'OK 开始阅读');
+}
+function drawReading(){let b=books[active],ps=pages(b);b.page=Math.min(b.page,ps.length-1);
+ text(fit(b.name,265),16,21);text(pct(b)+'%',368,21,14,ink(),'right');
+ line(16,30,352);
+ ps[b.page].forEach((s,i)=>text(s,18,57+i*26,20));
+ line(16,148,352);c.fillStyle=ink();c.fillRect(16,147,Math.round(352*pct(b)/100),3);
+ if(b.mark===b.page){c.fillStyle=ink();c.beginPath();c.moveTo(355,32);c.lineTo(365,32);c.lineTo(365,46);c.lineTo(360,42);c.lineTo(355,46);c.fill()}
+}
+function drawMenu(){drawReading();c.fillStyle=bg();c.fillRect(149,0,235,168);c.fillStyle=ink();c.fillRect(149,0,1,168);text('阅读选项',166,25,20);
+ let book=books[active];text('当前页：'+(book.page+1)+' / '+pages(book).length,166,45,14);
+ menuItems[0]=books[active].mark===books[active].page?'移除本页书签':'添加书签';menuItems[2]=dark?'白底黑字':'黑底白字';
+ menuItems.forEach((s,i)=>{let y=52+i*23;if(i===menuIndex)pill(160,y,212,22);text(s,173,y+17,14,i===menuIndex?bg():ink());});text('← 返回　OK 确认',166,155);
+}
+function drawJump(){let b=books[active],n=pages(b).length;text('跳转进度',16,28,24);line(16,39,352);text(Math.round((jump+1)/n*100)+'%',192,86,24,ink(),'center');line(48,107,288);c.fillStyle=ink();c.fillRect(48,105,Math.round(288*(jump+1)/n),5);footer('↑↓ 调整　← 取消','OK 跳转')}
+function drawMessage(title,a,b,button){bookIcon(28,63);text(title,76,67,20);text(a,76,94);text(b,76,116);pill(246,134,122,26);text(button,307,153,14,bg(),'center');text('阅读 / TXT',16,25,14);line(16,37,352)}
+function draw(){c.fillStyle=bg();c.fillRect(0,0,384,168);if(view==='shelf')drawShelf();else if(view==='reading')drawReading();else if(view==='menu')drawMenu();else if(view==='jump')drawJump();else if(view==='empty')drawMessage('书架，等你来填满','已创建 /Books 文件夹','放入 TXT 文件后刷新书架','OK 刷新');else if(view==='creating')drawMessage('正在准备书架','正在创建 /Books 文件夹','很快就好','请稍候');else if(view==='missing')drawMessage('请插入 SD 卡','你的书，存放在 SD 卡里','插入后按 OK 重新检查','OK 检查');else if(view==='error')drawMessage('暂时无法创建书架','请检查 SD 卡是否可写','也可手动创建 /Books','OK 重试');
+ let labels={shelf:'我的书架',reading:'正文 · '+books[active].chapter,menu:'阅读菜单',jump:'跳转进度',empty:'空书架 · /Books 已创建',creating:'初始化 · 创建 /Books',missing:'SD 卡未插入',error:'文件夹创建失败'};
+ document.getElementById('caption').textContent=labels[view];document.getElementById('hint').textContent={shelf:'上下选择书籍 · OK 打开 · Left 返回',reading:'上下翻页 · OK 阅读菜单 · Left 保存并返回书架',menu:'上下选择 · OK 确认 · Left 返回正文',jump:'上下调整目标位置 · OK 跳转 · Left 取消',empty:'演示中按 OK 模拟放入书籍后刷新',creating:'仅模拟文件夹创建，不会访问电脑或 SD 卡',missing:'演示中按 OK 模拟插入 SD 卡',error:'演示中按 OK 模拟重新检查'}[view];document.getElementById('theme').textContent=dark?'切换为白底黑字':'切换为黑底白字';
+ document.querySelectorAll('[data-scene]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.scene===view));
+}
+function key(k){if(view==='creating')return;if(view==='shelf'){if(k==='up')selection=Math.max(0,selection-1);if(k==='down')selection=Math.min(books.length-1,selection+1);if(k==='ok'){active=selection;view='reading'}if(k==='left')document.getElementById('feedback').textContent='已到阅读入口；完整固件中返回 XMB 主菜单。'}
+ else if(view==='reading'){let b=books[active];if(k==='up')b.page=Math.max(0,b.page-1);if(k==='down')b.page=Math.min(pages(b).length-1,b.page+1);if(k==='left'){selection=active;view='shelf'}if(k==='ok'){menuIndex=0;view='menu'}}
+ else if(view==='menu'){if(k==='up')menuIndex=Math.max(0,menuIndex-1);if(k==='down')menuIndex=Math.min(3,menuIndex+1);if(k==='left')view='reading';if(k==='ok'){if(menuIndex===0){let b=books[active];b.mark=b.mark===b.page?null:b.page;view='reading'}if(menuIndex===1){jump=books[active].page;view='jump'}if(menuIndex===2){dark=!dark;view='reading'}if(menuIndex===3){selection=active;view='shelf'}}}
+ else if(view==='jump'){if(k==='up')jump=Math.max(0,jump-1);if(k==='down')jump=Math.min(pages(books[active]).length-1,jump+1);if(k==='left')view='menu';if(k==='ok'){books[active].page=jump;view='reading'}}
+ else if(k==='ok'){if(view==='missing'||view==='error'){scene('empty');return}view='shelf'}else if(k==='left')view='shelf';draw()}
+function scene(s){clearTimeout(timer);view=s;if(s==='reading')active=selection;if(s==='empty'){view='creating';draw();timer=setTimeout(()=>{view='empty';draw()},650);return}draw()}
+document.querySelectorAll('[data-key]').forEach(b=>b.onclick=()=>key(b.dataset.key));document.querySelectorAll('[data-scene]').forEach(b=>b.onclick=()=>scene(b.dataset.scene));
+document.getElementById('theme').onclick=()=>{dark=!dark;draw()};document.addEventListener('keydown',e=>{if(e.target.matches('input')||(e.key==='Enter'&&e.target.matches('button')))return;let k={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',Enter:'ok',Escape:'left'}[e.key];if(k){e.preventDefault();key(k)}});
+document.getElementById('file').onchange=async e=>{let f=e.target.files[0];if(!f)return;let feedback=document.getElementById('feedback');if(f.size>2*1024*1024){feedback.textContent='网页试读上限为 2 MB，请选择较小文件。';e.target.value='';return}try{let bytes=await f.arrayBuffer(),value=new TextDecoder('utf-8',{fatal:true}).decode(bytes);if(value.includes('\0'))throw Error();if(!value.trim()){feedback.textContent='这份文本没有可阅读的内容。';return}books.push({name:f.name.replace(/\.txt$/i,''),text:value,chapter:'本地试读',page:0,mark:null});selection=active=books.length-1;clearTimeout(timer);view='reading';feedback.textContent='已在本地打开 '+f.name;draw()}catch{feedback.textContent='无法识别文本，请另存为 UTF-8 编码的 TXT。'}finally{e.target.value=''}};
+draw();
+</script></body></html>

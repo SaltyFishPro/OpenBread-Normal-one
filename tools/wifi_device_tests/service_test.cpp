@@ -58,6 +58,18 @@ int main() {
   WebServer::instance->submit("New");wifi.tick(430010,time);WiFi.connected("New");wifi.tick(430020,time);
   check(wifi.state()==Service::State::Connected&&wifi.isRadioActive()&&!wifi.isPortalActive()&&WiFi.currentMode==WIFI_STA,"font setup station not handed over");
   wifi.abortOnlineSession();
+  const int beforeRetry=WiFi.beginCalls;
+  check(wifi.reconnectFontSetup(),"font retry lost retained credentials");
+  check(WiFi.beginCalls==beforeRetry && !wifi.isPortalActive(),"font retry started before next tick/opened AP");
+  wifi.tick(430030,time);
+  check(WiFi.beginCalls==beforeRetry+1 && WiFi.name=="New" && WiFi.currentMode==WIFI_STA,
+        "font retry did not reconnect same network");
+  WiFi.connected("New");wifi.tick(430040,time);
+  check(wifi.state()==Service::State::Connected && !wifi.isPortalActive(),"font retry did not hand off station");
+  wifi.abortOnlineSession();
+  wifi.startPortal(430050,Service::Purpose::FontSetup);
+  check(wifi.isPortalActive(),"font reconfigure did not reopen AP");
+  wifi.abortOnlineSession();
   puts("PASS: production service saved/portal lifecycle, stale IP, failures, retry/cancel, replacement, hold, timeout, font setup");
   return 0;
  } catch(const std::exception& e) {fprintf(stderr,"FAIL: %s\n",e.what());return 1;}

@@ -2,12 +2,12 @@
 
 #include <esp_heap_caps.h>
 
-bool SdFontCacheBuffer::allocate(size_t bytes) {
+bool SdFontCacheBuffer::allocate(size_t bytes, size_t budget) {
+  if (bytes == 0U || bytes > budget || budget > 512U * 1024U) return false;
   if (data_ && size_ == bytes) return true;
   end();
   constexpr uint32_t caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
-  if (bytes == 0U || bytes > kBudgetBytes ||
-      heap_caps_get_largest_free_block(caps) < bytes) return false;
+  if (heap_caps_get_largest_free_block(caps) < bytes) return false;
   data_ = heap_caps_malloc(bytes, caps);
   if (!data_) return false;
   size_ = bytes;

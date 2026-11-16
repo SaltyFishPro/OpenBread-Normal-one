@@ -1,5 +1,9 @@
 # 主菜单预览
 
+[txt_reader_cover_mock.html](txt_reader_cover_mock.html) 为 TXT 阅读方案二：横向三本纸质书封，焦点反色，正文居中书名、页码和简洁分页标记。按键、试读导入和异常场景与方案一一致，两个文件独立保留。
+
+[txt_reader_mock.html](txt_reader_mock.html) 是独立的 TXT 阅读交互预览，包含三行书架、阅读正文、书签、进度跳转、反色显示和缺卡/空目录/创建失败场景。首次进入模拟创建 `/Books`；网页不实际写入 SD 卡。支持本地选择 UTF-8 TXT 试读（最大 2 MB，仅当前标签页内存保留），方向键上下、Left 和 Enter 模拟设备按键。设备画面为 384×168，文字使用 14/20/24px；系统字体仅示意，未接入固件。
+
 [first_boot_mock.html](first_boot_mock.html) 是包含完整流程的单文件交互预览：可模拟缺卡、缺少或损坏字体、连接配网热点、下载失败、校验与重启复查；检查通过后在同一页面内显示完整 XMB 主菜单，地址不变。菜单内的「首次开机流程」会在原页复位。网页不连接真实网络或写入 SD 卡。更新独立 [xmb_menu_mock.html](xmb_menu_mock.html) 后运行 `python tools/home_menu_preview/create_first_boot_preview.py`，将其最新内容嵌入此文件。
 
 打开 [main_menu_mock.html](main_menu_mock.html) 查看预览，方向键上下切换，Enter 确认。

@@ -35,6 +35,7 @@
 #include "pages/FirstBootPage.h"
 #include "pages/MusicPage.h"
 #include "pages/ReaderPage.h"
+#include "pages/TxtReaderPage.h"
 #include "pages/RemotePage.h"
 #include "pages/SettingsPage.h"
 #include "pages/SystemUpdatePage.h"
@@ -101,7 +102,7 @@ private:
   void performFactoryReset();
   void initDeviceInfoCache();
   void renderDetail(int16_t yOffset = 0);
-  enum class ContentFontUse : uint8_t { None, Answers, Update, Reader, External, Timer, Wifi, About };
+  enum class ContentFontUse : uint8_t { None, Answers, Update, Reader, External, Timer, Wifi, About, Txt };
   void syncContentFonts();
   void closeContentFonts();
   void syncUiFont();
@@ -130,6 +131,7 @@ private:
   FirstBootPage firstBootPage_;
   MusicPage musicPage_;
   ReaderPage readerPage_;
+  TxtReaderPage txtReaderPage_;
   TimeCalibrationPage timeCalibrationPage_;
   DeviceSelfTestPage deviceSelfTestPage_;
   AnswersBookPage answersBookPage_;
