@@ -5,7 +5,9 @@ when the file is absent or corrupt it falls back to the full
 `/Font/font-14.bin` path. The subset keeps the NBFT v1 layout so the payload
 CRC and record rules stay identical to the full font. The first four bytes of
 the 24-byte reserved header area store the pack's requested codepoint count.
-The default common-v1 pack is immutable and independent of firmware strings.
+The common-v2 pack is the published fixed-UI set: common3500.txt plus the
+ui-common-v2-extra.txt UI characters. It stays independent of firmware strings;
+later firmware UI additions still fall back to the full font.
 """
 
 from __future__ import annotations
@@ -39,7 +41,7 @@ def build_subset(font_path: Path, codepoints_path: Path) -> tuple[bytes, list[in
     charsets = Path(__file__).with_name('charsets')
     if codepoints_path.name == 'UiFontCodepoints.h':
         fixed = set(range(32, 127))
-        for name in ('common3500.txt', 'ui-common-v1-extra.txt'):
+        for name in ('common3500.txt', 'ui-common-v2-extra.txt'):
             fixed.update(ord(c) for c in (charsets / name).read_text(encoding='utf-8') if c not in '\r\n')
         points = sorted(fixed)
     records = bytearray()

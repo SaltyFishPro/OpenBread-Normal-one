@@ -11,7 +11,7 @@ args = parser.parse_args()
 
 # The timer page is in src/ now, so the normal string scan covers its literals.
 # Retain legacy UI literals while scanning new firmware requirements. The
-# published common-v1 pack is generated from immutable charset text files.
+# published common-v2 pack is generated from the charset text files.
 RESERVED_UI_LITERALS = (
     '定时器', '选择时长，OK 立即开始', 'OK 进入自定义时长', '自定义',
     '1分钟', '5分钟', '10分钟', '15分钟', '30分钟', '60分钟',
@@ -24,7 +24,7 @@ RESERVED_UI_LITERALS = (
 )
 
 points = set(range(32, 127))
-for name in ('common3500.txt', 'ui-common-v1-extra.txt'):
+for name in ('common3500.txt', 'ui-common-v2-extra.txt'):
     charset = (root / 'tools/font_builder/charsets' / name).read_text(encoding='utf-8')
     points.update(ord(c) for c in charset if c not in '\r\n')
 points.update(ord(c) for text in RESERVED_UI_LITERALS for c in text if ord(c) >= 128)

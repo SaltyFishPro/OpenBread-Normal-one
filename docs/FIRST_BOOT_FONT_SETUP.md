@@ -27,11 +27,11 @@ SD 卡、空间和写入错误使用独立提示，OK 检查后优先复用原�
 | 文件 | 大小（字节） | SHA-256 |
 |---|---:|---|
 | `font-14.bin` | 2,269,533 | `4dd04cceb3efb9a307cdc54e03d2bf69a3b2fd1e069feffbbaabb5ca23c60884` |
-| `font-14.ui.bin` | 183,807 | `dc456168edf47250cf875bc69017f51d68fc8add078b2037eb1c2cb9c7f34a50` |
+| `font-14.ui.bin` | 183,899 | `c222f8da3df3b754bc60efe502d06f06b51033195e3a27eeb22b1e0f08b17ec7` |
 | `font-20.bin` | 3,342,737 | `2ce6aedd66c52fc34887e66c30e538d8e1b506e749ddb1f1ec354665c0ed528a` |
-| `font-20.ui.bin` | 285,946 | `660a7f1d0124194c40152cd3c8b1e0c0e979eccd697ef2c43a05034c3da99b04` |
+| `font-20.ui.bin` | 286,053 | `6fd218ec0b3612aaba7f6fd9d255fa448d556ed9b0fc707f21c553e3e5051db8` |
 | `font-24.bin` | 4,004,358 | `143a68bb1557b23b24d64953743cfb64bf81a9dffef95cc185a067c1d09cbb1b` |
-| `font-24.ui.bin` | 325,805 | `83ce7b5f50d1956cd820a8568c4206c7ffb5702cc34bfa3e33a30110b88a1880` |
+| `font-24.ui.bin` | 325,920 | `a3d7df2d351e0542026c28e711fce29a403a729a95e8f449e753ea7a9efb6491` |
 
 公开地址格式为 `https://ota.openbread.net/ota/openbread-normal-one/Font/<文件名>`，注意 `Font` 的大小写。在 1Panel 服务器上核对文件：
 

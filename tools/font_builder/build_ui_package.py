@@ -12,10 +12,10 @@ output = root / "tools/font_builder/output"
 package = output / "Font"
 manifest_path = package / "manifest.json"
 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-manifest['ui_pack'] = {'id': 'ui-common-v1', 'han_count': 3500,
+manifest['ui_pack'] = {'id': 'ui-common-v2', 'han_count': 3500,
     'source': 'https://github.com/elephantnose/characters/blob/master/3500常用汉字.txt',
-    'codepoints': 'common3500.txt + ui-common-v1-extra.txt',
-    'policy': 'immutable; firmware UI additions use full-font fallback'}
+    'codepoints': 'common3500.txt + ui-common-v2-extra.txt',
+    'policy': 'published v2; firmware UI additions use full-font fallback'}
 for size in (14, 20, 24):
     data, missing = build_subset(output / f"font-{size}.bin", root / "src/services/UiFontCodepoints.h")
     name = f"font-{size}.ui.bin"
@@ -23,7 +23,7 @@ for size in (14, 20, 24):
     (package / name).write_bytes(data)
     info = next(item for item in manifest["fonts"] if item["pixel_size"] == size)
     info["ui_subset"] = {"file": name, "format": "NBFT", "version": 1,
-        "source_charset": "ui-common-v1",
+        "source_charset": "ui-common-v2",
         "glyph_count": struct.unpack_from("<I", data, 20)[0], "bytes": len(data),
         "sha256": hashlib.sha256(data).hexdigest(),
         "missing_codepoints": [f"U+{cp:04X}" for cp in missing]}
@@ -46,7 +46,7 @@ source = source[:start] + "constexpr File kFiles[] = {\n" + "\n".join(entries) +
     f"constexpr uint32_t kTotalBytes = {total}U;\n" + "}  // namespace FontBundle\n"
 bundle.write_text(source, encoding="utf-8")
 print(f"Updated SD package and boot manifest: 6 files, {total} bytes")
-archive = output / 'normal-one-fonts-ui-common-v1.zip'
+archive = output / 'normal-one-fonts-ui-common-v2.zip'
 with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as zip_file:
     for entry in manifest['fonts']:
         for name in (entry['file'], entry['ui_subset']['file']):

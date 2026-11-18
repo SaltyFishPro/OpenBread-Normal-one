@@ -216,7 +216,8 @@ python tools/font_builder/font_ui_subset.py --size 24
 固定文案变化后执行 `python tools/ui_sd_font_preview/prepare_codepoints.py`，再执行 `python tools/font_builder/build_ui_package.py`。后者需要 `output/` 的完整 14/20/24 字库和现有 `output/Font/manifest.json`，同步生成三份 UI 子集、更新 SD 包描述及固件 `FontBundle.h` 的下载哈希。将 `output/Font/` 中的三个 `font-*.ui.bin` 同步复制到 SD 卡与字体服务器；首次开机所需六份文件见 [安装说明](../../docs/FIRST_BOOT_FONT_SETUP.md)。
 
 
-### V0.1.9 固定常用字包
+### 固定常用字包 ui-common-v2
 
-当前默认 UI 子集固定为 3500 常用汉字和既有 UI 补充字符，发布包不随文案变化。来源及不可变规则见 [清单说明](charsets/README.md)，设备行为和服务器目录见[字体资源兼容](../../docs/FONT_PACK_COMPATIBILITY.md)。
-运行 `python tools/font_builder/build_ui_package.py` 同步生成三个字号、下载清单和可复制到 SD 卡的 ZIP。保留旧版服务器资源，不覆盖旧固件目录。
+当前默认 UI 子集是 3500 常用汉字加 ui-common-v2 的 114 个界面补充码点，共 3614 个码点（3613 个字形，U+FFFD 用占位框）。来源与版本规则见 [清单说明](charsets/README.md)，设备行为和服务器目录见[字体资源兼容](../../docs/FONT_PACK_COMPATIBILITY.md)。
+运行 `python tools/font_builder/build_ui_package.py` 同步生成三个字号、下载清单和可复制到 SD 卡的 ZIP。发布包不随文案变化；新增界面字符若要保持零回退，需发布下一个版本（v3）。
+服务器上 `font-*.ui.bin` 按文件名替换：旧固件若仍绑定 v1 子集哈希，将无法下载替换后的文件，需先升级固件；旧 SD 卡内容仍可按补齐/回退路径使用。
