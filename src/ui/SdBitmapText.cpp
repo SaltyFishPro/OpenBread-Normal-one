@@ -70,7 +70,9 @@ void missing(ST7305_2p9_BW_DisplayDriver& canvas, int32_t x, int32_t baseline,
 }
 
 bool drawUTF8(ST7305_2p9_BW_DisplayDriver& canvas, SdBitmapFont& font,
-               int16_t x, int16_t baseline, const char* text, uint16_t color, Clip clip) {
+               int16_t x, int16_t baseline, const char* text, uint16_t color, Clip clip,
+               int16_t* advance) {
+  if (advance != nullptr) *advance = 0;
   if (font.state() != SdBitmapFont::State::Ready) return false;
   clip.x1 = std::max<int16_t>(0, clip.x1);
   clip.y1 = std::max<int16_t>(0, clip.y1);
@@ -78,11 +80,19 @@ bool drawUTF8(ST7305_2p9_BW_DisplayDriver& canvas, SdBitmapFont& font,
   clip.y2 = std::min<int16_t>(canvas.getDisplayHeight() - 1, clip.y2);
   if (clip.x1 > clip.x2 || clip.y1 > clip.y2) return true;
   int32_t penX = x, penY = baseline;
+  // Widest line reachable by the same walk that draws the ink; callers that also
+  // need the width then avoid a second glyph lookup pass.
+  int32_t lineStart = x, widest = 0;
   uint32_t cp;
   uint8_t row[128];  // NBFT v1 permits up to 1024 bits per row.
   while (nextCodepoint(text, cp)) {
     if (cp == '\r') continue;
-    if (cp == '\n') { penX = x; penY += font.metrics().lineHeight(); continue; }
+    if (cp == '\n') {
+      widest = std::max(widest, penX - lineStart);
+      lineStart = penX = x;
+      penY += font.metrics().lineHeight();
+      continue;
+    }
     SdBitmapFont::Glyph glyph;
     const bool found = font.glyph(cp, glyph);
     if (font.state() != SdBitmapFont::State::Ready) return false;
@@ -111,6 +121,9 @@ bool drawUTF8(ST7305_2p9_BW_DisplayDriver& canvas, SdBitmapFont& font,
     }
     penX += glyph.advance;
   }
+  widest = std::max(widest, penX - lineStart);
+  if (advance != nullptr)
+    *advance = static_cast<int16_t>(std::min<int32_t>(32767, widest));
   return true;
 }
 }

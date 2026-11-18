@@ -9,6 +9,11 @@ bool hasUnicode(const char* value) {
   for (; value && *value; ++value) if (static_cast<uint8_t>(*value) >= 0x80U) return true;
   return false;
 }
+
+bool hasLineBreak(const char* value) {
+  for (; value && *value; ++value) if (*value == '\n') return true;
+  return false;
+}
 }
 bool ready(const SdBitmapFont* font, uint16_t maxLineHeight) {
   return font && font->state() == SdBitmapFont::State::Ready &&
@@ -53,14 +58,24 @@ int16_t Scope::measure(void* self, const char* value) {
 int16_t Scope::render(void* self, int16_t x, int16_t y, const char* value,
                        uint16_t fg, uint16_t bg, bool transparent) {
   auto& scope = *static_cast<Scope*>(self);
-  const int16_t advance = measure(self, value);
   auto& canvas = scope.display_.canvas();
-  if (!transparent && advance > 0)
-    DrawUtils::drawClippedFilledRect(canvas, x, y - 17, x + advance - 1, y + 5, bg);
   // Compact external-text pages have at least 24px rows; keep descenders inside the cell.
   const SdBitmapText::Clip clip = {0, static_cast<int16_t>(y - 17),
                                     static_cast<int16_t>(scope.display_.width() - 1),
                                     static_cast<int16_t>(y + 5)};
+  // The draw walk already advances the pen, so transparent text reuses that width
+  // instead of looking every glyph up a second time. Opaque text clears the whole
+  // advance before the ink, so it still needs the measured width up front; so does
+  // a clip whose rows all fall outside the panel (drawUTF8 then reports no width).
+  const bool rowsVisible = y >= -5 && y - 17 <= scope.display_.height() - 1;
+  if (transparent && rowsVisible) {
+    int16_t advance = 0;
+    (void)SdBitmapText::drawUTF8(canvas, *scope.font_, x, y, value, fg, clip, &advance);
+    return advance;
+  }
+  const int16_t advance = measure(self, value);
+  if (!transparent && advance > 0)
+    DrawUtils::drawClippedFilledRect(canvas, x, y - 17, x + advance - 1, y + 5, bg);
   (void)SdBitmapText::drawUTF8(canvas, *scope.font_, x, y, value, fg, clip);
   return advance;
 }
@@ -103,11 +118,15 @@ int16_t FixedScope::render(void* self, int16_t x, int16_t y, const char* value,
     text.setUTF8Renderer(renderer);
     return result;
   }
-  const int16_t advance = measure(self, value);
+  // The pen walk below knows the advance; measuring first would look every glyph
+  // up twice. Line breaks (measure reports the widest line) and fully clipped rows
+  // keep the measured width.
+  const bool measuredAdvance = hasLineBreak(value);
+  const int16_t advance = measuredAdvance ? measure(self, value) : 0;
   const int32_t top = std::max<int32_t>(0, y - 17);
   const int32_t bottom = std::min<int32_t>(scope.display_.height() - 1, y + 5);
   const int32_t right = scope.display_.width() - 1;
-  if (top > bottom) return advance;
+  if (top > bottom) return measuredAdvance ? advance : measure(self, value);
   int32_t pen = x;
   uint32_t cp;
   while (SdBitmapText::nextCodepoint(value, cp)) {
@@ -151,6 +170,7 @@ int16_t FixedScope::render(void* self, int16_t x, int16_t y, const char* value,
     }
     pen += step;
   }
-  return advance;
+  if (measuredAdvance) return advance;
+  return static_cast<int16_t>(std::min<int32_t>(32767, pen - x));
 }
 }

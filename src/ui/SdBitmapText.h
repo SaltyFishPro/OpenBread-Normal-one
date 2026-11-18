@@ -12,6 +12,9 @@ struct Clip { int16_t x1, y1, x2, y2; };
 bool nextCodepoint(const char*& text, uint32_t& codepoint);
 int32_t measureUTF8(SdBitmapFont& font, const char* text);
 // Transparent ink, baseline coordinates. Missing glyphs use a box and one em advance.
+// When `advance` is not null it receives the pen advance (widest line for multi-line
+// text) from the same glyph walk, so callers do not have to measure a second time.
 bool drawUTF8(ST7305_2p9_BW_DisplayDriver& canvas, SdBitmapFont& font,
-               int16_t x, int16_t baseline, const char* text, uint16_t color, Clip clip);
+               int16_t x, int16_t baseline, const char* text, uint16_t color, Clip clip,
+               int16_t* advance = nullptr);
 }
