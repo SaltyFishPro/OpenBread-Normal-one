@@ -394,9 +394,10 @@ void HomePage::render(DisplayMonoTft& display, int16_t pageOffsetX, uint32_t now
   renderTransition(display, pageOffsetX, pageOffsetX, 0, 0, 0, nowMs);
 }
 
-bool HomePage::setFontStatus(FontStatus status) {
-  if (fontStatus_ == status) return false;
+bool HomePage::setFontStatus(FontStatus status, uint8_t percent) {
+  if (fontStatus_ == status && fontPercent_ == percent) return false;
   fontStatus_ = status;
+  fontPercent_ = percent;
   invalidateTextLayer();
   return true;
 }
@@ -408,24 +409,16 @@ void HomePage::renderTransition(DisplayMonoTft& display, int16_t backgroundOffse
   const int16_t width = static_cast<int16_t>(display.width());
   const int16_t height = static_cast<int16_t>(display.height());
   canvas.drawFilledRectangle(0, 0, width - 1, height - 1, ST7305_COLOR_BLACK);
-  if (fontStatus_ != FontStatus::Ready) {
-    const int16_t left = static_cast<int16_t>(12 + backgroundOffsetX);
-    DrawUtils::drawClippedFilledRect(canvas, left, 146, static_cast<int16_t>(left + 176), 166,
-                                     ST7305_COLOR_WHITE);
-    auto& text = display.text();
-    text.setFont(u8g2_font_6x12_mf);
-    text.setFontMode(1);
-    text.setForegroundColor(ST7305_COLOR_BLACK);
-    text.setBackgroundColor(ST7305_COLOR_WHITE);
-    text.drawUTF8(static_cast<int16_t>(left + 4), 160,
-                  fontStatus_ == FontStatus::Loading ? "SD font loading" :
-                                                        "SD font unavailable");
-    text.setFont(u8g2_font_7x14_tf);
-    text.setForegroundColor(ST7305_COLOR_WHITE);
-    text.setBackgroundColor(ST7305_COLOR_BLACK);
-  }
   drawMenuWheel(display, 0, static_cast<int16_t>(height / 2), 0, 0, 0, 0, nowMs, false);
   drawHomeStatus(canvas, display.text(), backgroundOffsetX, clockData_, batteryData_);
+  // 字库提示画在右下角状态区，避免和左下角的电量图标/百分比重叠。
+  if (fontStatus_ == FontStatus::Loading) {
+    char label[16];
+    snprintf(label, sizeof(label), "FONT %u%%", static_cast<unsigned>(fontPercent_));
+    drawFontHint(display, label);
+  } else if (fontStatus_ == FontStatus::Unavailable) {
+    drawFontHint(display, "FONT !");
+  }
   lastRenderedFocusIndex_ = focusIndex_;
   lastRenderedMenuOffsetY_ = currentCategoryOffset(nowMs);
   lastRenderedSubmenuOffsetY_ = currentSubmenuOffset(nowMs);
@@ -589,6 +582,20 @@ void HomePage::renderSleepClock(DisplayMonoTft& display, uint32_t nowMs, int16_t
            static_cast<unsigned>(percent));
   text.setForegroundColor(ST7305_COLOR_WHITE);
   text.drawUTF8(static_cast<int16_t>(x + 48), 159, batteryText);
+}
+
+void HomePage::drawFontHint(DisplayMonoTft& display, const char* label) {
+  auto& text = display.text();
+  // 6x12 是内置字体，不依赖 SD 字库；此时中文尚不可用，提示只使用 ASCII。
+  text.setFont(u8g2_font_6x12_mf);
+  text.setFontMode(1);
+  text.setForegroundColor(ST7305_COLOR_WHITE);
+  text.setBackgroundColor(ST7305_COLOR_BLACK);
+  const int16_t labelWidth = static_cast<int16_t>(text.getUTF8Width(label));
+  text.drawUTF8(static_cast<int16_t>(display.width() - 8 - labelWidth), 160, label);
+  text.setFont(u8g2_font_7x14_tf);
+  text.setForegroundColor(ST7305_COLOR_WHITE);
+  text.setBackgroundColor(ST7305_COLOR_BLACK);
 }
 
 void HomePage::renderSleepTransition(DisplayMonoTft& display, uint32_t nowMs,

@@ -104,7 +104,7 @@ bool UiManager::begin() {
   if (!homePage_.begin()) {
     return false;
   }
-  homePage_.setFontStatus(HomePage::FontStatus::Loading);
+  homePage_.setFontStatus(HomePage::FontStatus::Ready);
   if (!bluetoothService_.begin()) {
     return false;
   }
@@ -1332,14 +1332,24 @@ void UiManager::syncUiFont() {
     if (uiFont_.state() != UiFontCache::State::Ready || !uiFont_.currentCard()) {
       if (sdCardService_.status() != SdCardService::Status::Ready) sdCardService_.refresh();
       (void)uiFont_.begin();
+      uiFontLoadStartMs_ = millis();
     }
   }
   uiFont_.tick();
   const auto fontState = uiFont_.state();
-  const auto status = fontState == UiFontCache::State::Ready ? HomePage::FontStatus::Ready
-      : (fontState == UiFontCache::State::Error ? HomePage::FontStatus::Unavailable
-                                               : HomePage::FontStatus::Loading);
-  if (homePage_.setFontStatus(status)) needsRedraw_ = true;
+  // 只有真正在加载、且超过 400ms 才显示提示；Idle（例如音乐占用 SD 而推迟）
+  // 或很快加载完成时不打扰界面。百分比按 10% 步进，避免每 tick 都重绘。
+  constexpr uint32_t kFontHintDelayMs = 400;
+  HomePage::FontStatus status = HomePage::FontStatus::Ready;
+  uint8_t percent = 100;
+  if (fontState == UiFontCache::State::Error) {
+    status = HomePage::FontStatus::Unavailable;
+  } else if (fontState == UiFontCache::State::Loading &&
+             millis() - uiFontLoadStartMs_ >= kFontHintDelayMs) {
+    status = HomePage::FontStatus::Loading;
+    percent = static_cast<uint8_t>((uiFont_.progressPercent() / 10U) * 10U);
+  }
+  if (homePage_.setFontStatus(status, percent)) needsRedraw_ = true;
   if (uiFont_.consumeChanged()) {
     homePage_.invalidateTextLayer();
     needsRedraw_ = true;

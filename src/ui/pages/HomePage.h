@@ -85,7 +85,8 @@ public:
   void setClockData(const ClockData& data);
   bool setBatteryData(const BatteryData& data);
   void invalidateTextLayer() {}
-  bool setFontStatus(FontStatus status);
+  // percent 仅在 Loading 时显示（0..100），其余状态忽略。
+  bool setFontStatus(FontStatus status, uint8_t percent = 100);
 
 private:
   enum class SlideState : uint8_t { Idle, SlidingCategory, SlidingSubmenu };
@@ -131,6 +132,8 @@ private:
   uint32_t standbyEmojiStartMs_ = 0;
   bool standbyEmojiPlaying_ = false;
   FontStatus fontStatus_ = FontStatus::Ready;
+  uint8_t fontPercent_ = 100;
+  void drawFontHint(DisplayMonoTft& display, const char* label);
   int16_t activeRenderOffsetX_ = 0;
 
   static constexpr uint8_t kMenuCount = 13;

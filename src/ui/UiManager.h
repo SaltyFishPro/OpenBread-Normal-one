@@ -162,6 +162,7 @@ private:
   bool ui20Attempted_ = false, ui24Attempted_ = false;
   UiFontCache uiFont_;
   bool uiFontAttempted_ = false;
+  uint32_t uiFontLoadStartMs_ = 0;
   ContentFontUse contentFontUse_ = ContentFontUse::None;
   MusicService musicService_;
   IicScanService iicScanService_;

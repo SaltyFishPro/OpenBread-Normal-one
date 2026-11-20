@@ -21,6 +21,8 @@ public:
   void end();
   bool consumeChanged();
   State state() const { return state_; }
+  // 0..100 during loading (file read + parse), 100 when ready.
+  uint8_t progressPercent() const;
   const Glyph* glyph(uint32_t codepoint) const;
   size_t cacheBytes() const { return memory_.size(); }
   bool currentCard() const;

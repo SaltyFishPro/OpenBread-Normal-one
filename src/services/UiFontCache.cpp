@@ -11,9 +11,9 @@ constexpr size_t kCount = sizeof(UiFontCodepoints::kValues) / sizeof(uint32_t);
 static_assert(sizeof(UiFontCache::Glyph) * kCount <= UiFontCache::kBudgetBytes,
               "Fixed UI glyph cache exceeds its bounded PSRAM budget");
 constexpr char kSubsetPath[] = "/Font/font-14.ui.bin";
-constexpr size_t kSubsetChunkBytes = 8U * 1024U;
+constexpr size_t kSubsetChunkBytes = 32U * 1024U;
 constexpr size_t kSubsetMaxBytes = 512U * 1024U;
-constexpr size_t kParseBatchRecords = 64U;
+constexpr size_t kParseBatchRecords = 256U;
 
 uint16_t le16(const uint8_t* p) { return p[0] | (uint16_t(p[1]) << 8U); }
 uint32_t le32(const uint8_t* p) { return le16(p) | (uint32_t(le16(p + 2)) << 16U); }
@@ -110,7 +110,7 @@ void UiFontCache::tick() {
     }
     ++next_;
     ++processed;
-  } while (next_ < kCount && processed < 8 && millis() - start < 4U);
+  } while (next_ < kCount && processed < 64U && millis() - start < 4U);
   if (previous / 128 != next_ / 128)
     LogD("FONT", "ui progress=%u/%u elapsed_ms=%lu", static_cast<unsigned>(next_),
          static_cast<unsigned>(kCount), static_cast<unsigned long>(millis() - startedMs_));
@@ -312,6 +312,19 @@ const UiFontCache::Glyph* UiFontCache::glyph(uint32_t cp) const {
     else hi = middle;
   }
   return lo < kCount && UiFontCodepoints::kValues[lo] == cp ? glyphs_ + lo : nullptr;
+}
+
+uint8_t UiFontCache::progressPercent() const {
+  if (state_ == State::Ready) return 100;
+  if (state_ != State::Loading) return 0;
+  if (subsetActive_) {
+    const uint32_t load = subsetSize_ ? (subsetLoaded_ * 40U) / subsetSize_ : 0U;
+    const uint32_t parse = subsetCount_ ? (subsetParsed_ * 60U) / subsetCount_ : 0U;
+    const uint32_t total = load + parse;
+    return static_cast<uint8_t>(total > 100U ? 100U : total);
+  }
+  if (kCount == 0) return 0;
+  return static_cast<uint8_t>(next_ * 100U / kCount);
 }
 
 void UiFontCache::cancelLoad() {
