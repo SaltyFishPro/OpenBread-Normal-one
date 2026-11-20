@@ -48,6 +48,8 @@ public:
   bool consumeChanged();
   bool glyph(uint32_t codepoint, Glyph& out);
   bool readRow(const Glyph& glyph, uint16_t row, uint8_t* data, size_t capacity);
+  // Whole bitmap in one cache lookup/read. Row padding still gets validated.
+  bool readGlyphBitmap(const Glyph& glyph, uint8_t* data, size_t capacity);
   State state() const { return state_; }
   Error error() const { return error_; }
   uint32_t session() const { return session_; }

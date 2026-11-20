@@ -61,6 +61,10 @@ private:
   SdFontCacheBuffer indexMemory_;
   uint32_t* offsets_ = nullptr;
   uint32_t pageCount_ = 0, wanted_ = 0, size_ = 0, fingerprint_ = 0;
+  uint32_t indexStartMs_ = UINT32_MAX;
+  // 分页诊断：分别累计测量字形与读文件的耗时，用来定位加载慢的来源。
+  uint32_t measureUs_ = 0, readUs_ = 0;
+  uint32_t measureCalls_ = 0, readCalls_ = 0, ticks_ = 0, chars_ = 0;
   Scan indexScan_, viewScan_;
   Page content_;
   Saved saved_;

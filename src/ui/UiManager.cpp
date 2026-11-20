@@ -272,7 +272,7 @@ void UiManager::tick() {
   syncContentFonts();
   syncResidentFonts();
   if (state_ == UiState::Detail && TxtReaderPage::selected(homePage_.focusIndex(), sectionFocusIndex_) &&
-      txtReaderPage_.update(sdTitleFont_)) needsRedraw_ = true;
+      txtReaderPage_.update(sdTitleFont_, &ui20Font_)) needsRedraw_ = true;
   if (state_ == UiState::Detail &&
       readerPage_.isStaticWordDetail(homePage_.focusIndex(), sectionFocusIndex_) &&
       readerPage_.updateMeaning(readerService_, sdBitmapFont_)) needsRedraw_ = true;
@@ -750,18 +750,16 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
 }
 
 bool UiManager::shouldRedraw(uint32_t nowMs) const {
-  // 弹窗进场/退场动画期间必须持续出帧。
-  if (PopupView::isAnimating(confirmState_.anim)) {
-    return true;
-  }
   const uint32_t frameIntervalMs = targetFrameIntervalMs(nowMs);
   if (frameIntervalMs > 0 && !needsRedraw_ && (nowMs - lastRenderMs_) < frameIntervalMs) {
     return false;
   }
+  return needsRedraw_ || animationPending(nowMs);
+}
 
-  if (needsRedraw_) {
-    return true;
-  }
+bool UiManager::animationPending(uint32_t nowMs) const {
+  // 弹窗进场/退场动画期间必须持续出帧。
+  if (PopupView::isAnimating(confirmState_.anim)) return true;
   if (systemUpdatePage_.needsAnimationFrame()) return true;
 
   if (state_ == UiState::Home) {
@@ -780,7 +778,8 @@ bool UiManager::shouldRedraw(uint32_t nowMs) const {
     return true;
   }
   if (state_ == UiState::Detail &&
-      musicPage_.needsAnimationFrame(homePage_.focusIndex(), sectionFocusIndex_, nowMs)) {
+      musicPage_.needsAnimationFrame(homePage_.focusIndex(), sectionFocusIndex_, nowMs,
+                                     musicService_)) {
     return true;
   }
 
@@ -877,9 +876,10 @@ uint32_t UiManager::nextIdleDelayMs(uint32_t nowMs) const {
     return 0;
   }
 
-  // 动画期间按剩余帧时间让出 CPU，保证帧节奏不被拉长。
+  // 动画期间按剩余帧时间让出 CPU，保证帧节奏不被拉长。只有确实有待出帧的
+  // 动画才按帧间隔轮询；否则回到输入轮询节拍，避免空转在 1ms 睡眠上。
   const uint32_t frameIntervalMs = targetFrameIntervalMs(nowMs);
-  if (frameIntervalMs > 0) {
+  if (frameIntervalMs > 0 && animationPending(nowMs)) {
     const uint32_t elapsed = nowMs - lastRenderMs_;
     if (elapsed >= frameIntervalMs) {
       return 0;
@@ -952,9 +952,9 @@ void UiManager::render(uint32_t nowMs) {
   if (state_ == UiState::Detail &&
       settingsPage_.isWifiProvisionSelection(homePage_.focusIndex(),sectionFocusIndex_) &&
       wifiPage_.renderConfirmationFocusOnly(display_)) {
-    // Redraw only buttons in RAM. Keep the proven full-frame panel transfer:
-    // narrow ST7305 windows have shown coordinate errors on this hardware.
-    display_.present();
+    // Redraw only buttons in RAM; the diff present skips the panel refresh when
+    // the redraw produced the same pixels.
+    display_.presentChanged();
     return;
   }
   // Keep a verified host frame on screen until the next verified frame.
@@ -1005,9 +1005,9 @@ void UiManager::render(uint32_t nowMs) {
     if (musicPage_.renderDetailNavOnly(homePage_.focusIndex(), sectionFocusIndex_, 0, display_,
                                        nowMs)) {
       if (renderer_.hasDirty()) {
-        // 音乐导航动画的局部刷新窗口是「部分列 + 全行」，在 ST7305 上窗口映射会错位，
-        // 实机表现为导航栏动画被画到屏幕顶部；这里退回整屏推送，代价仅为动画期间的少量 SPI。
-        display_.present();
+        // 窗口推送在 ST7305 上曾出现映射错位，这里交给差异刷新：画面没变就不推，
+        // 有变化时默认整帧推送（窗口推送需 OB_DISPLAY_PARTIAL_WINDOWS 实机确认）。
+        display_.presentChanged();
       }
       return;
     }
@@ -1017,8 +1017,8 @@ void UiManager::render(uint32_t nowMs) {
     if (musicPage_.renderDetailListOnly(homePage_.focusIndex(), sectionFocusIndex_, display_,
                                         musicService_, nowMs, &sdBitmapFont_)) {
       if (renderer_.hasDirty()) {
-        // 与导航动画同理，列表焦点动画同样退回整屏推送。
-        display_.present();
+        // 与导航动画同理，交由差异刷新决定是否需要推屏。
+        display_.presentChanged();
       }
       return;
     }
@@ -1031,7 +1031,7 @@ void UiManager::render(uint32_t nowMs) {
       const Render1bpp::Rect region = renderer_.dirty();
       display_.presentRegion(region.x1, region.y1, region.x2, region.y2);
 #else
-      display_.present();
+      display_.presentChanged();
 #endif
     }
     return;
@@ -1044,7 +1044,7 @@ void UiManager::render(uint32_t nowMs) {
       const Render1bpp::Rect region = renderer_.dirty();
       display_.presentRegion(region.x1, region.y1, region.x2, region.y2);
 #else
-      display_.present();
+      display_.presentChanged();
 #endif
     }
     return;
@@ -1115,13 +1115,13 @@ void UiManager::render(uint32_t nowMs) {
     } else if (transitionFrame) {
       display_.presentSynced();
     } else {
-      display_.present();
+      display_.presentChanged();
     }
 #else
     if (transitionFrame) {
       display_.presentSynced();
     } else {
-      display_.present();
+      display_.presentChanged();
     }
 #endif
   }
@@ -1445,8 +1445,11 @@ void UiManager::syncContentFonts() {
   if (next != ContentFontUse::Reader) {
     // Music already owns/mounts SD. Never refresh it while its files are open.
     if (sdCardService_.status() != SdCardService::Status::Ready && !music) sdCardService_.refresh();
+    // TXT 正文与标题都用 20 号字库，14 号整库不参与绘制，打开只会多一次
+    // 2.2 MB 的 CRC 校验（约 3.5 s），因此跳过。
     if (next != ContentFontUse::Timer && next != ContentFontUse::Wifi &&
-        next != ContentFontUse::About) (void)sdBitmapFont_.open(14);
+        next != ContentFontUse::About && next != ContentFontUse::Txt)
+      (void)sdBitmapFont_.open(14);
   }
   if (next == ContentFontUse::Answers)
     (void)sdTitleFont_.open(20, false);

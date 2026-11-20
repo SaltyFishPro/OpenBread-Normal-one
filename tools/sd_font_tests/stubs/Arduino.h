@@ -4,4 +4,5 @@
 #undef OB_PREVIEW_CUSTOM_CLOCK
 namespace TestClock { inline uint32_t nowMs = 0; }
 inline uint32_t millis() { return TestClock::nowMs; }
+inline uint32_t micros() { return TestClock::nowMs * 1000U; }
 inline void delay(unsigned ms) { TestClock::nowMs += ms; }

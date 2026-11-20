@@ -514,3 +514,31 @@ bool SdBitmapFont::readRow(const Glyph& glyph, uint16_t row, uint8_t* data, size
     return fail(Error::Read);
   return validateRow(glyph, data) ? true : fail(Error::Glyph);
 }
+
+bool SdBitmapFont::readGlyphBitmap(const Glyph& glyph, uint8_t* data, size_t capacity) {
+  if (state_ != State::Ready) return false;
+  if (!subsetMemory_.data() && !currentCard()) return fail(Error::Read);
+  const uint16_t stride = (glyph.width + 7U) / 8U;
+  if (!data || glyph.session != session_ ||
+      glyph.width > 1024U || glyph.height > 1024U ||
+      glyph.length != uint32_t(stride) * glyph.height ||
+      glyph.length > capacity ||
+      glyph.offset > fileBytes_ - bitmapOffset_ ||
+      glyph.length > fileBytes_ - bitmapOffset_ - glyph.offset) return false;
+  const CacheSlot* slots = glyphSet(glyph.codepoint);
+  for (uint8_t i = 0; i < kGlyphWays; ++i) {
+    const auto& slot = slots[i];
+    if (slot.valid && slot.found && slot.glyph.codepoint == glyph.codepoint &&
+        glyph.length <= kGlyphCacheBytes && slot.glyph.offset == glyph.offset &&
+        slot.glyph.width == glyph.width && slot.glyph.height == glyph.height &&
+        slot.glyph.length == glyph.length) {
+      memcpy(data, slot.bitmap, glyph.length);
+      return true;
+    }
+  }
+  if (!readAt(bitmapOffset_ + glyph.offset, data, glyph.length)) return fail(Error::Read);
+  for (uint16_t row = 0; row < glyph.height; ++row) {
+    if (!validateRow(glyph, data + static_cast<size_t>(row) * stride)) return fail(Error::Glyph);
+  }
+  return true;
+}

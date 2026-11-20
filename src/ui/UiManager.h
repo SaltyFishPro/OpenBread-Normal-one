@@ -90,6 +90,7 @@ private:
   InputEdges pollInputEdges();
   void updateState(const InputEdges& edges, uint32_t nowMs);
   bool shouldRedraw(uint32_t nowMs) const;
+  bool animationPending(uint32_t nowMs) const;
   uint32_t targetFrameIntervalMs(uint32_t nowMs) const;
   uint32_t nextIdleDelayMs(uint32_t nowMs) const;
   void updateCpuClock(uint32_t nowMs);

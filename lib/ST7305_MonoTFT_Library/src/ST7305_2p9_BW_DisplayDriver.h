@@ -32,6 +32,12 @@ public:
     void display();
     // 只刷新面板物理坐标区域 (x1,y1)-(x2,y2)；x 为 0..167，y 为 0..383
     void displayRegion(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2);
+    // 按帧缓冲字节/行窗口刷新，供差异刷新使用。
+    void displayByteWindow(uint16_t byteStart, uint16_t byteEnd,
+                           uint16_t rowStart, uint16_t rowEnd);
+    const uint8_t* frameBuffer() const { return display_buffer; }
+    uint16_t panelWidth() const { return static_cast<uint16_t>(LCD_WIDTH); }
+    uint16_t panelHeight() const { return static_cast<uint16_t>(LCD_HIGH); }
 
     // 帧缓冲快照/回填，供上层缓存静态图层使用
     size_t frameBufferLength() const { return static_cast<size_t>(DISPLAY_BUFFER_LENGTH); }

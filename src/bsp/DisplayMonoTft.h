@@ -13,6 +13,9 @@ public:
   void clear();
   void present();
   void presentSynced();
+  // 与上一帧比较，只推送变化的窗口；无变化则完全不刷新面板。
+  // PSRAM 缓冲区不可用时退回整帧 present()。
+  void presentChanged();
   uint32_t lastTeWaitUs() const { return lastTeWaitUs_; }
   uint32_t lastPresentUs() const { return lastPresentUs_; }
   bool teSyncAvailable() const { return teState_ == TeState::Available; }
@@ -36,6 +39,7 @@ public:
 private:
   enum class TeState : uint8_t { Unknown, Available, Unavailable };
   bool waitForTe();
+  void rememberFrame();
 
   ST7305_2p9_BW_DisplayDriver display_;
   U8G2_FOR_ST73XX text_;
@@ -43,4 +47,6 @@ private:
   uint32_t lastTeWaitUs_ = 0;
   uint32_t lastPresentUs_ = 0;
   bool teSyncAnnounced_ = false;
+  uint8_t* history_ = nullptr;
+  bool historyValid_ = false;
 };

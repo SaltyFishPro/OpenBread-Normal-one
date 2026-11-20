@@ -9,7 +9,9 @@ public:
   void enter(SdCardService& sd);
   void leave();
   bool input(bool left, bool up, bool down, bool ok, SdCardService& sd);
-  bool update(SdBitmapFont& font);
+  // widthFont is the resident subset of the same size as the body font; it
+  // supplies advances from PSRAM (no SD lookups) with identical metrics.
+  bool update(SdBitmapFont& font, SdBitmapFont* widthFont = nullptr);
   bool busy() const;
   bool needsScan() const {
     return reader_.state() != TxtReaderService::State::Reading &&
@@ -25,6 +27,8 @@ private:
   uint8_t selection_ = 0, menu_ = 0;
   uint32_t jump_ = 0;
   SdBitmapFont* font_ = nullptr;
+  SdBitmapFont* widthFont_ = nullptr;
   struct Width { uint32_t cp = UINT32_MAX; int16_t advance = 0; };
-  Width widths_[256];
+  static constexpr uint16_t kWidthCacheSize = 256;
+  Width widths_[kWidthCacheSize];
 };

@@ -155,17 +155,18 @@ int16_t FixedScope::render(void* self, int16_t x, int16_t y, const char* value,
       }
     } else {
       const size_t stride = (glyph->width + 7U) / 8U;
+      const int32_t penX = pen + glyph->xOffset;
       for (int32_t row = 0; row < glyph->height; ++row) {
         const int32_t py = y + glyph->yOffset + row;
         if (py < top || py > bottom) continue;
-        int32_t run = -1;
-        for (int32_t col = 0; col <= glyph->width; ++col) {
-          const int32_t px = pen + glyph->xOffset + col;
-          const bool ink = col < glyph->width && px >= 0 && px <= right &&
-              (glyph->bitmap[row * stride + col / 8] & (0x80U >> (col % 8)));
-          if (ink && run < 0) run = px;
-          if (!ink && run >= 0) { canvas.drawFastHLine(run, py, px - run, fg); run = -1; }
-        }
+        SdBitmapText::forEachInkRun(glyph->bitmap + static_cast<size_t>(row) * stride,
+                                    glyph->width, [&](int32_t x1, int32_t x2) {
+          int32_t start = penX + x1;
+          int32_t end = penX + x2;
+          if (start < 0) start = 0;
+          if (end > right) end = right;
+          if (start <= end) canvas.drawFastHLine(start, py, end - start + 1, fg);
+        });
       }
     }
     pen += step;

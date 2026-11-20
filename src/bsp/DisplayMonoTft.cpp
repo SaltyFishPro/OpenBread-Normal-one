@@ -2,9 +2,18 @@
 
 #include <SPI.h>
 #include <driver/gpio.h>
+#include <esp_heap_caps.h>
+
+#include <cstring>
 
 #include "BoardConfig.h"
 #include "../log/Log.h"
+
+// 差异刷新窗口：ST7305 的 MX 位会反转列地址窗口，displayByteWindow 已按
+// 面板实现做镜像；实机确认后可置 0 退回“只做无变化不推屏、其余整帧推送”。
+#ifndef OB_DISPLAY_PARTIAL_WINDOWS
+#define OB_DISPLAY_PARTIAL_WINDOWS 1
+#endif
 
 namespace {
 constexpr uint32_t kTeWaitTimeoutUs = 35000;
@@ -64,7 +73,10 @@ bool DisplayMonoTft::begin() {
 
 void DisplayMonoTft::clear() { display_.clearDisplay(); }
 
-void DisplayMonoTft::present() { display_.display(); }
+void DisplayMonoTft::present() {
+  display_.display();
+  rememberFrame();
+}
 
 void DisplayMonoTft::presentSynced() {
   lastTeWaitUs_ = 0;
@@ -74,6 +86,7 @@ void DisplayMonoTft::presentSynced() {
   }
   display_.display();
   lastPresentUs_ = micros() - presentStartUs;
+  rememberFrame();
 }
 
 bool DisplayMonoTft::waitForTe() {
@@ -133,6 +146,85 @@ void DisplayMonoTft::presentRegion(int16_t x1, int16_t y1, int16_t x2, int16_t y
   display_.logicalToPhysical(x2, y2, px2, py2);
   display_.displayRegion(static_cast<uint16_t>(px1), static_cast<uint16_t>(py1),
                          static_cast<uint16_t>(px2), static_cast<uint16_t>(py2));
+  rememberFrame();
+}
+
+void DisplayMonoTft::rememberFrame() {
+  if (history_ == nullptr || !historyValid_) return;
+  memcpy(history_, display_.frameBuffer(), frameBufferBytes());
+}
+
+void DisplayMonoTft::presentChanged() {
+  const size_t bytes = frameBufferBytes();
+  if (history_ == nullptr) {
+    history_ = static_cast<uint8_t*>(
+        heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    historyValid_ = false;
+  }
+  if (history_ == nullptr) {
+    present();
+    return;
+  }
+  const uint8_t* frame = display_.frameBuffer();
+  const uint16_t rowBytes = static_cast<uint16_t>(display_.panelWidth() / 4U);
+  const uint16_t rows = static_cast<uint16_t>(display_.panelHeight() / 2U);
+  if (!historyValid_) {
+    display_.display();
+    memcpy(history_, frame, bytes);
+    historyValid_ = true;
+    return;
+  }
+  uint16_t rowFirst = 0;
+  uint16_t rowLast = 0;
+  uint16_t byteFirst = rowBytes;
+  uint16_t byteLast = 0;
+  size_t changed = 0;
+  bool any = false;
+  for (uint16_t row = 0; row < rows; ++row) {
+    const uint8_t* now = frame + static_cast<size_t>(row) * rowBytes;
+    const uint8_t* was = history_ + static_cast<size_t>(row) * rowBytes;
+    uint16_t first = rowBytes;
+    uint16_t last = 0;
+    for (uint16_t col = 0; col < rowBytes; ++col) {
+      if (now[col] == was[col]) continue;
+      if (first == rowBytes) first = col;
+      last = col;
+      ++changed;
+    }
+    if (first == rowBytes) continue;
+    if (!any) {
+      rowFirst = row;
+      any = true;
+    }
+    rowLast = row;
+    if (first < byteFirst) byteFirst = first;
+    if (last > byteLast) byteLast = last;
+  }
+  if (!any) return;  // 画面与上一次上屏完全一致，不必刷新面板。
+#if OB_DISPLAY_PARTIAL_WINDOWS
+  constexpr size_t kMaxPartialBytes = 2400;  // 超过约 30% 直接整帧推送。
+  if (changed <= kMaxPartialBytes) {
+    const uint16_t byteStart = static_cast<uint16_t>((byteFirst / 3U) * 3U);
+    uint16_t byteEnd = static_cast<uint16_t>((byteLast / 3U) * 3U + 2U);
+    if (byteEnd >= rowBytes) byteEnd = static_cast<uint16_t>(rowBytes - 1U);
+    const uint16_t rowStart = rowFirst > 0U ? static_cast<uint16_t>(rowFirst - 1U) : 0U;
+    const uint16_t rowEnd = (rowLast + 1U) < rows ? static_cast<uint16_t>(rowLast + 1U)
+                                                  : static_cast<uint16_t>(rows - 1U);
+    display_.displayByteWindow(byteStart, byteEnd, rowStart, rowEnd);
+    memcpy(history_, frame, bytes);
+    LogD("DISPLAY", "partial changed=%u rows=%u..%u bytes=%u..%u",
+         static_cast<unsigned>(changed), rowStart, rowEnd, byteStart, byteEnd);
+    return;
+  }
+#else
+  (void)changed;
+  (void)rowFirst;
+  (void)rowLast;
+  (void)byteFirst;
+  (void)byteLast;
+#endif
+  display_.display();
+  memcpy(history_, frame, bytes);
 }
 
 void DisplayMonoTft::prepareForSleepKeepDisplay() {
@@ -156,6 +248,8 @@ void DisplayMonoTft::restoreAfterSleep() {
   lastTeWaitUs_ = 0;
   lastPresentUs_ = 0;
   teSyncAnnounced_ = false;
+  // 休眠/唤醒后无法确定面板内容，下一次差异刷新退回整帧。
+  historyValid_ = false;
 }
 
 int DisplayMonoTft::width() const { return display_.getDisplayWidth(); }

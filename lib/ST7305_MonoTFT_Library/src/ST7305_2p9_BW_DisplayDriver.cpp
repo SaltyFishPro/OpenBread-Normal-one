@@ -4,6 +4,38 @@
 
 #define ABS_DIFF(x, y) (((x) > (y))? ((x) - (y)) : ((y) - (x)))
 
+namespace {
+// 一个字节打包 4 列 x 2 行：bit7..0 = (列0,行0),(列0,行1),(列1,行0),(列1,行1)...
+// 线段写入按 (列内位置, 行奇偶, 像素数) 直接查表，省掉每次构造掩码的内层循环。
+constexpr uint8_t pixelMask(uint8_t firstBit, uint8_t stride, uint8_t count) {
+    uint8_t mask = 0;
+    for (uint8_t i = 0; i < count; ++i) {
+        mask = static_cast<uint8_t>(mask | (0x80U >> (firstBit + i * stride)));
+    }
+    return mask;
+}
+
+struct LineMasks {
+    uint8_t horizontal[4][2][5] = {};  // [列内位置][行奇偶][像素数 0..4]
+    uint8_t vertical[4][2][3] = {};    // [列内位置][行奇偶][像素数 0..2]
+    constexpr LineMasks() {
+        for (uint8_t lane = 0; lane < 4; ++lane) {
+            for (uint8_t group = 0; group < 2; ++group) {
+                for (uint8_t count = 1; count <= 4; ++count) {
+                    horizontal[lane][group][count] =
+                        pixelMask(static_cast<uint8_t>(lane * 2U + group), 2, count);
+                }
+                for (uint8_t count = 1; count <= 2; ++count) {
+                    vertical[lane][group][count] =
+                        pixelMask(static_cast<uint8_t>(lane * 2U + group), 1, count);
+                }
+            }
+        }
+    }
+};
+constexpr LineMasks kLineMasks{};
+}  // namespace
+
 ST7305_2p9_BW_DisplayDriver::ST7305_2p9_BW_DisplayDriver(int dcPin, int resPin, int csPin, int sclkPin, int sdinPin, SPIClass& spi) : 
     DC_PIN(dcPin), RES_PIN(resPin), CS_PIN(csPin), SCLK_PIN(sclkPin), SDIN_PIN(sdinPin),
     LCD_WIDTH(168), LCD_HIGH(384),
@@ -131,27 +163,25 @@ void ST7305_2p9_BW_DisplayDriver::writePhysicalHLine(uint32_t py, int32_t px0, i
     }
 
     const uint32_t row = py / 2U;
-    const uint32_t group = py % 2U;
+    const uint8_t group = static_cast<uint8_t>(py % 2U);
+    uint8_t* target = display_buffer + row * static_cast<uint32_t>(LCD_DATA_WIDTH);
     int32_t x = px0;
+    uint32_t byteCol = static_cast<uint32_t>(x) / 4U;
+    uint8_t lane = static_cast<uint8_t>(x % 4U);
     while (x <= px1) {
-        const uint32_t byteCol = static_cast<uint32_t>(x) / 4U;
-        const uint32_t lane = static_cast<uint32_t>(x) % 4U;
-        int32_t count = static_cast<int32_t>(4U - lane);
+        int32_t count = 4 - static_cast<int32_t>(lane);
         if (count > (px1 - x + 1)) {
             count = px1 - x + 1;
         }
-        uint8_t mask = 0;
-        for (int32_t k = 0; k < count; ++k) {
-            const uint32_t shift = 7U - ((lane + static_cast<uint32_t>(k)) * 2U + group);
-            mask = static_cast<uint8_t>(mask | (1U << shift));
-        }
-        uint8_t& target = display_buffer[row * static_cast<uint32_t>(LCD_DATA_WIDTH) + byteCol];
+        const uint8_t mask = kLineMasks.horizontal[lane][group][count];
         if (color != 0) {
-            target = static_cast<uint8_t>(target | mask);
+            target[byteCol] = static_cast<uint8_t>(target[byteCol] | mask);
         } else {
-            target = static_cast<uint8_t>(target & static_cast<uint8_t>(~mask));
+            target[byteCol] = static_cast<uint8_t>(target[byteCol] & static_cast<uint8_t>(~mask));
         }
         x += count;
+        ++byteCol;
+        lane = 0;
     }
 }
 
@@ -177,27 +207,24 @@ void ST7305_2p9_BW_DisplayDriver::writePhysicalVLine(uint32_t px, int32_t py0, i
     }
 
     const uint32_t byteCol = px / 4U;
-    const uint32_t lane = px % 4U;
+    const uint8_t lane = static_cast<uint8_t>(px % 4U);
     int32_t y = py0;
+    uint8_t* target = display_buffer +
+        (static_cast<uint32_t>(y) / 2U) * static_cast<uint32_t>(LCD_DATA_WIDTH) + byteCol;
     while (y <= py1) {
-        const uint32_t row = static_cast<uint32_t>(y) / 2U;
-        const uint32_t group = static_cast<uint32_t>(y) % 2U;
+        const uint8_t group = static_cast<uint8_t>(y & 1U);
         int32_t count = (group == 0U) ? 2 : 1;
         if (count > (py1 - y + 1)) {
             count = py1 - y + 1;
         }
-        uint8_t mask = 0;
-        for (int32_t k = 0; k < count; ++k) {
-            const uint32_t shift = 7U - (lane * 2U + group + static_cast<uint32_t>(k));
-            mask = static_cast<uint8_t>(mask | (1U << shift));
-        }
-        uint8_t& target = display_buffer[row * static_cast<uint32_t>(LCD_DATA_WIDTH) + byteCol];
+        const uint8_t mask = kLineMasks.vertical[lane][group][count];
         if (color != 0) {
-            target = static_cast<uint8_t>(target | mask);
+            *target = static_cast<uint8_t>(*target | mask);
         } else {
-            target = static_cast<uint8_t>(target & static_cast<uint8_t>(~mask));
+            *target = static_cast<uint8_t>(*target & static_cast<uint8_t>(~mask));
         }
         y += count;
+        target += LCD_DATA_WIDTH;
     }
 }
 
@@ -286,15 +313,48 @@ void ST7305_2p9_BW_DisplayDriver::displayRegion(uint16_t x1, uint16_t y1, uint16
     // 窗口会对齐到地址单元，因此实际刷新区域可能比请求区域略大。
     const uint16_t colStartUnit = static_cast<uint16_t>((x1 / 4U) / 3U);
     const uint16_t colEndUnit = static_cast<uint16_t>((x2 / 4U) / 3U);
-    const uint16_t byteStart = static_cast<uint16_t>(colStartUnit * 3U);
-    const uint16_t byteEnd = static_cast<uint16_t>(colEndUnit * 3U + 2U);
-    const uint16_t rowStart = static_cast<uint16_t>(y1 / 2U);
-    const uint16_t rowEnd = static_cast<uint16_t>(y2 / 2U);
-    const size_t bytesPerRow = static_cast<size_t>(byteEnd - byteStart + 1U);
+    displayByteWindow(static_cast<uint16_t>(colStartUnit * 3U),
+                      static_cast<uint16_t>(colEndUnit * 3U + 2U),
+                      static_cast<uint16_t>(y1 / 2U), static_cast<uint16_t>(y2 / 2U));
+}
 
+// 按帧缓冲字节窗口刷新：列为 3 字节地址单元，行为 2 像素行单元。
+void ST7305_2p9_BW_DisplayDriver::displayByteWindow(uint16_t byteStart, uint16_t byteEnd,
+                                                    uint16_t rowStart, uint16_t rowEnd) {
+    if (byteStart > byteEnd) {
+        const uint16_t t = byteStart;
+        byteStart = byteEnd;
+        byteEnd = t;
+    }
+    if (rowStart > rowEnd) {
+        const uint16_t t = rowStart;
+        rowStart = rowEnd;
+        rowEnd = t;
+    }
+    constexpr uint16_t kDataWidth = 42;
+    constexpr uint16_t kDataRows = 192;
+    if (byteStart >= kDataWidth || rowStart >= kDataRows) {
+        return;
+    }
+    if (byteEnd >= kDataWidth) byteEnd = kDataWidth - 1;
+    if (rowEnd >= kDataRows) rowEnd = kDataRows - 1;
+
+    const uint16_t colStartUnit = static_cast<uint16_t>(byteStart / 3U);
+    const uint16_t colEndUnit = static_cast<uint16_t>(byteEnd / 3U);
+    const uint16_t firstByte = static_cast<uint16_t>(colStartUnit * 3U);
+    const uint16_t lastByte = static_cast<uint16_t>(colEndUnit * 3U + 2U);
+    const size_t bytesPerRow = static_cast<size_t>(lastByte - firstByte + 1U);
+
+    // MADCTL 的 MX 位（初始化写 0x48）会反转列地址窗口：数据仍按升序写入，
+    // 但窗口寄存器必须从列范围的另一端开始编号，否则局部刷新会画到错误的列段。
+    // 整屏窗口 0x17..0x24 对称，所以之前只在局部刷新时暴露。
+    constexpr uint16_t kColumnBase = 0x17;
+    const uint16_t lastUnit = static_cast<uint16_t>(LCD_DATA_WIDTH / 3U - 1U);
+    const uint8_t casetStart = static_cast<uint8_t>(kColumnBase + lastUnit - colEndUnit);
+    const uint8_t casetEnd = static_cast<uint8_t>(kColumnBase + lastUnit - colStartUnit);
     Write_Register(0x2A);
-    Write_Parameter(static_cast<uint8_t>(0x17U + colStartUnit));
-    Write_Parameter(static_cast<uint8_t>(0x17U + colEndUnit));
+    Write_Parameter(casetStart);
+    Write_Parameter(casetEnd);
 
     Write_Register(0x2B);
     Write_Parameter(static_cast<uint8_t>(rowStart));
@@ -307,7 +367,7 @@ void ST7305_2p9_BW_DisplayDriver::displayRegion(uint16_t x1, uint16_t y1, uint16
     for (uint16_t row = rowStart; row <= rowEnd; ++row) {
         spiRef.writeBytes(
             &display_buffer[static_cast<size_t>(row) * static_cast<size_t>(LCD_DATA_WIDTH) +
-                            byteStart],
+                            firstByte],
             bytesPerRow);
     }
     digitalWrite(CS_PIN, HIGH);

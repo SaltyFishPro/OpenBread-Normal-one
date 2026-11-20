@@ -84,7 +84,9 @@ bool drawUTF8(ST7305_2p9_BW_DisplayDriver& canvas, SdBitmapFont& font,
   // need the width then avoid a second glyph lookup pass.
   int32_t lineStart = x, widest = 0;
   uint32_t cp;
-  uint8_t row[128];  // NBFT v1 permits up to 1024 bits per row.
+  // Whole-glyph buffer: one cache lookup and one read per glyph instead of one
+  // per row. Fonts whose bitmap exceeds this stay on the per-row path.
+  uint8_t pixels[256];
   while (nextCodepoint(text, cp)) {
     if (cp == '\r') continue;
     if (cp == '\n') {
@@ -106,17 +108,16 @@ bool drawUTF8(ST7305_2p9_BW_DisplayDriver& canvas, SdBitmapFont& font,
     const int32_t firstRow = std::max<int32_t>(0, clip.y1 - top);
     const int32_t lastRow = std::min<int32_t>(glyph.height - 1, clip.y2 - top);
     if (left <= clip.x2 && left + glyph.width > clip.x1) {
+      const uint16_t stride = (glyph.width + 7U) / 8U;
+      const bool whole = glyph.length <= sizeof(pixels);
+      if (whole && !font.readGlyphBitmap(glyph, pixels, sizeof(pixels))) return false;
       for (int32_t y = firstRow; y <= lastRow; ++y) {
-        if (!font.readRow(glyph, y, row, sizeof(row))) return false;
-        int32_t runStart = -1;
-        for (uint16_t col = 0; col <= glyph.width; ++col) {
-          const bool ink = col < glyph.width && (row[col / 8U] & (0x80U >> (col % 8U)));
-          if (ink && runStart < 0) runStart = col;
-          if (!ink && runStart >= 0) {
-            line(canvas, left + runStart, left + col - 1, top + y, color, clip);
-            runStart = -1;
-          }
-        }
+        const uint8_t* bits = whole ? pixels + static_cast<size_t>(y) * stride : pixels;
+        if (!whole && !font.readRow(glyph, y, pixels, sizeof(pixels))) return false;
+        const int32_t rowY = top + y;
+        forEachInkRun(bits, glyph.width, [&](int32_t x1, int32_t x2) {
+          line(canvas, left + x1, left + x2, rowY, color, clip);
+        });
       }
     }
     penX += glyph.advance;

@@ -7,6 +7,17 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+
+namespace {
+// 诊断用微秒时钟；主机测试桩没有 micros()，返回 0 即可（只影响统计字段）。
+inline uint32_t nowUs() {
+#ifdef ARDUINO
+  return micros();
+#else
+  return 0;
+#endif
+}
+}  // namespace
 #include <cctype>
 
 namespace {
@@ -141,6 +152,10 @@ bool TxtReaderService::open(uint8_t index) {
     if (h.pathHash == current_.pathHash && h.size == size_ && h.fingerprint == fingerprint_) current_ = h;
   wanted_ = current_.page; pageCount_ = 0; indexed_ = pageReady_ = false;
   resetScan(indexScan_, first | kParagraph); resetScan(viewScan_, first | kParagraph);
+  // 计时从第一次真正分页的 tick 开始，避免把字库 CRC 等待算进分页耗时。
+  indexStartMs_ = UINT32_MAX;
+  measureUs_ = readUs_ = 0;
+  measureCalls_ = readCalls_ = ticks_ = chars_ = 0;
   state_ = State::Reading; changed_ = true;
   LogI("READER", "book opened bytes=%lu resume_page=%lu index_bytes=%u", static_cast<unsigned long>(size_),
        static_cast<unsigned long>(wanted_ + 1), static_cast<unsigned>(kMaxPages * sizeof(uint32_t)));
@@ -149,9 +164,12 @@ bool TxtReaderService::open(uint8_t index) {
 int TxtReaderService::byteAt(uint32_t offset) {
   if (offset >= size_) return -1;
   if (bufferStart_ == UINT32_MAX || offset < bufferStart_ || offset - bufferStart_ >= bufferSize_) {
+    const uint32_t started = nowUs();
+    ++readCalls_;
     if (!file_.seek(offset)) { fail("读取中断，请检查 SD 卡后重试", "seek"); return -1; }
     bufferStart_ = offset;
     bufferSize_ = file_.read(buffer_, std::min(sizeof(buffer_), static_cast<size_t>(size_ - offset)));
+    readUs_ += nowUs() - started;
     if (!bufferSize_) { fail("读取中断，请检查 SD 卡后重试", "read"); return -1; }
   }
   return buffer_[offset - bufferStart_];
@@ -159,6 +177,7 @@ int TxtReaderService::byteAt(uint32_t offset) {
 // One UTF-8 codepoint per step; callers bound work by both count and elapsed time.
 bool TxtReaderService::step(Scan& scan, Measure measure, void* context) {
   if (scan.offset >= size_) return true;
+  ++chars_;
   const uint32_t start = scan.offset;
   int first = byteAt(start); if (first < 0) return false;
   const uint8_t n = first < 0x80 ? 1 : first >= 0xC2 && first <= 0xDF ? 2 :
@@ -184,7 +203,10 @@ bool TxtReaderService::step(Scan& scan, Measure measure, void* context) {
     scan.width = 20; scan.bytes = 3; memcpy(scan.page.lines[scan.row], "　", 4);
     return scan.offset >= size_;
   }
+  const uint32_t measureStart = nowUs();
   const int16_t advance = cp == '\t' ? 20 : measure(context, cp);
+  measureUs_ += nowUs() - measureStart;
+  ++measureCalls_;
   if (advance < 0 || advance > 348) { fail("字库不可用，请返回后重试", "glyph width"); return false; }
   scan.nextIndent = false;
   if (scan.width + advance > 348 || scan.bytes + n >= sizeof(scan.page.lines[0])) {
@@ -200,8 +222,13 @@ bool TxtReaderService::step(Scan& scan, Measure measure, void* context) {
 }
 void TxtReaderService::tick(Measure measure, void* context) {
   if (state_ != State::Reading || !measure) return;
+  // 每次让出前最多处理 256 个码点；真正的上限仍是 4ms 时间预算，遇到未缓存
+  // 字形需要读卡时会提前返回，不会因为批量变大而阻塞主循环。
+  constexpr uint16_t kMaxWorkPerTick = 256;
+  if (indexStartMs_ == UINT32_MAX) indexStartMs_ = millis();
+  ++ticks_;
   const uint32_t started = millis();
-  for (uint8_t work = 0; work < 16 && state_ == State::Reading; ++work) {
+  for (uint16_t work = 0; work < kMaxWorkPerTick && state_ == State::Reading; ++work) {
     const bool viewport = !pageReady_ && wanted_ < pageCount_;
     if (indexed_ && !viewport) return;
     Scan& scan = viewport ? viewScan_ : indexScan_;
@@ -216,7 +243,16 @@ void TxtReaderService::tick(Measure measure, void* context) {
         ++pageCount_;
         if (scan.offset >= size_) {
           indexed_ = changed_ = true;
-          LogI("READER", "pagination complete pages=%lu", static_cast<unsigned long>(pageCount_));
+          LogI("READER", "pagination complete pages=%lu elapsed_ms=%lu bytes=%lu "
+                        "ticks=%lu chars=%lu measure_calls=%lu measure_ms=%lu read_calls=%lu read_ms=%lu",
+               static_cast<unsigned long>(pageCount_),
+               static_cast<unsigned long>(millis() - indexStartMs_),
+               static_cast<unsigned long>(size_),
+               static_cast<unsigned long>(ticks_), static_cast<unsigned long>(chars_),
+               static_cast<unsigned long>(measureCalls_),
+               static_cast<unsigned long>(measureUs_ / 1000U),
+               static_cast<unsigned long>(readCalls_),
+               static_cast<unsigned long>(readUs_ / 1000U));
           if (wanted_ >= pageCount_) go(pageCount_-1);
         } else resetScan(scan, scan.offset | (scan.nextIndent ? kParagraph : 0U));
       }

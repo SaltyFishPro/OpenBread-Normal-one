@@ -100,10 +100,8 @@ void UiFontCache::tick() {
       cached.width = glyph.width; cached.height = glyph.height;
       cached.xOffset = glyph.xOffset; cached.yOffset = glyph.yOffset;
       cached.advance = glyph.advance; cached.length = glyph.length;
-      const size_t stride = (glyph.width + 7U) / 8U;
-      for (uint16_t row = 0; stride && row < glyph.height; ++row) {
-        if (!source_.readRow(glyph, row, cached.bitmap + row * stride,
-                             sizeof(cached.bitmap) - row * stride)) { fail("glyph read"); return; }
+      if (!source_.readGlyphBitmap(glyph, cached.bitmap, sizeof(cached.bitmap))) {
+        fail("glyph read"); return;
       }
     } else {
       if (source_.state() != SdBitmapFont::State::Ready) { fail("glyph lookup"); return; }

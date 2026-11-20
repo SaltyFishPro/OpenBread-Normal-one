@@ -51,6 +51,8 @@ constexpr uint32_t kListFocusAnimationDurationMs = 170;
 constexpr uint32_t kPlayerTransitionDurationMs = 460;
 constexpr uint32_t kPlayerTransitionMinDurationMs = 80;
 constexpr uint32_t kAnimationFrameIntervalMs = 33;
+// 歌词换行后的滑动时长；超过这个窗口就不需要为歌词动画出帧。
+constexpr uint32_t kLyricSlideMs = 200;
 // 弹窗动画的帧间隔，比常规动画更密以保证进场/退场顺滑。
 constexpr uint32_t kPopupFrameIntervalMs = 16;
 constexpr int8_t kVolumeStep = 1;
@@ -1121,8 +1123,16 @@ bool MusicPage::renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yO
       lyricChangeMs_ = nowMs;
     }
     const uint32_t elapsed = nowMs - lyricChangeMs_;
-    const int16_t shift = lyric >= 0 && elapsed < 200U ? static_cast<int16_t>((200U - elapsed) / 10U) : 0;
+    const int16_t shift = lyric >= 0 && elapsed < kLyricSlideMs
+        ? static_cast<int16_t>((kLyricSlideMs - elapsed) / 10U) : 0;
     drawPlayerPreviewSurface(display, music, rowIndex_, nowMs, playerUiPlaying_, font, large, playerControlIndex_, shift);
+    // A shifted lyric needs one more frame to settle; with the player no longer
+    // redrawing on a fixed cadence, a pending shift would otherwise stay on screen.
+    lyricShiftPending_ = shift != 0;
+    playerFrameSecond_ = music.currentSeconds();
+    playerFrameTrack_ = music.currentTrackIndex();
+    playerFrameLyric_ = lyric;
+    playerFramePlaying_ = playerUiPlaying_;
     if (!listFocusAnimating) {
       listFocusAnimating_ = false;
     }
@@ -1199,14 +1209,24 @@ bool MusicPage::renderDetailListOnly(uint8_t homeFocus, uint8_t sectionFocus,
 }
 
 bool MusicPage::needsAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus,
-                                    uint32_t nowMs) const {
-  return isMusicListSelection(homeFocus, sectionFocus) &&
-         (selectionAnimating_ || isListFocusAnimating(nowMs) ||
-          longNameVisible_ ||
-          PopupView::isAnimating(volumePopup_.anim) ||
-          playerViewState_ == PlayerViewState::Entering ||
-          playerViewState_ == PlayerViewState::Leaving ||
-          playerViewState_ == PlayerViewState::Player);
+                                    uint32_t nowMs, const MusicService& music) const {
+  if (!isMusicListSelection(homeFocus, sectionFocus)) return false;
+  if (selectionAnimating_ || isListFocusAnimating(nowMs) || longNameVisible_ ||
+      PopupView::isAnimating(volumePopup_.anim) ||
+      playerViewState_ == PlayerViewState::Entering ||
+      playerViewState_ == PlayerViewState::Leaving) {
+    return true;
+  }
+  if (playerViewState_ != PlayerViewState::Player) return false;
+  // Steady playback used to request a frame every interval even when the page
+  // showed the same pixels. Only redraw when the visible content changes: the
+  // lyric slide window, the displayed second (time and progress), the track, or
+  // the play state. Input events still set needsRedraw_ and get a frame at once.
+  if (lyricShiftPending_ || nowMs - lyricChangeMs_ < kLyricSlideMs) return true;
+  if (music.currentSeconds() != playerFrameSecond_) return true;
+  if (music.currentTrackIndex() != playerFrameTrack_) return true;
+  if (isPlaybackActive(music) != playerFramePlaying_) return true;
+  return music.lyrics().current(music.currentSeconds() * 1000U) != playerFrameLyric_;
 }
 
 bool MusicPage::needsNavAnimationFrame(uint8_t, uint8_t, uint32_t) const { return false; }
@@ -1438,4 +1458,9 @@ void MusicPage::resetStateUnchecked() {
   longNameVisible_ = false;
   previousLyric_ = -2;
   lyricChangeMs_ = 0;
+  lyricShiftPending_ = false;
+  playerFrameSecond_ = 0xFFFFFFFFU;
+  playerFrameTrack_ = 0xFFFFFFFFU;
+  playerFrameLyric_ = -2;
+  playerFramePlaying_ = false;
 }

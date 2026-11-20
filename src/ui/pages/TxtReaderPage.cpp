@@ -18,15 +18,28 @@ bool TxtReaderPage::busy() const {
 }
 int16_t TxtReaderPage::measure(void* context, uint32_t cp) {
   auto& self = *static_cast<TxtReaderPage*>(context);
-  auto& cache = self.widths_[cp % 256];
+  auto& cache = self.widths_[cp % kWidthCacheSize];
   if (cache.cp == cp) return cache.advance;
+  // The resident subset uses the same pixel size as the body font, so measuring
+  // a book stays in PSRAM; rare characters fall back to the full font (and its
+  // SD-backed index). The subset must match the body size: 14px advances would
+  // mis-wrap 20px body text.
+  if (self.widthFont_ != nullptr &&
+      self.widthFont_->state() == SdBitmapFont::State::Ready) {
+    SdBitmapFont::Glyph subsetGlyph;
+    if (self.widthFont_->glyph(cp, subsetGlyph)) {
+      cache = {cp, subsetGlyph.advance};
+      return subsetGlyph.advance;
+    }
+  }
   SdBitmapFont::Glyph glyph;
   int16_t width = self.font_->glyph(cp, glyph) ? glyph.advance : 20;
   if (self.font_->state() != SdBitmapFont::State::Ready) return -1;
   cache = {cp, width}; return width;
 }
-bool TxtReaderPage::update(SdBitmapFont& font) {
+bool TxtReaderPage::update(SdBitmapFont& font, SdBitmapFont* widthFont) {
   font_ = &font;
+  widthFont_ = widthFont;
   if (font.state() == SdBitmapFont::State::Ready) reader_.tick(measure, this);
   return reader_.consumeChanged();
 }
@@ -71,6 +84,7 @@ bool TxtReaderPage::input(bool left, bool up, bool down, bool ok, SdCardService&
 }
 void TxtReaderPage::render(DisplayMonoTft& d, SdBitmapFont& full14, SdBitmapFont& full20,
                            SdBitmapFont& ui24) {
+  (void)full14;  // 正文与标题只用 20 号字库；14 号保持参数以兼容现有调用。
   const uint16_t fg = reader_.dark() ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK;
   const uint16_t bg = reader_.dark() ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE;
   auto& canvas = d.canvas(); auto& text = d.text();

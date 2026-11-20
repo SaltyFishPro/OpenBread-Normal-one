@@ -31,7 +31,8 @@ public:
                            DisplayMonoTft& display, uint32_t nowMs);
   bool renderDetailListOnly(uint8_t homeFocus, uint8_t sectionFocus, DisplayMonoTft& display,
                             const MusicService& music, uint32_t nowMs, SdBitmapFont* font = nullptr);
-  bool needsAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus, uint32_t nowMs) const;
+  bool needsAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus, uint32_t nowMs,
+                           const MusicService& music) const;
   bool needsNavAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus, uint32_t nowMs) const;
   bool needsListAnimationFrame(uint8_t homeFocus, uint8_t sectionFocus, uint32_t nowMs) const;
   uint32_t detailFrameIntervalMs(uint8_t homeFocus, uint8_t sectionFocus) const;
@@ -93,4 +94,11 @@ private:
   bool longNameVisible_ = false;
   int previousLyric_ = -2;
   uint32_t lyricChangeMs_ = 0;
+  // What the player frame last showed; steady playback asks for no new frame
+  // until one of these changes.
+  bool lyricShiftPending_ = false;
+  uint32_t playerFrameSecond_ = 0xFFFFFFFFU;
+  uint32_t playerFrameTrack_ = 0xFFFFFFFFU;
+  int playerFrameLyric_ = -2;
+  bool playerFramePlaying_ = false;
 };
