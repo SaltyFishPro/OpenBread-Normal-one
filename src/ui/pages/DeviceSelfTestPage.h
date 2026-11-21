@@ -9,6 +9,8 @@ class RtcTestService;
 class SdCardService;
 class ImuTestService;
 class PowerDiagnosticService;
+class AudioTestService;
+class MotorTestService;
 class PeripheralPower;
 class SdBitmapFont;
 
@@ -29,11 +31,14 @@ public:
                    const ButtonState& buttons, uint32_t nowMs, IicScanService& iicScanService,
                    RtcTestService& rtcTestService, SdCardService& sdCardService,
                    ImuTestService& imuTestService, PowerDiagnosticService& powerDiagnosticService,
-                   PeripheralPower& peripheralPower, SdBitmapFont& font);
+                   AudioTestService& audioTestService, MotorTestService& motorTestService,
+                   PeripheralPower& peripheralPower, SdBitmapFont& font, bool musicBusy);
   void render(DisplayMonoTft& display, int16_t yOffset, uint32_t nowMs,
               const IicScanService& iicScanService, const RtcTestService& rtcTestService,
               const SdCardService& sdCardService, const ImuTestService& imuTestService,
-              const PowerDiagnosticService& powerDiagnosticService, SdBitmapFont& font);
+              const PowerDiagnosticService& powerDiagnosticService,
+              const AudioTestService& audioTestService, const MotorTestService& motorTestService,
+              SdBitmapFont& font);
   bool needsAnimationFrame() const;
 
 private:
@@ -44,7 +49,7 @@ private:
     ScreenConfirm,
     ButtonTest,
     IicTest,
-    RtcTest, SdTest, ImuTest, PowerTest, FontTest
+    RtcTest, SdTest, ImuTest, PowerTest, AudioTest, MotorTest, FontTest
   };
 
   enum class ScreenResult : uint8_t {
@@ -65,6 +70,10 @@ private:
   void renderSdTest(DisplayMonoTft&,int16_t,const SdCardService&)const;
   void renderImuTest(DisplayMonoTft&,int16_t,const ImuTestService&)const;
   void renderPowerTest(DisplayMonoTft&, int16_t, const PowerDiagnosticService&) const;
+  void renderAudioTest(DisplayMonoTft& display, int16_t yOffset,
+                       const AudioTestService& audioTestService) const;
+  void renderMotorTest(DisplayMonoTft& display, int16_t yOffset,
+                       const MotorTestService& motorTestService) const;
   void selectScreenPattern(uint8_t patternIndex);
   uint8_t buttonMask(const ButtonState& buttons) const;
   bool updateButtonTest(const ButtonState& buttons);

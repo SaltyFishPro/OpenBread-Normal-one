@@ -6,8 +6,6 @@
 #include "../log/Log.h"
 
 namespace {
-constexpr uint32_t kAudioLdoSettleMs = 100;
-
 void setOutput(int pin, int level) {
   if (pin < 0) {
     return;
@@ -26,6 +24,46 @@ bool DacDriver::begin() {
   powered_ = false;
   muted_ = true;
   speakerEnabled_ = false;
+  powerSettling_ = false;
+  powerOnMs_ = 0;
+  return true;
+}
+
+bool DacDriver::startPowerOn(uint32_t nowMs) {
+  if (!initialized_ && !begin()) {
+    return false;
+  }
+  if (powered_) {
+    return true;
+  }
+
+  setOutput(BoardConfig::kPinAudioLdoEn, HIGH);
+  powered_ = true;
+  powerSettling_ = true;
+  powerOnMs_ = nowMs;
+  LogI("AUDIO", "power ldo=1 settle_ms=%lu xsmt=0", static_cast<unsigned long>(kPowerSettleMs));
+  return true;
+}
+
+bool DacDriver::powerSettled(uint32_t nowMs) const {
+  if (!powered_) {
+    return false;
+  }
+  if (!powerSettling_) {
+    return true;
+  }
+  return static_cast<int32_t>(nowMs - powerOnMs_) >= static_cast<int32_t>(kPowerSettleMs);
+}
+
+bool DacDriver::finishPowerOn() {
+  if (!powered_) {
+    return false;
+  }
+
+  powerSettling_ = false;
+  setMuted(false);
+  updateOutputRoute(true);
+  LogI("AUDIO", "power on ldo=1 xsmt=1");
   return true;
 }
 
@@ -36,8 +74,9 @@ bool DacDriver::powerOn() {
 
   if (!powered_) {
     setOutput(BoardConfig::kPinAudioLdoEn, HIGH);
-    delay(kAudioLdoSettleMs);
+    delay(kPowerSettleMs);
     powered_ = true;
+    powerSettling_ = false;
   }
 
   setMuted(false);
@@ -56,6 +95,8 @@ void DacDriver::powerOff() {
   setOutput(BoardConfig::kPinAudioLdoEn, LOW);
   powered_ = false;
   speakerEnabled_ = false;
+  powerSettling_ = false;
+  powerOnMs_ = 0;
   LogI("AUDIO", "power off ldo=0 xsmt=0 ns=0");
 }
 

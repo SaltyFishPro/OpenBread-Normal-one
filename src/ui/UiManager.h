@@ -3,13 +3,14 @@
 #include <Arduino.h>
 
 #include "../bsp/DisplayMonoTft.h"
-#include "../bsp/MotorDriver.h"
 #include "../bsp/PeripheralPower.h"
 #include "../bsp/RtcDriver.h"
 #include "../bsp/SdUsbSwitch.h"
 #include "../services/BluetoothService.h"
 #include "../services/IicScanService.h"
 #include "../services/ImuTestService.h"
+#include "../services/AudioTestService.h"
+#include "../services/MotorTestService.h"
 #include "../services/MusicService.h"
 #include "../services/OtaService.h"
 #include "../services/PowerDiagnosticService.h"
@@ -124,7 +125,6 @@ private:
   int16_t easeOutCubic(int16_t from, int16_t to, float t) const;
 
   DisplayMonoTft display_;
-  MotorDriver motorDriver_;
   PeripheralPower peripheralPower_;
   SdUsbSwitch sdUsbSwitch_;
   Render1bpp renderer_;
@@ -168,6 +168,8 @@ private:
   IicScanService iicScanService_;
   RtcTestService rtcTestService_;
   ImuTestService imuTestService_;
+  AudioTestService audioTestService_;
+  MotorTestService motorTestService_;
   ReaderService readerService_;
   ComputerStatusProtocol computerStatusProtocol_;
   RtcDriver rtcDriver_;

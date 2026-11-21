@@ -1,5 +1,7 @@
 # 主菜单预览
 
+[device_self_test_current_mock.html](device_self_test_current_mock.html) 模拟现有设备自检列表和已实现测试页面，包含屏幕的八个图案、按键、IIC、RTC、SD、音频、马达、IMU、电源及字库测试，可切换正常、测试中和异常示例。快速自检和无线测试只显示现有列表入口。屏幕为 384×168，浏览器字体和模拟数据不代表实机字形及硬件状态。
+
 [txt_reader_cover_mock.html](txt_reader_cover_mock.html) 为 TXT 阅读方案二：横向三本纸质书封，焦点反色，正文居中书名、页码和简洁分页标记。按键、试读导入和异常场景与方案一一致，两个文件独立保留。
 
 [txt_reader_mock.html](txt_reader_mock.html) 是独立的 TXT 阅读交互预览，包含三行书架、阅读正文、书签、进度跳转、反色显示和缺卡/空目录/创建失败场景。首次进入模拟创建 `/Books`；网页不实际写入 SD 卡。支持本地选择 UTF-8 TXT 试读（最大 2 MB，仅当前标签页内存保留），方向键上下、Left 和 Enter 模拟设备按键。设备画面为 384×168，文字使用 14/20/24px；系统字体仅示意，未接入固件。

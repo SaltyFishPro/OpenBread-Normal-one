@@ -12,6 +12,8 @@
 #include "../../services/SdBitmapFont.h"
 #include "../../services/ImuTestService.h"
 #include "../../services/PowerDiagnosticService.h"
+#include "../../services/AudioTestService.h"
+#include "../../services/MotorTestService.h"
 #include "../../bsp/PeripheralPower.h"
 
 namespace {
@@ -33,6 +35,8 @@ constexpr uint8_t kButtonTestItemIndex = 2;
 constexpr uint8_t kIicTestItemIndex = 3;
 constexpr uint8_t kRtcTestItemIndex = 4;
 constexpr uint8_t kSdTestItemIndex = 5;
+constexpr uint8_t kAudioTestItemIndex = 6;
+constexpr uint8_t kMotorTestItemIndex = 7;
 constexpr uint8_t kImuTestItemIndex = 8;
 constexpr uint8_t kPowerTestItemIndex = 10;
 constexpr uint8_t kFontTestItemIndex = 11;
@@ -97,7 +101,10 @@ bool DeviceSelfTestPage::handleInput(bool leftEdge, bool leftLongEdge, bool upEd
                                      RtcTestService& rtcTestService, SdCardService& sdCardService,
                                      ImuTestService& imuTestService,
                                      PowerDiagnosticService& powerDiagnosticService,
-                                     PeripheralPower& peripheralPower, SdBitmapFont& font) {
+                                     AudioTestService& audioTestService,
+                                     MotorTestService& motorTestService,
+                                     PeripheralPower& peripheralPower, SdBitmapFont& font,
+                                     bool musicBusy) {
   if (view_ == View::FontTest) {
     if (leftEdge || leftLongEdge) {
       font.end();
@@ -181,6 +188,56 @@ bool DeviceSelfTestPage::handleInput(bool leftEdge, bool leftLongEdge, bool upEd
     if (okEdge) {
       (void)powerDiagnosticService.run(peripheralPower);
       return true;
+    }
+    return false;
+  }
+
+  if (view_ == View::AudioTest) {
+    if (leftEdge || leftLongEdge) {
+      audioTestService.cancel();
+      view_ = View::List;
+      return true;
+    }
+    if (upEdge || downEdge) {
+      if (audioTestService.state() == AudioTestService::State::WaitingConfirm) {
+        audioTestService.toggleChoice();
+        return true;
+      }
+      return false;
+    }
+    if (okEdge) {
+      if (audioTestService.state() == AudioTestService::State::WaitingConfirm) {
+        return audioTestService.confirm(nowMs);
+      }
+      if (!audioTestService.isActive()) {
+        const bool started = audioTestService.start(nowMs, peripheralPower, musicBusy);
+        return started || audioTestService.error() != AudioTestService::Error::None;
+      }
+    }
+    return false;
+  }
+
+  if (view_ == View::MotorTest) {
+    if (leftEdge || leftLongEdge) {
+      motorTestService.cancel();
+      view_ = View::List;
+      return true;
+    }
+    if (upEdge || downEdge) {
+      if (motorTestService.state() == MotorTestService::State::WaitingConfirm) {
+        motorTestService.toggleChoice();
+        return true;
+      }
+      return false;
+    }
+    if (okEdge) {
+      if (motorTestService.state() == MotorTestService::State::WaitingConfirm) {
+        return motorTestService.confirm(nowMs);
+      }
+      if (!motorTestService.isActive()) {
+        const bool started = motorTestService.start(nowMs);
+        return started || motorTestService.error() != MotorTestService::Error::None;
+      }
     }
     return false;
   }
@@ -273,6 +330,14 @@ bool DeviceSelfTestPage::handleInput(bool leftEdge, bool leftLongEdge, bool upEd
     return true;
   }
   if(okEdge&&focusIndex_==kSdTestItemIndex){view_=View::SdTest;sdCardService.refresh();return true;}
+  if (okEdge && focusIndex_ == kAudioTestItemIndex) {
+    view_ = View::AudioTest;
+    return true;
+  }
+  if (okEdge && focusIndex_ == kMotorTestItemIndex) {
+    view_ = View::MotorTest;
+    return true;
+  }
   if (okEdge && focusIndex_ == kImuTestItemIndex) {
     view_ = View::ImuTest;
     imuPageIndex_ = 0;
@@ -297,7 +362,9 @@ void DeviceSelfTestPage::render(DisplayMonoTft& display, int16_t yOffset, uint32
                                 const IicScanService& iicScanService,
                                 const RtcTestService& rtcTestService,const SdCardService& sdCardService,
                                 const ImuTestService& imuTestService,
-                                const PowerDiagnosticService& powerDiagnosticService, SdBitmapFont& font) {
+                                const PowerDiagnosticService& powerDiagnosticService,
+                                const AudioTestService& audioTestService,
+                                const MotorTestService& motorTestService, SdBitmapFont& font) {
   if (view_ == View::FontTest) {
     fontTestPage_.render(display, yOffset, font);
     return;
@@ -329,6 +396,8 @@ void DeviceSelfTestPage::render(DisplayMonoTft& display, int16_t yOffset, uint32
   if(view_==View::SdTest){renderSdTest(display,yOffset,sdCardService);return;}
   if(view_==View::ImuTest){renderImuTest(display,yOffset,imuTestService);return;}
   if(view_==View::PowerTest){renderPowerTest(display,yOffset,powerDiagnosticService);return;}
+  if(view_==View::AudioTest){renderAudioTest(display,yOffset,audioTestService);return;}
+  if(view_==View::MotorTest){renderMotorTest(display,yOffset,motorTestService);return;}
   renderList(display, yOffset);
 }
 
@@ -1048,4 +1117,243 @@ void DeviceSelfTestPage::renderPowerTest(DisplayMonoTft& display, int16_t yOffse
            service.sensorLdoEnabled() ? "开启" : "关闭");
   text.drawUTF8(16, yOffset + 132, line);
   text.drawUTF8(16, yOffset + 159, "Up/Down翻页  2/2  OK重测  Left返回");
+}
+
+void DeviceSelfTestPage::renderAudioTest(DisplayMonoTft& display, int16_t yOffset,
+                                         const AudioTestService& service) const {
+  auto& canvas = display.canvas();
+  auto& text = display.text();
+  const int16_t width = static_cast<int16_t>(display.width());
+  const int16_t height = static_cast<int16_t>(display.height());
+
+  canvas.drawFilledRectangle(0, yOffset, width - 1, yOffset + height - 1, ST7305_COLOR_WHITE);
+  canvas.drawFilledRectangle(0, yOffset, width - 1, yOffset + kHeaderHeight - 1,
+                             ST7305_COLOR_BLACK);
+  text.setFont(u8g2_font_7x14_tf);
+  text.setFontMode(0);
+  text.setBackgroundColor(ST7305_COLOR_BLACK);
+  text.setForegroundColor(ST7305_COLOR_WHITE);
+  text.drawUTF8(TextUtils::centeredTextXInBox(text, "音频测试", 0, width), yOffset + 22,
+                "音频测试");
+
+  text.setFontMode(1);
+  text.setBackgroundColor(ST7305_COLOR_WHITE);
+  text.setForegroundColor(ST7305_COLOR_BLACK);
+
+  const char* status = "按OK播放1kHz提示音";
+  switch (service.state()) {
+    case AudioTestService::State::Powering:
+      status = "正在开启音频...";
+      break;
+    case AudioTestService::State::Playing:
+      status = "正在播放提示音...";
+      break;
+    case AudioTestService::State::WaitingConfirm:
+      status = "提示音已播放";
+      break;
+    case AudioTestService::State::Passed:
+      status = "测试通过：已确认听到";
+      break;
+    case AudioTestService::State::Failed:
+      switch (service.error()) {
+        case AudioTestService::Error::MusicBusy:
+          status = "音乐播放中，请先退出";
+          break;
+        case AudioTestService::Error::DacPower:
+          status = "音频供电或静音控制失败";
+          break;
+        case AudioTestService::Error::ToneInit:
+          status = "音频硬件初始化失败";
+          break;
+        case AudioTestService::Error::ToneWrite:
+          status = "音频数据写入失败";
+          break;
+        case AudioTestService::Error::NotHeard:
+          status = "未确认听到提示音";
+          break;
+        case AudioTestService::Error::Timeout:
+          status = "测试超时";
+          break;
+        default:
+          status = "测试失败";
+          break;
+      }
+      break;
+    default:
+      break;
+  }
+  text.drawUTF8(18, yOffset + 55, status);
+
+  text.drawUTF8(18, yOffset + 82,
+                service.headphonesInserted() ? "输出：耳机已插入" : "输出：扬声器");
+
+  const bool waiting = service.state() == AudioTestService::State::WaitingConfirm;
+  if (!waiting) {
+    text.drawUTF8(18, yOffset + 109, "提示音：1kHz  500ms  固定低音量");
+    if (service.state() == AudioTestService::State::Passed ||
+        service.state() == AudioTestService::State::Failed) {
+      char durationText[32];
+      const uint32_t durationMs = service.lastDurationMs();
+      snprintf(durationText, sizeof(durationText), "用时：%lu.%01lu 秒",
+               static_cast<unsigned long>(durationMs / 1000U),
+               static_cast<unsigned long>((durationMs % 1000U) / 100U));
+      text.drawUTF8(18, yOffset + 136, durationText);
+    }
+  } else {
+    text.drawUTF8(18, yOffset + 109, "听到提示音了吗？");
+
+    constexpr int16_t kOptionWidth = 96;
+    constexpr int16_t kOptionGap = 32;
+    constexpr int16_t kOptionTop = 120;
+    constexpr int16_t kOptionBottom = 144;
+    const int16_t leftX = static_cast<int16_t>((width - kOptionWidth * 2 - kOptionGap) / 2);
+    const int16_t rightX = static_cast<int16_t>(leftX + kOptionWidth + kOptionGap);
+    const int16_t selectedX = service.heardSelected() ? leftX : rightX;
+    canvas.drawFilledRectangle(selectedX, yOffset + kOptionTop,
+                               static_cast<int16_t>(selectedX + kOptionWidth - 1),
+                               yOffset + kOptionBottom, ST7305_COLOR_BLACK);
+    const char* labels[2] = {"是", "否"};
+    const int16_t positions[2] = {leftX, rightX};
+    for (uint8_t index = 0; index < 2; ++index) {
+      const bool selected = (index == 0) == service.heardSelected();
+      text.setFontMode(selected ? 0 : 1);
+      text.setBackgroundColor(selected ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE);
+      text.setForegroundColor(selected ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK);
+      text.drawUTF8(TextUtils::centeredTextXInBox(text, labels[index], positions[index],
+                                                  kOptionWidth),
+                    yOffset + 138, labels[index]);
+    }
+    text.setFontMode(1);
+    text.setBackgroundColor(ST7305_COLOR_WHITE);
+    text.setForegroundColor(ST7305_COLOR_BLACK);
+  }
+
+  const char* footer = "Left返回  OK播放";
+  if (service.state() == AudioTestService::State::Powering ||
+      service.state() == AudioTestService::State::Playing) {
+    footer = "Left停止并返回";
+  } else if (waiting) {
+    footer = "Up/Down选择  OK确认";
+  } else if (service.state() == AudioTestService::State::Passed ||
+             service.state() == AudioTestService::State::Failed) {
+    footer = "Left返回  OK重测";
+  }
+  text.drawUTF8(18, yOffset + height - 9, footer);
+}
+
+void DeviceSelfTestPage::renderMotorTest(DisplayMonoTft& display, int16_t yOffset,
+                                         const MotorTestService& service) const {
+  auto& canvas = display.canvas();
+  auto& text = display.text();
+  const int16_t width = static_cast<int16_t>(display.width());
+  const int16_t height = static_cast<int16_t>(display.height());
+
+  canvas.drawFilledRectangle(0, yOffset, width - 1, yOffset + height - 1, ST7305_COLOR_WHITE);
+  canvas.drawFilledRectangle(0, yOffset, width - 1, yOffset + kHeaderHeight - 1,
+                             ST7305_COLOR_BLACK);
+  text.setFont(u8g2_font_7x14_tf);
+  text.setFontMode(0);
+  text.setBackgroundColor(ST7305_COLOR_BLACK);
+  text.setForegroundColor(ST7305_COLOR_WHITE);
+  text.drawUTF8(TextUtils::centeredTextXInBox(text, "马达测试", 0, width), yOffset + 22,
+                "马达测试");
+
+  text.setFontMode(1);
+  text.setBackgroundColor(ST7305_COLOR_WHITE);
+  text.setForegroundColor(ST7305_COLOR_BLACK);
+
+  const char* status = "按OK执行一次短振动";
+  switch (service.state()) {
+    case MotorTestService::State::Pulsing:
+      status = "正在振动...";
+      break;
+    case MotorTestService::State::WaitingConfirm:
+      status = "振动已结束";
+      break;
+    case MotorTestService::State::Passed:
+      status = "测试通过：已确认振动";
+      break;
+    case MotorTestService::State::Failed:
+      switch (service.error()) {
+        case MotorTestService::Error::StartFailed:
+          status = "马达驱动启动失败";
+          break;
+        case MotorTestService::Error::NotFelt:
+          status = "未确认感觉到振动";
+          break;
+        case MotorTestService::Error::Timeout:
+          status = "测试超时";
+          break;
+        case MotorTestService::Error::ChipNoResponse:
+          status = "马达芯片无响应 0x5A";
+          break;
+        case MotorTestService::Error::ChipConfig:
+          status = "马达芯片配置失败";
+          break;
+        default:
+          status = "测试失败";
+          break;
+      }
+      break;
+    default:
+      break;
+  }
+  text.drawUTF8(18, yOffset + 55, status);
+
+  char infoText[48];
+  snprintf(infoText, sizeof(infoText), "时长：%ums  最长%ums",
+           static_cast<unsigned>(MotorTestService::kPulseMs),
+           static_cast<unsigned>(MotorDriver::kMaxPulseMs));
+  text.drawUTF8(18, yOffset + 82, infoText);
+
+  const bool waiting = service.state() == MotorTestService::State::WaitingConfirm;
+  if (!waiting) {
+    text.drawUTF8(18, yOffset + 109, "驱动：DRV2605L  0x5A");
+    if ((service.state() == MotorTestService::State::Passed ||
+         service.state() == MotorTestService::State::Failed) &&
+        service.lastPulseMs() > 0U) {
+      char pulseText[32];
+      snprintf(pulseText, sizeof(pulseText), "振动：%lu ms",
+               static_cast<unsigned long>(service.lastPulseMs()));
+      text.drawUTF8(18, yOffset + 136, pulseText);
+    }
+  } else {
+    text.drawUTF8(18, yOffset + 109, "感觉到振动了吗？");
+
+    constexpr int16_t kOptionWidth = 96;
+    constexpr int16_t kOptionGap = 32;
+    constexpr int16_t kOptionTop = 120;
+    constexpr int16_t kOptionBottom = 144;
+    const int16_t leftX = static_cast<int16_t>((width - kOptionWidth * 2 - kOptionGap) / 2);
+    const int16_t rightX = static_cast<int16_t>(leftX + kOptionWidth + kOptionGap);
+    const int16_t selectedX = service.feltSelected() ? leftX : rightX;
+    canvas.drawFilledRectangle(selectedX, yOffset + kOptionTop,
+                               static_cast<int16_t>(selectedX + kOptionWidth - 1),
+                               yOffset + kOptionBottom, ST7305_COLOR_BLACK);
+    const char* labels[2] = {"是", "否"};
+    const int16_t positions[2] = {leftX, rightX};
+    for (uint8_t index = 0; index < 2; ++index) {
+      const bool selected = (index == 0) == service.feltSelected();
+      text.setFontMode(selected ? 0 : 1);
+      text.setBackgroundColor(selected ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE);
+      text.setForegroundColor(selected ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK);
+      text.drawUTF8(TextUtils::centeredTextXInBox(text, labels[index], positions[index],
+                                                  kOptionWidth),
+                    yOffset + 138, labels[index]);
+    }
+    text.setFontMode(1);
+    text.setBackgroundColor(ST7305_COLOR_WHITE);
+    text.setForegroundColor(ST7305_COLOR_BLACK);
+  }
+
+  const char* footer = "Left返回  OK振动";
+  if (service.state() == MotorTestService::State::Pulsing) {
+    footer = "Left立即停止";
+  } else if (waiting) {
+    footer = "Up/Down选择  OK确认";
+  } else if (service.state() == MotorTestService::State::Passed ||
+             service.state() == MotorTestService::State::Failed) {
+    footer = "Left返回  OK重测";
+  }
+  text.drawUTF8(18, yOffset + height - 9, footer);
 }

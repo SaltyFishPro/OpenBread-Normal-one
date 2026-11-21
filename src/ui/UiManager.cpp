@@ -95,9 +95,8 @@ bool UiManager::begin() {
   if (!peripheralPower_.begin()) {
     return false;
   }
-  if (!motorDriver_.begin()) {
-    return false;
-  }
+  // 尽早拉低马达 EN，避免驱动使能脚在开机初始化期间悬空。
+  (void)motorTestService_.begin();
   if (!renderer_.begin()) {
     return false;
   }
@@ -136,6 +135,7 @@ bool UiManager::begin() {
     // Keep booting even when RTC is unavailable; UI will show time as invalid.
   }
   (void)imuTestService_.begin();
+  (void)audioTestService_.begin();
 
   initDeviceInfoCache();
   syncHomeClockFromTimeService();
@@ -196,7 +196,16 @@ void UiManager::tick() {
   }
   imuTestService_.tick(nowMs);
   if (imuTestService_.consumeChanged()) needsRedraw_ = true;
-  if (!iicScanService_.isBusy() && !rtcTestService_.isBusy() && !imuTestService_.isBusy()) {
+  if (state_ == UiState::Home || state_ == UiState::ToHomeTransition) {
+    audioTestService_.cancel();
+    motorTestService_.cancel();
+  }
+  audioTestService_.tick(nowMs);
+  if (audioTestService_.consumeChanged()) needsRedraw_ = true;
+  motorTestService_.tick(nowMs);
+  if (motorTestService_.consumeChanged()) needsRedraw_ = true;
+  if (!iicScanService_.isBusy() && !rtcTestService_.isBusy() && !imuTestService_.isBusy() &&
+      !motorTestService_.isActive()) {
     timeService_.tick(nowMs);
   }
   syncHomeClockFromTimeService();
@@ -560,7 +569,9 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
           deviceSelfTestPage_.handleInput(edges.left, edges.leftLong, edges.up, edges.down,
                                           edges.ok, selfTestButtons, nowMs, iicScanService_,
                                           rtcTestService_, sdCardService_, imuTestService_,
-                                          powerDiagnosticService_, peripheralPower_, sdBitmapFont_)) {
+                                          powerDiagnosticService_, audioTestService_,
+                                          motorTestService_, peripheralPower_, sdBitmapFont_,
+                                          musicService_.isBusy())) {
         needsRedraw_ = true;
       } else if (gamesPage_.is2048Selection(homePage_.focusIndex(), sectionFocusIndex_)) {
         // Short Left is reported on release; a long press exits without moving tiles.
@@ -898,6 +909,7 @@ uint32_t UiManager::nextIdleDelayMs(uint32_t nowMs) const {
       otaService_.isBusy() ||
       bluetoothService_.isRadioActive() ||
       iicScanService_.isBusy() || rtcTestService_.isBusy() || imuTestService_.isBusy() ||
+      audioTestService_.isActive() || motorTestService_.isActive() ||
       sdBitmapFont_.state() == SdBitmapFont::State::Checking ||
       sdTitleFont_.state() == SdBitmapFont::State::Checking ||
       residentFontsLoading() ||
@@ -920,6 +932,7 @@ void UiManager::updateCpuClock(uint32_t nowMs) {
                                TimeService::SyncState::Syncing;
   const bool selfTestActive =
       iicScanService_.isBusy() || rtcTestService_.isBusy() || imuTestService_.isBusy() ||
+      audioTestService_.isActive() ||
       sdBitmapFont_.state() == SdBitmapFont::State::Checking ||
       sdTitleFont_.state() == SdBitmapFont::State::Checking ||
       residentFontsLoading() ||
@@ -1242,7 +1255,8 @@ void UiManager::renderDetail(int16_t yOffset) {
     handled = true;
   } else if (settingsPage_.isDeviceSelfTestSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
     deviceSelfTestPage_.render(display_, yOffset, millis(), iicScanService_, rtcTestService_,
-                               sdCardService_, imuTestService_, powerDiagnosticService_, sdBitmapFont_);
+                               sdCardService_, imuTestService_, powerDiagnosticService_,
+                               audioTestService_, motorTestService_, sdBitmapFont_);
     handled = true;
   } else if (gamesPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_)) {
     handled = true;
