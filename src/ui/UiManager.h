@@ -27,6 +27,7 @@
 #include "pages/TimeCalibrationPage.h"
 #include "pages/DeviceSelfTestPage.h"
 #include "pages/AnswersBookPage.h"
+#include "pages/DailyFortunePage.h"
 #include "pages/ComputerStatusPage.h"
 #include "pages/SdUsbPage.h"
 #include "pages/FocusClockPage.h"
@@ -104,7 +105,7 @@ private:
   void performFactoryReset();
   void initDeviceInfoCache();
   void renderDetail(int16_t yOffset = 0);
-  enum class ContentFontUse : uint8_t { None, Answers, Update, Reader, External, Timer, Wifi, About, Txt };
+  enum class ContentFontUse : uint8_t { None, Answers, Update, Reader, External, Timer, Wifi, About, Txt, Fortune };
   void syncContentFonts();
   void closeContentFonts();
   void syncUiFont();
@@ -136,6 +137,7 @@ private:
   TimeCalibrationPage timeCalibrationPage_;
   DeviceSelfTestPage deviceSelfTestPage_;
   AnswersBookPage answersBookPage_;
+  DailyFortunePage dailyFortunePage_;
   ComputerStatusPage computerStatusPage_;
   SdUsbPage sdUsbPage_;
   FocusClockPage focusClockPage_;
@@ -162,6 +164,7 @@ private:
   bool ui20Attempted_ = false, ui24Attempted_ = false;
   UiFontCache uiFont_;
   bool uiFontAttempted_ = false;
+  uint32_t sleepUiSnapshotEpoch_ = 0;
   uint32_t uiFontLoadStartMs_ = 0;
   ContentFontUse contentFontUse_ = ContentFontUse::None;
   MusicService musicService_;

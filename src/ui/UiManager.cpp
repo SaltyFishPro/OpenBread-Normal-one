@@ -13,6 +13,7 @@
 #include "ThemeMono.h"
 #include "SdUiText.h"
 #include "../services/SdCardService.h"
+#include "../bsp/SdCardSession.h"
 
 namespace {
 // 局部刷新：音乐导航栏/列表动画只把脏区域推送到屏幕，降低 SPI 传输量。
@@ -263,6 +264,8 @@ void UiManager::tick() {
   if (answersBookPage_.update(nowMs)) {
     needsRedraw_ = true;
   }
+  if (state_ == UiState::Detail && DailyFortunePage::selected(homePage_.focusIndex(), sectionFocusIndex_) &&
+      dailyFortunePage_.update(nowMs, timeService_.snapshot())) needsRedraw_ = true;
   musicService_.tick(nowMs);
   if (musicService_.consumeChanged() && !staticReaderDetail) {
     needsRedraw_ = true;
@@ -436,6 +439,8 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
         focusClockPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_);
         timerPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_);
         answersBookPage_.handleDetailEnter(homePage_.focusIndex(), sectionFocusIndex_);
+        if (DailyFortunePage::selected(homePage_.focusIndex(), sectionFocusIndex_))
+          dailyFortunePage_.enter(timeService_.snapshot());
         if (settingsPage_.isAboutDeviceSelection(homePage_.focusIndex(), sectionFocusIndex_))
           refreshSdStatus();
         if (settingsPage_.isDeviceSelfTestSelection(homePage_.focusIndex(), sectionFocusIndex_))
@@ -485,11 +490,35 @@ void UiManager::updateState(const InputEdges& edges, uint32_t nowMs) {
     }
 
     case UiState::Detail: {
+      if (DailyFortunePage::selected(homePage_.focusIndex(), sectionFocusIndex_)) {
+        if (edges.left || edges.leftLong) {
+          if (!dailyFortunePage_.back()) { state_ = UiState::ToHomeTransition; transitionStartMs_ = nowMs; }
+          needsRedraw_ = true;
+        } else if (edges.up || edges.down || edges.ok) {
+          dailyFortunePage_.input(edges.up, edges.down, edges.ok, nowMs, timeService_.snapshot());
+          needsRedraw_ = true;
+        }
+        break;
+      }
       if (TxtReaderPage::selected(homePage_.focusIndex(), sectionFocusIndex_)) {
-        if (edges.left || edges.leftLong || edges.up || edges.down || edges.ok) {
+        if (edges.left || edges.leftLong || edges.right || edges.up || edges.down || edges.ok) {
+          const bool shelfFontPending = txtReaderPage_.isShelf() &&
+              (sdTitleFont_.state() != SdBitmapFont::State::Ready ||
+               ui24Font_.state() != SdBitmapFont::State::Ready);
+          if (shelfFontPending && !edges.left && !edges.leftLong) {
+            const bool failed = sdTitleFont_.state() == SdBitmapFont::State::Error ||
+                                ui24Font_.state() == SdBitmapFont::State::Error;
+            if (edges.ok && failed) {
+              closeContentFonts();
+              ui24Font_.end();
+              txtReaderPage_.enter(sdCardService_);
+            }
+            needsRedraw_ = true;
+            break;
+          }
           if (edges.ok && txtReaderPage_.needsScan()) closeContentFonts();
           if (!txtReaderPage_.input(edges.left || edges.leftLong, edges.up, edges.down, edges.ok,
-                                    sdCardService_)) {
+                                    sdCardService_, edges.right)) {
             state_ = UiState::ToHomeTransition;
             transitionStartMs_ = nowMs;
           }
@@ -808,6 +837,8 @@ bool UiManager::animationPending(uint32_t nowMs) const {
       answersBookPage_.needsAnimationFrame(homePage_.focusIndex(), sectionFocusIndex_)) {
     return true;
   }
+  if (state_ == UiState::Detail && DailyFortunePage::selected(homePage_.focusIndex(), sectionFocusIndex_) &&
+      dailyFortunePage_.animating()) return true;
 
   if (isComputerStatusDetail() && !computerStatusFrameVisible_ &&
       computerStatusPage_.needsAnimationFrame(nowMs, HomePage::computerStatusIcon())) {
@@ -861,6 +892,8 @@ uint32_t UiManager::targetFrameIntervalMs(uint32_t nowMs) const {
       answersBookPage_.isAnimating(homePage_.focusIndex(), sectionFocusIndex_)) {
     return kHighFrameIntervalMs;
   }
+  if (state_ == UiState::Detail && DailyFortunePage::selected(homePage_.focusIndex(), sectionFocusIndex_) &&
+      dailyFortunePage_.animating()) return kTransitionFrameIntervalMs;
 
   if (isComputerStatusDetail() && !computerStatusFrameVisible_ &&
       computerStatusPage_.needsAnimationFrame(nowMs, HomePage::computerStatusIcon())) {
@@ -1086,7 +1119,8 @@ void UiManager::render(uint32_t nowMs) {
                           powerDiagnosticService_.state() != PowerDiagnosticService::State::Failed);
   } else if (state_ == UiState::Home) {
     homePage_.render(display_, 0, nowMs);
-  } else if (TxtReaderPage::selected(homePage_.focusIndex(), sectionFocusIndex_) &&
+  } else if ((TxtReaderPage::selected(homePage_.focusIndex(), sectionFocusIndex_) ||
+              DailyFortunePage::selected(homePage_.focusIndex(), sectionFocusIndex_)) &&
              (state_ == UiState::ToDetailTransition || state_ == UiState::ToHomeTransition)) {
     // The TXT page is initialized after entry and released before exit. Keep
     // the home frame visible rather than rendering uninitialized/closed state.
@@ -1256,7 +1290,7 @@ void UiManager::renderDetail(int16_t yOffset) {
   } else if (settingsPage_.isDeviceSelfTestSelection(homePage_.focusIndex(), sectionFocusIndex_)) {
     deviceSelfTestPage_.render(display_, yOffset, millis(), iicScanService_, rtcTestService_,
                                sdCardService_, imuTestService_, powerDiagnosticService_,
-                               audioTestService_, motorTestService_, sdBitmapFont_);
+                               audioTestService_, motorTestService_, sdBitmapFont_, &ui20Font_);
     handled = true;
   } else if (gamesPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_)) {
     handled = true;
@@ -1266,6 +1300,9 @@ void UiManager::renderDetail(int16_t yOffset) {
   } else if (timerPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset,
                                      display_, millis(), &ui24Font_)) {
     handled = true;
+  } else if (DailyFortunePage::selected(homePage_.focusIndex(), sectionFocusIndex_)) {
+    dailyFortunePage_.render(display_,yOffset,millis(),timeService_.snapshot(),&sdBitmapFont_,&sdTitleFont_,&ui24Font_);
+    handled = true;
   } else if (answersBookPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset,
                                            display_, millis(), &sdBitmapFont_, &sdTitleFont_)) {
     handled = true;
@@ -1273,7 +1310,7 @@ void UiManager::renderDetail(int16_t yOffset) {
                                      musicService_, millis(), &sdBitmapFont_, &sdTitleFont_)) {
     handled = true;
   } else if (TxtReaderPage::selected(homePage_.focusIndex(), sectionFocusIndex_)) {
-    txtReaderPage_.render(display_, sdBitmapFont_, sdTitleFont_, ui24Font_);
+    txtReaderPage_.render(display_, sdBitmapFont_, sdTitleFont_, ui24Font_, musicService_.isBusy());
     handled = true;
   } else if (readerPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
                                       readerService_, sdBitmapFont_, &sdTitleFont_)) {
@@ -1327,9 +1364,15 @@ void UiManager::closeContentFonts() {
 }
 
 void UiManager::syncUiFont() {
+  if (sleepUiSnapshotEpoch_ != 0 &&
+      (state_ != UiState::Home || sleepUiSnapshotEpoch_ != SdCardSession::generation())) {
+    sleepUiSnapshotEpoch_ = 0;
+    uiFontAttempted_ = false;
+  }
   const bool fixedPage = state_ == UiState::Detail &&
       (isAdminSelection(homePage_.focusIndex(), sectionFocusIndex_) ||
        TxtReaderPage::selected(homePage_.focusIndex(), sectionFocusIndex_) ||
+       DailyFortunePage::selected(homePage_.focusIndex(), sectionFocusIndex_) ||
        settingsPage_.isWifiProvisionSelection(homePage_.focusIndex(), sectionFocusIndex_) ||
        timerPage_.isSelection(homePage_.focusIndex(), sectionFocusIndex_) ||
        settingsPage_.isAboutDeviceSelection(homePage_.focusIndex(), sectionFocusIndex_) ||
@@ -1381,7 +1424,9 @@ bool UiManager::residentFontsLoading() const {
 void UiManager::syncResidentFonts() {
   const bool fixedPage = state_ == UiState::Detail &&
       (isAdminSelection(homePage_.focusIndex(), sectionFocusIndex_) ||
+       settingsPage_.isDeviceSelfTestSelection(homePage_.focusIndex(), sectionFocusIndex_) ||
        TxtReaderPage::selected(homePage_.focusIndex(), sectionFocusIndex_) ||
+       DailyFortunePage::selected(homePage_.focusIndex(), sectionFocusIndex_) ||
        contentFontUse_ == ContentFontUse::Wifi || contentFontUse_ == ContentFontUse::Timer ||
        settingsPage_.isAboutDeviceSelection(homePage_.focusIndex(), sectionFocusIndex_) ||
        timeCalibrationPage_.isTimeCalibrationSelection(homePage_.focusIndex(), sectionFocusIndex_));
@@ -1429,6 +1474,7 @@ void UiManager::syncContentFonts() {
   if (state_ == UiState::Detail) {
     const uint8_t home = homePage_.focusIndex();
     if (answersBookPage_.isSelection(home, sectionFocusIndex_)) next = ContentFontUse::Answers;
+    else if (DailyFortunePage::selected(home, sectionFocusIndex_)) next = ContentFontUse::Fortune;
     else if (readerPage_.isStaticWordDetail(home, sectionFocusIndex_)) next = ContentFontUse::Reader;
     else if (TxtReaderPage::selected(home, sectionFocusIndex_)) next = ContentFontUse::Txt;
     else if (settingsPage_.isOtaSelection(home, sectionFocusIndex_)) {
@@ -1476,6 +1522,8 @@ void UiManager::syncContentFonts() {
       (void)sdBitmapFont_.open(14);
   }
   if (next == ContentFontUse::Answers)
+    (void)sdTitleFont_.open(20, false);
+  else if (next == ContentFontUse::Fortune)
     (void)sdTitleFont_.open(20, false);
   else if (next == ContentFontUse::External)
     (void)sdTitleFont_.open(20);
@@ -1706,9 +1754,18 @@ void UiManager::enterSleep(uint32_t nowMs) {
 
   display_.prepareForSleepKeepDisplay();
   peripheralPower_.setSensorEnabled(false);
-  uiFontAttempted_ = false;
+  const bool retainUiFont = uiFont_.canRetainForSleep() ||
+      (uiFont_.state() == UiFontCache::State::Ready && sleepUiSnapshotEpoch_ != 0 &&
+       sleepUiSnapshotEpoch_ == SdCardSession::generation());
   closeContentFonts();
   sdCardService_.end();
+  // The completed UI snapshot is independent of SD. Reuse it for this home
+  // visit; a later page transition resets the attempt flag and checks the
+  // changed SD session before using resources from the card again.
+  uiFontAttempted_ = retainUiFont;
+  sleepUiSnapshotEpoch_ = retainUiFont ? SdCardSession::generation() : 0;
+  LogI("FONT", "sleep ui snapshot=%s; SD unmounted, recheck on next home visit",
+       retainUiFont ? "retained" : "unavailable");
 
   esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
   esp_sleep_pd_config(ESP_PD_DOMAIN_MODEM, ESP_PD_OPTION_OFF);

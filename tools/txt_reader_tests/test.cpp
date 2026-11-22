@@ -7,7 +7,11 @@
 #include "src/services/SdCardService.h"
 #include "src/services/SdBitmapFont.h"
 #include "src/services/UiFontCache.h"
+#define private public
 #include "src/ui/pages/TxtReaderPage.h"
+#include "src/ui/pages/DailyFortunePage.h"
+#include "src/data/DailyFortuneData.h"
+#undef private
 #include "src/ui/SdUiText.h"
 #include "src/bsp/DisplayMonoTft.h"
 #include "src/bsp/SdCardSession.h"
@@ -71,7 +75,16 @@ int main(){try{
   for(int i=0;i<10000&&fixed.state()==UiFontCache::State::Loading;++i)fixed.tick();check(fixed.state()==UiFontCache::State::Ready,"UI cache ready");
   SdBitmapFont f14,f20,f24;check(f14.open(14),"14 open");load(f14);check(f20.open(20),"20 open");load(f20);check(f24.openUiSubset(24),"24 open");load(f24);
   DisplayMonoTft d;d.begin();TxtReaderPage page;page.enter(sd);
+  SdBitmapFont unloaded20, unloaded24;
+  uint8_t loadingFrame[8064], shelfFrame[8064];
+  {SdUiText::FixedScope scope(d,fixed);page.render(d,f14,unloaded20,unloaded24);}
+  d.canvas().copyFrameBufferTo(loadingFrame);
   {SdUiText::FixedScope scope(d,fixed);page.render(d,f14,f20,f24);save(d,"shelf");}
+  d.canvas().copyFrameBufferTo(shelfFrame);
+  check(memcmp(loadingFrame,shelfFrame,sizeof(shelfFrame)),"loading state did not replace incomplete shelf");
+  {SdUiText::FixedScope scope(d,fixed);page.render(d,f14,unloaded20,unloaded24,true);}
+  d.canvas().copyFrameBufferTo(shelfFrame);
+  check(memcmp(loadingFrame,shelfFrame,sizeof(shelfFrame)),"music-blocked font hint not rendered");
   page.input(false,false,false,true,sd);for(int i=0;i<10000&&page.busy();++i)page.update(f20);
   {SdUiText::FixedScope scope(d,fixed);page.render(d,f14,f20,f24);save(d,"reading");}
   page.input(false,false,false,true,sd);
@@ -81,6 +94,41 @@ int main(){try{
   page.input(true,false,false,false,sd);page.input(false,false,true,false,sd);page.input(false,false,false,true,sd);
   {SdUiText::FixedScope scope(d,fixed);page.render(d,f14,f20,f24);save(d,"dark");}
   page.input(true,false,false,false,sd);check(page.input(true,false,false,false,sd)==false,"shelf Left did not exit");
-  page.leave();f14.end();f20.end();f24.end();fixed.end();check(!TestFs::handles&&TestPsram::blocks.empty(),"render exit leaked resources");
+  write("写给明天的自己.txt",std::string(50000,'A'));
+  page.enter(sd);page.input(false,false,false,true,sd);page.update(f20);
+  check(page.reader_.totalPages()>0 && !page.reader_.indexed(),"partial index fixture not partial");
+  page.input(false,false,false,true,sd);page.input(false,false,true,false,sd);
+  page.input(false,false,false,true,sd);
+  check(page.view_==TxtReaderPage::View::Jump,"partial index jump unavailable");
+  page.input(false,false,false,false,sd,true);
+  check(page.jumpStep_==1,"10 page step not selected");
+  page.input(false,false,true,false,sd);
+  check(page.jump_==page.reader_.totalPages()-1,"partial upper bound exceeded");
+  page.input(false,true,false,false,sd);check(page.jump_==0,"lower bound exceeded");
+  page.input(false,false,false,false,sd,true);check(page.jumpStep_==2,"100 page step not selected");
+  page.input(false,false,false,false,sd,true);check(page.jumpStep_==0,"step cycle failed");
+  page.input(true,false,false,false,sd);check(page.view_==TxtReaderPage::View::Menu && page.reader_.currentPage()==0,"cancel changed page");
+  page.input(false,false,false,true,sd);page.input(false,false,true,false,sd);
+  const auto selected=page.jump_;page.input(false,false,false,true,sd);
+  check(page.reader_.currentPage()==selected && page.view_==TxtReaderPage::View::Reading,"exact jump selected wrong page");
+  page.leave();
+  DailyFortunePage fortune;TimeService::Snapshot clock;clock.valid=true;clock.now.year=2026;clock.now.month=11;clock.now.day=23;
+  fortune.enter(clock);check(fortune.view_==DailyFortunePage::View::Intro,"fortune intro");
+  {SdUiText::FixedScope scope(d,fixed);fortune.render(d,0,100,clock,&f14,&f20,&f24);save(d,"fortune-intro");}
+  fortune.input(false,false,true,100,clock);check(fortune.animating(),"fortune animation did not start");
+  {SdUiText::FixedScope scope(d,fixed);fortune.render(d,0,500,clock,&f14,&f20,&f24);save(d,"fortune-animation");}
+  check(fortune.update(1250,clock),"fortune animation did not finish");
+  {SdUiText::FixedScope scope(d,fixed);fortune.render(d,0,1250,clock,&f14,&f20,&f24);save(d,"fortune-result");}
+  fortune.input(false,false,true,1300,clock);check(fortune.view_==DailyFortunePage::View::Detail,"fortune detail");
+  {SdUiText::FixedScope scope(d,fixed);fortune.render(d,0,1300,clock,&f14,&f20,&f24);save(d,"fortune-detail");}
+  check(fortune.back() && fortune.view_==DailyFortunePage::View::Result,"fortune back");
+  fortune.enter(clock);check(fortune.view_==DailyFortunePage::View::Result,"fortune reentry");
+  for(const auto& entry:DailyFortuneData::kEntries){
+    check(SdUiText::width(d,&f20,entry.name)<=215,"fortune name overflows");
+    check(SdUiText::width(d,&f14,entry.detail1)<=215 && SdUiText::width(d,&f14,entry.detail2)<=215,"fortune detail overflows");
+    check(SdUiText::width(d,&f14,entry.line)<=420,"fortune main text exceeds two lines");
+  }
+  clock.valid=false;check(fortune.update(1400,clock) && fortune.view_==DailyFortunePage::View::Invalid,"invalid time transition");
+  f14.end();f20.end();f24.end();fixed.end();check(!TestFs::handles&&TestPsram::blocks.empty(),"render exit leaked resources");
   puts("PASS: directory creation, UTF8/BOM/CRLF, exact paging, resume/bookmarks/theme, modified files, SD loss, allocation errors, buttons, actual NBFT framebuffer export");return 0;
 }catch(const std::exception& e){fprintf(stderr,"FAIL: %s\n",e.what());return 1;}}

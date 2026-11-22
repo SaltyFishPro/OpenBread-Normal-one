@@ -7,6 +7,7 @@
 #include "../DetailHeader.h"
 #include "../DrawUtils.h"
 #include "../SdBitmapText.h"
+#include "../SdUiText.h"
 
 namespace {
 constexpr uint16_t kSizes[] = {14, 20, 24};
@@ -47,20 +48,28 @@ bool SdFontTestPage::handleInput(bool up, bool down, bool ok,
   return true;
 }
 
-void SdFontTestPage::render(DisplayMonoTft& display, int16_t yOffset, SdBitmapFont& font) const {
+void SdFontTestPage::render(DisplayMonoTft& display, int16_t yOffset, SdBitmapFont& font,
+                            SdBitmapFont* ui20) const {
   auto& canvas = display.canvas();
   auto& text = display.text();
-  DetailHeader::render(display, "SD字库测试", yOffset);
+  if (yOffset >= display.height()) return;
+  DrawUtils::drawClippedFilledRect(canvas,0,yOffset,display.width()-1,yOffset+display.height()-1,ST7305_COLOR_WHITE);
+  text.setFont(u8g2_font_7x14_tf); text.setFontMode(1);
+  text.setForegroundColor(ST7305_COLOR_BLACK);text.setBackgroundColor(ST7305_COLOR_WHITE);
+  SdUiText::draw(display,ui20,16,yOffset+26,"SD字库测试",ST7305_COLOR_BLACK,
+                 {16,0,280,static_cast<int16_t>(display.height()-1)});
+  text.drawUTF8(display.width()-16-text.getUTF8Width("Font /"),yOffset+24,"Font /");
+  DrawUtils::drawClippedFilledRect(canvas,16,yOffset+34,display.width()-17,yOffset+34,ST7305_COLOR_BLACK);
   for (uint8_t i = 0; i < 3U; ++i) {
-    const int16_t x = 16 + i * 88;
+    const int16_t x = 16 + i * 85;
     const bool selected = i == sizeIndex_;
     const uint16_t fg = selected ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK;
     const uint16_t bg = selected ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE;
-    if (selected) DrawUtils::drawClippedFilledRect(canvas, x - 4, yOffset + 34,
-                                                  x + 70, yOffset + 53, bg);
+    if (selected) DrawUtils::drawRoundRect(canvas,x,yOffset+42,76,22,8,bg,bg);
+    else DrawUtils::drawClippedRect(canvas,x,yOffset+42,x+75,yOffset+63,ST7305_COLOR_BLACK);
     text.setForegroundColor(fg);
     text.setBackgroundColor(bg);
-    text.drawUTF8(x, yOffset + 49, kLabels[i]);
+    text.drawUTF8(x+(76-text.getUTF8Width(kLabels[i]))/2, yOffset + 58, kLabels[i]);
   }
   text.setForegroundColor(ST7305_COLOR_BLACK);
   text.setBackgroundColor(ST7305_COLOR_WHITE);
@@ -68,18 +77,18 @@ void SdFontTestPage::render(DisplayMonoTft& display, int16_t yOffset, SdBitmapFo
     const SdBitmapText::Clip clip = {16, static_cast<int16_t>(yOffset + 56),
                                      static_cast<int16_t>(display.width() - 17),
                                      static_cast<int16_t>(yOffset + 140)};
-    SdBitmapText::drawUTF8(canvas, font, 16, yOffset + 84, "你好，面包！Normal",
+    SdBitmapText::drawUTF8(canvas, font, 24, yOffset + 94, "你好，面包！Normal",
                            ST7305_COLOR_BLACK, clip);
-    SdBitmapText::drawUTF8(canvas, font, 16, yOffset + 110, "0123456789 Aa",
-                           ST7305_COLOR_BLACK, clip);
-    SdBitmapText::drawUTF8(canvas, font, 16, yOffset + 136, "Unicode \xF0\xA0\xAE\xB7 \xC3\xA9",
+    SdBitmapText::drawUTF8(canvas, font, 24, yOffset + 126, "0123456789 Aa",
                            ST7305_COLOR_BLACK, clip);
   } else {
     const char* status = sdUnavailable_ ? "未检测到可用SD卡" :
         font.state() == SdBitmapFont::State::Checking ? "正在检查字库，请稍候" : errorText(font.error());
-    text.drawUTF8(16, yOffset + 89, status);
-    text.drawUTF8(16, yOffset + 119, "字库请放入 Font 文件夹");
+    text.drawUTF8(24, yOffset + 96, status);
+    text.drawUTF8(24, yOffset + 124, "字库请放入 Font 文件夹");
   }
-  canvas.drawFastHLine(16, yOffset + 144, display.width() - 32, ST7305_COLOR_BLACK);
-  text.drawUTF8(16, yOffset + 163, "Up/Down 字号  OK 重试  Left 返回");
+  DrawUtils::drawClippedFilledRect(canvas,16,yOffset+145,display.width()-17,yOffset+145,ST7305_COLOR_BLACK);
+  text.drawUTF8(16, yOffset + 162, "↑↓ 字号  Left 返回");
+  const char* retry="OK 重试";
+  text.drawUTF8(display.width()-16-text.getUTF8Width(retry),yOffset+162,retry);
 }

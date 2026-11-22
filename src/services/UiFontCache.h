@@ -26,6 +26,9 @@ public:
   const Glyph* glyph(uint32_t codepoint) const;
   size_t cacheBytes() const { return memory_.size(); }
   bool currentCard() const;
+  // A completed snapshot contains all glyph pixels and no open SD handles.
+  // Only preserve it across sleep when its source session is still current.
+  bool canRetainForSleep() const { return state_ == State::Ready && currentCard(); }
 private:
   void fail(const char* reason);
   bool beginSubset();

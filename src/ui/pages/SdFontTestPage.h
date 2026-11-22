@@ -9,7 +9,8 @@ class SdFontTestPage {
 public:
   void begin(SdBitmapFont& font, SdCardService& sd);
   bool handleInput(bool up, bool down, bool ok, SdBitmapFont& font, SdCardService& sd);
-  void render(DisplayMonoTft& display, int16_t yOffset, SdBitmapFont& font) const;
+  void render(DisplayMonoTft& display, int16_t yOffset, SdBitmapFont& font,
+              SdBitmapFont* ui20 = nullptr) const;
 
 private:
   void open(SdBitmapFont& font, SdCardService& sd, bool refreshCard);

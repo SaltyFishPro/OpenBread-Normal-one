@@ -4,14 +4,14 @@
 #include <stdint.h>
 
 // DRV2605L 触觉驱动（I2C 地址 0x5A + EN GPIO42）。
-// EN 高电平使能芯片，I2C 配置为 RTP 模式后输出 8 位驱动值；
-// 测试结束先拉低 EN 省电。EN 低时寄存器不复位，但无法读写 I2C。
+// 当前硬件为 LRA：使用闭环自动谐振 + ROM 波形库 6，逐次播放单个触觉效果。
+// EN 高电平使能芯片，播放结束拉低 EN 省电；EN 低时寄存器不复位。
 class MotorDriver {
 public:
   enum class State : uint8_t {
     Idle,
     Starting,
-    Driving,
+    Playing,
     Finished,
     Error
   };
@@ -23,28 +23,29 @@ public:
     ConfigFailed
   };
 
-  static constexpr uint16_t kMaxPulseMs = 300;
-  // 当前硬件按 ERM（转子马达）配置；若实机为 LRA，需要改为 true 并核对闭环/谐振参数。
-  static constexpr bool kActuatorIsLra = false;
+  static constexpr uint8_t kLibraryLra = 6;
+  static constexpr uint16_t kMaxEffectMs = 2000;
 
   bool begin();
-  bool startPulse(uint32_t nowMs, uint16_t durationMs);
+  // 播放 ROM 库中的单个效果；maxMs 是硬性上限，长振效果也会在该时间被强制停止。
+  bool playEffect(uint32_t nowMs, uint8_t effectId, uint16_t maxMs);
   void tick(uint32_t nowMs);
   void stop();
   State state() const;
   Error error() const;
   bool isActive() const;
   bool consumeChanged();
-  uint32_t lastPulseMs() const;
+  uint32_t lastEffectMs() const;
+  bool lastCapped() const;
 
 private:
   static void timerCallback(void* arg);
   void stopFromTimer();
-  bool configureAndStart();
+  bool configureAndPlay();
   bool writeRegister(uint8_t reg, uint8_t value);
   bool readRegister(uint8_t reg, uint8_t& value);
   void disable();
-  void finish(uint32_t nowMs, bool byTimer);
+  void finish(uint32_t nowMs, bool capped);
 
   esp_timer_handle_t timer_ = nullptr;
   State state_ = State::Idle;
@@ -52,8 +53,11 @@ private:
   volatile bool enabled_ = false;
   volatile bool timerArmed_ = false;
   uint32_t startMs_ = 0;
-  uint32_t driveStartMs_ = 0;
-  uint16_t durationMs_ = 0;
-  uint32_t lastPulseMs_ = 0;
+  uint32_t playStartMs_ = 0;
+  uint32_t nextPollMs_ = 0;
+  uint16_t maxMs_ = 0;
+  uint32_t lastEffectMs_ = 0;
+  uint8_t effectId_ = 0;
+  bool lastCapped_ = false;
   bool changed_ = false;
 };

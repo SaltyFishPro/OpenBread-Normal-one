@@ -6,6 +6,7 @@
 #include "../../log/Log.h"
 #include "../DrawUtils.h"
 #include "../TextUtils.h"
+#include "../SdUiText.h"
 #include "../../services/IicScanService.h"
 #include "../../services/RtcTestService.h"
 #include "../../services/SdCardService.h"
@@ -64,7 +65,7 @@ const SelfTestItemText kSelfTestItems[DeviceSelfTestPage::kItemCount] = {
     {"RTC测试", {"读取实时时钟", "检查时间递增", "不修改当前时间"}},
     {"SD卡测试", {"检查插卡状态", "读取容量信息", "默认不写入文件"}},
     {"音频测试", {"播放短提示音", "检查音频输出", "完成后关闭音频"}},
-    {"马达测试", {"执行一次短振动", "检查马达响应", "完成后立即停止"}},
+    {"马达测试", {"选择触觉效果", "检查马达响应", "完成后立即停止"}},
     {"IMU测试", {"读取运动数据", "检查姿态变化", "识别异常固定值"}},
     {"无线测试", {"检查蓝牙与WiFi", "显示连接状态", "完成后关闭无线"}},
     {"电源测试", {"读取电池电量", "检查MAX17048", "显示LDO当前状态"}},
@@ -79,6 +80,7 @@ uint8_t pageCount() {
 void DeviceSelfTestPage::reset() {
   view_ = View::List;
   focusIndex_ = 0;
+  focusAnimating_ = false;
   screenPatternIndex_ = 0;
   viewedScreenPatterns_ = 0;
   confirmScreenNormal_ = true;
@@ -224,20 +226,19 @@ bool DeviceSelfTestPage::handleInput(bool leftEdge, bool leftLongEdge, bool upEd
       return true;
     }
     if (upEdge || downEdge) {
-      if (motorTestService.state() == MotorTestService::State::WaitingConfirm) {
-        motorTestService.toggleChoice();
-        return true;
+      if (motorTestService.isActive()) {
+        return false;
       }
-      return false;
+      if (upEdge) {
+        motorTestService.selectPrev();
+      } else {
+        motorTestService.selectNext();
+      }
+      return true;
     }
-    if (okEdge) {
-      if (motorTestService.state() == MotorTestService::State::WaitingConfirm) {
-        return motorTestService.confirm(nowMs);
-      }
-      if (!motorTestService.isActive()) {
-        const bool started = motorTestService.start(nowMs);
-        return started || motorTestService.error() != MotorTestService::Error::None;
-      }
+    if (okEdge && !motorTestService.isActive()) {
+      const bool started = motorTestService.play(nowMs);
+      return started || motorTestService.error() != MotorTestService::Error::None;
     }
     return false;
   }
@@ -297,12 +298,20 @@ bool DeviceSelfTestPage::handleInput(bool leftEdge, bool leftLongEdge, bool upEd
   }
 
   if (upEdge) {
+    const uint8_t previous = focusIndex_;
     focusIndex_ = focusIndex_ == 0 ? static_cast<uint8_t>(kItemCount - 1U)
                                    : static_cast<uint8_t>(focusIndex_ - 1U);
+    focusFromY_ = static_cast<int16_t>(40 + (previous % kPageSize) * 21);
+    focusAnimating_ = previous / kPageSize == focusIndex_ / kPageSize;
+    focusStartMs_ = nowMs;
     return true;
   }
   if (downEdge) {
+    const uint8_t previous = focusIndex_;
     focusIndex_ = static_cast<uint8_t>((focusIndex_ + 1U) % kItemCount);
+    focusFromY_ = static_cast<int16_t>(40 + (previous % kPageSize) * 21);
+    focusAnimating_ = previous / kPageSize == focusIndex_ / kPageSize;
+    focusStartMs_ = nowMs;
     return true;
   }
   if (okEdge && focusIndex_ == kScreenTestItemIndex) {
@@ -364,124 +373,237 @@ void DeviceSelfTestPage::render(DisplayMonoTft& display, int16_t yOffset, uint32
                                 const ImuTestService& imuTestService,
                                 const PowerDiagnosticService& powerDiagnosticService,
                                 const AudioTestService& audioTestService,
-                                const MotorTestService& motorTestService, SdBitmapFont& font) {
+                                const MotorTestService& motorTestService, SdBitmapFont& font,
+                                SdBitmapFont* ui20) {
   if (view_ == View::FontTest) {
-    fontTestPage_.render(display, yOffset, font);
-    return;
-  }
-  if (view_ == View::ScreenIntro) {
-    renderScreenIntro(display, yOffset);
+    fontTestPage_.render(display, yOffset, font, ui20);
     return;
   }
   if (view_ == View::ScreenPattern) {
     renderScreenPattern(display, yOffset, nowMs);
     return;
   }
-  if (view_ == View::ScreenConfirm) {
-    renderScreenConfirm(display, yOffset);
+  if (view_ == View::List) {
+    renderList(display, yOffset, nowMs, ui20);
     return;
   }
-  if (view_ == View::ButtonTest) {
-    renderButtonTest(display, yOffset);
-    return;
-  }
-  if (view_ == View::IicTest) {
-    renderIicTest(display, yOffset, iicScanService);
-    return;
-  }
-  if (view_ == View::RtcTest) {
-    renderRtcTest(display, yOffset, rtcTestService);
-    return;
-  }
-  if(view_==View::SdTest){renderSdTest(display,yOffset,sdCardService);return;}
-  if(view_==View::ImuTest){renderImuTest(display,yOffset,imuTestService);return;}
-  if(view_==View::PowerTest){renderPowerTest(display,yOffset,powerDiagnosticService);return;}
-  if(view_==View::AudioTest){renderAudioTest(display,yOffset,audioTestService);return;}
-  if(view_==View::MotorTest){renderMotorTest(display,yOffset,motorTestService);return;}
-  renderList(display, yOffset);
+  renderModern(display, yOffset, ui20, iicScanService, rtcTestService, sdCardService,
+               imuTestService, powerDiagnosticService, audioTestService, motorTestService);
 }
 
 bool DeviceSelfTestPage::needsAnimationFrame() const {
-  return view_ == View::ScreenPattern && screenPatternIndex_ == 7U;
+  return (view_ == View::ScreenPattern && screenPatternIndex_ == 7U) ||
+         (view_ == View::List && focusAnimating_);
 }
 
-void DeviceSelfTestPage::renderList(DisplayMonoTft& display, int16_t yOffset) const {
+void DeviceSelfTestPage::renderList(DisplayMonoTft& display, int16_t yOffset,
+                                        uint32_t nowMs, SdBitmapFont* ui20) {
   auto& canvas = display.canvas();
   auto& text = display.text();
-  const int16_t width = static_cast<int16_t>(display.width());
-  const int16_t height = static_cast<int16_t>(display.height());
-
-  canvas.drawFilledRectangle(0, yOffset, width - 1,
-                             static_cast<int16_t>(yOffset + kHeaderHeight - 1),
-                             ST7305_COLOR_BLACK);
+  if (yOffset >= display.height()) return;
+  DrawUtils::drawClippedFilledRect(canvas, 0, yOffset, display.width()-1,
+                                  yOffset+display.height()-1, ST7305_COLOR_WHITE);
   text.setFont(u8g2_font_7x14_tf);
-  text.setBackgroundColor(ST7305_COLOR_BLACK);
-  text.setForegroundColor(ST7305_COLOR_WHITE);
-  text.setFontMode(0);
-  text.drawUTF8(TextUtils::centeredTextXInBox(text, "设备自检", 0, width),
-                static_cast<int16_t>(yOffset + 22), "设备自检");
-
-  const uint8_t currentPage = static_cast<uint8_t>(focusIndex_ / kPageSize);
-  const uint8_t pageStart = static_cast<uint8_t>(currentPage * kPageSize);
-  const uint8_t remaining = static_cast<uint8_t>(kItemCount - pageStart);
-  const uint8_t visibleCount = remaining > kPageSize ? kPageSize : remaining;
-
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
   text.setFontMode(1);
+  text.setForegroundColor(ST7305_COLOR_BLACK);
+  text.setBackgroundColor(ST7305_COLOR_WHITE);
+  SdUiText::draw(display, ui20, 16, yOffset+26, "设备自检", ST7305_COLOR_BLACK,
+                 {16, 0, 300, static_cast<int16_t>(display.height()-1)});
+  char count[16];
+  snprintf(count, sizeof(count), "%02u / 12", static_cast<unsigned>(focusIndex_+1));
+  text.drawUTF8(display.width()-16-text.getUTF8Width(count), yOffset+25, count);
+  DrawUtils::drawClippedFilledRect(canvas, 16, yOffset+35, display.width()-17, yOffset+35,
+                                  ST7305_COLOR_BLACK);
+  DrawUtils::drawClippedFilledRect(canvas, 163, yOffset+43, 163, yOffset+139,
+                                  ST7305_COLOR_BLACK);
+  const uint8_t start = (focusIndex_ / kPageSize) * kPageSize;
+  const int16_t target = 40 + (focusIndex_ % kPageSize) * 21;
+  const uint32_t elapsed = nowMs - focusStartMs_;
+  int16_t marker = target;
+  if (focusAnimating_ && elapsed < 180U) {
+    const uint32_t remaining = 180U - elapsed;
+    const uint32_t eased = 180U - (remaining * remaining / 180U);
+    marker = focusFromY_ + (target - focusFromY_) * static_cast<int32_t>(eased) / 180;
+  } else if (focusAnimating_) {
+    focusAnimating_ = false;
+  }
+  DrawUtils::drawRoundRect(canvas, 12, yOffset+marker, 140, 20, 8,
+                           ST7305_COLOR_BLACK, ST7305_COLOR_BLACK);
+  for (uint8_t row=0; row<kPageSize && start+row<kItemCount; ++row) {
+    const int16_t rowY = 40 + row*21;
+    const bool selected = marker >= rowY-10 && marker <= rowY+10;
+    text.setForegroundColor(selected ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK);
+    text.drawUTF8(24, yOffset+rowY+15, kSelfTestItems[start+row].label);
+  }
+  text.setForegroundColor(ST7305_COLOR_BLACK);
+  text.drawUTF8(181, yOffset+57, "检测说明");
+  for (uint8_t i=0; i<3; ++i)
+    text.drawUTF8(181, yOffset+80+i*22, kSelfTestItems[focusIndex_].description[i]);
+  DrawUtils::drawClippedFilledRect(canvas, 16, yOffset+146, display.width()-17, yOffset+146,
+                                  ST7305_COLOR_BLACK);
+  text.drawUTF8(16, yOffset+162, "↑↓ 选择");
+  const char* ok = "OK 进入";
+  text.drawUTF8(display.width()-16-text.getUTF8Width(ok), yOffset+162, ok);
+}
 
-  canvas.drawLine(kDividerX, static_cast<int16_t>(yOffset + kHeaderHeight + 8), kDividerX,
-                  static_cast<int16_t>(yOffset + height - kFooterHeight - 4),
-                  ST7305_COLOR_BLACK);
-
-  for (uint8_t row = 0; row < visibleCount; ++row) {
-    const uint8_t itemIndex = static_cast<uint8_t>(pageStart + row);
-    const int16_t baselineY = static_cast<int16_t>(yOffset + kFirstBaselineY + row * kRowStep);
-    const char* label = kSelfTestItems[itemIndex].label;
-    const bool selected = itemIndex == focusIndex_;
-
-    if (selected) {
-      const int16_t labelWidth = text.getUTF8Width(label);
-      int16_t right = static_cast<int16_t>(kListX + labelWidth + kFocusPadX);
-      if (right > kDividerX - 10) {
-        right = static_cast<int16_t>(kDividerX - 10);
+void DeviceSelfTestPage::renderModern(DisplayMonoTft& d, int16_t y, SdBitmapFont* font,
+    const IicScanService& iic, const RtcTestService& rtc, const SdCardService& sd,
+    const ImuTestService& imu, const PowerDiagnosticService& power,
+    const AudioTestService& audio, const MotorTestService& motor) const {
+  if (y >= d.height()) return;
+  auto& c = d.canvas(); auto& t = d.text();
+  const uint16_t black=ST7305_COLOR_BLACK, white=ST7305_COLOR_WHITE;
+  DrawUtils::drawClippedFilledRect(c,0,y,d.width()-1,y+d.height()-1,white);
+  t.setFont(u8g2_font_7x14_tf); t.setFontMode(1); t.setForegroundColor(black); t.setBackgroundColor(white);
+  const char* title=kSelfTestItems[focusIndex_].label;
+  SdUiText::draw(d,font,16,y+26,title,black,{16,0,280,static_cast<int16_t>(d.height()-1)});
+  auto line=[&](int x,int yy,int w) { DrawUtils::drawClippedFilledRect(c,x,y+yy,x+w-1,y+yy,black); };
+  auto small=[&](const char* s,int x,int yy) { t.drawUTF8(x,y+yy,s); };
+  auto right=[&](const char* s,int yy) { small(s,368-t.getUTF8Width(s),yy); };
+  auto footer=[&](const char* left,const char* r) {line(16,145,352);small(left,16,162);right(r,162);};
+  auto pill=[&](const char* s) {
+    int width=t.getUTF8Width(s)+25; if(width>352)width=352;
+    DrawUtils::drawRoundRect(c,16,y+43,width,23,8,black,black);
+    t.setForegroundColor(white);small(s,28,60);t.setForegroundColor(black);
+  };
+  auto pair=[&](const char* label,const char* value,int yy) {small(label,24,yy);right(value,yy);line(24,yy+8,328);};
+  auto choice=[&](const char* prompt,bool first,const char* a,const char* b) {
+    small(prompt,24,103);
+    const char* names[]={a,b};
+    for (int i=0;i<2;++i) {
+      const int x=192+i*82; const bool selected=(i==0)==first;
+      if(selected) DrawUtils::drawRoundRect(c,x,y+85,72,25,8,black,black);
+      else DrawUtils::drawClippedRect(c,x,y+85,x+71,y+109,black);
+      t.setForegroundColor(selected?white:black);
+      small(names[i],x+(72-t.getUTF8Width(names[i]))/2,103);
+    }
+    t.setForegroundColor(black);
+  };
+  char linebuf[96];
+  if(view_==View::ScreenIntro) {
+    right("01 / 08",24); line(16,34,352); pill("检查坏点、残影和显示方向");
+    small("依次查看 8 种全屏测试图案",24,94);small("全部查看后，确认屏幕显示是否正常",24,119);
+    footer("Left 返回","OK 开始");return;
+  }
+  if(view_==View::ScreenConfirm) {
+    right("完成检查",24);line(16,34,352);pill("8 种图案已查看");
+    choice("屏幕显示正常吗？",confirmScreenNormal_,"正常","异常");footer("↑↓ 选择","OK 确认");return;
+  }
+  if(view_==View::ButtonTest) {
+    right("按下并释放",24);line(16,34,352);
+    for(uint8_t i=0;i<5;++i) {
+      int x=16+i*71; bool pressed=(lastButtonMask_&(1U<<i))!=0;
+      if(pressed)DrawUtils::drawRoundRect(c,x,y+47,64,59,8,black,black);
+      else DrawUtils::drawClippedRect(c,x,y+47,x+63,y+105,black);
+      t.setForegroundColor(pressed?white:black);small(kButtonNames[i],x+(64-t.getUTF8Width(kButtonNames[i]))/2,70);
+      const char* state=(completedButtonMask_&(1U<<i))?"已通过":"待测试";
+      small(state,x+(64-t.getUTF8Width(state))/2,94);t.setForegroundColor(black);
+    }
+    small(buttonTestPassed_?"全部按键通过":"依次按下并释放全部按键",24,133);
+    footer("长按 Left 取消",buttonTestPassed_?"OK 返回":"");return;
+  }
+  if(view_==View::IicTest) {
+    right("总线扫描",24);line(16,34,352);
+    const auto state=iic.state();const auto& result=iic.result();
+    if(state==IicScanService::State::Scanning)snprintf(linebuf,sizeof(linebuf),"正在扫描 0x%02X / 0x77",iic.currentAddress());
+    else if(state==IicScanService::State::Scanned)snprintf(linebuf,sizeof(linebuf),"扫描完成：发现 %u 个设备",result.deviceCount);
+    else snprintf(linebuf,sizeof(linebuf),"%s",state==IicScanService::State::Error?"总线初始化失败":"正在初始化总线");
+    pill(linebuf);small("发现地址",24,91);
+    snprintf(linebuf,sizeof(linebuf),"错误:%u",result.errorCount);
+    right(linebuf,91);
+    for(uint8_t i=0;i<result.deviceCount && i<10;++i){snprintf(linebuf,sizeof(linebuf),"0x%02X",result.addresses[i]);small(linebuf,24+(i%5)*68,112+(i/5)*22);}
+    footer("Left 返回","OK 重新扫描");return;
+  }
+  if(view_==View::RtcTest) {
+    snprintf(linebuf,sizeof(linebuf),"%u / 2",rtcPageIndex_+1);right(linebuf,24);line(16,34,352);
+    const char* status=rtc.state()==RtcTestService::State::Failed?"RTC 测试失败":rtc.state()==RtcTestService::State::Waiting?"正在等待时间递增":rtc.state()==RtcTestService::State::Warning?"走时正常，存在配置建议":"走时与省电配置正常";
+    if(rtc.state()==RtcTestService::State::Failed) {
+      switch(rtc.error()) {
+        case RtcTestService::Error::Unavailable: status="RTC 设备不可用"; break;
+        case RtcTestService::Error::RegisterRead: status="配置寄存器读取失败"; break;
+        case RtcTestService::Error::FirstTimeRead:
+        case RtcTestService::Error::SecondTimeRead: status="时间寄存器读取失败"; break;
+        case RtcTestService::Error::InvalidTime: status="日期或时间无效"; break;
+        case RtcTestService::Error::NotAdvancing: status="RTC 时间未递增"; break;
+        default: break;
       }
-      DrawUtils::fillRoundRect(
-          canvas, static_cast<int16_t>(kListX - kFocusPadX),
-          static_cast<int16_t>(baselineY - kTextHeight - kFocusPadY), right,
-          static_cast<int16_t>(baselineY + kFocusPadY), 8, ST7305_COLOR_BLACK);
-      text.setBackgroundColor(ST7305_COLOR_BLACK);
-      text.setForegroundColor(ST7305_COLOR_WHITE);
-      text.setFontMode(0);
     }
-
-    text.drawUTF8(kListX, baselineY, label);
-
-    if (selected) {
-      text.setBackgroundColor(ST7305_COLOR_WHITE);
-      text.setForegroundColor(ST7305_COLOR_BLACK);
-      text.setFontMode(1);
+    pill(status); const auto& tm=rtc.latestTime(); const auto& diag=rtc.diagnostics();
+    if(!rtcPageIndex_){snprintf(linebuf,sizeof(linebuf),"%02u:%02u:%02u",tm.hour,tm.minute,tm.second);pair("当前时间",linebuf,94);snprintf(linebuf,sizeof(linebuf),"20%02u-%02u-%02u",tm.year,tm.month,tm.day);pair("当前日期",linebuf,128);}
+    else {snprintf(linebuf,sizeof(linebuf),"Control1 0x%02X  Control2 0x%02X",diag.control1,diag.control2);small(linebuf,24,90);snprintf(linebuf,sizeof(linebuf),"Offset 0x%02X  建议项 %u",diag.offset,__builtin_popcount(rtc.warnings()));small(linebuf,24,116);small(rtc.warnings()?"存在配置建议，请检查日志":"CLKOUT 与定时器已关闭",24,138);}
+    footer("↑↓ 翻页  Left 返回","OK 重测");return;
+  }
+  if(view_==View::SdTest) {
+    right("只读检查",24);line(16,34,352);
+    pill(sd.status()==SdCardService::Status::Ready?(sd.rootReadable()?"只读测试通过":"根目录读取失败"):"SD 卡不可用");
+    snprintf(linebuf,sizeof(linebuf),"%llu MB",static_cast<unsigned long long>(sd.totalBytes()/1048576ULL));pair("总容量",linebuf,94);
+    snprintf(linebuf,sizeof(linebuf),"%llu MB",static_cast<unsigned long long>(sd.freeBytes()/1048576ULL));pair("可用容量",linebuf,128);
+    footer("Left 返回","OK 重试");return;
+  }
+  if(view_==View::AudioTest) {
+    right(audio.headphonesInserted()?"耳机":"扬声器",24);line(16,34,352);
+    const bool waiting=audio.state()==AudioTestService::State::WaitingConfirm;
+    const bool active=audio.isActive();
+    const bool passed=audio.state()==AudioTestService::State::Passed;
+    const bool failed=audio.state()==AudioTestService::State::Failed;
+    const char* status=waiting?"提示音播放结束":active?"正在播放提示音":passed?"测试通过":failed?"测试失败，请重试":"按 OK 播放提示音";
+    if(failed) {
+      switch(audio.error()) {
+        case AudioTestService::Error::MusicBusy: status="音乐播放中，请先退出"; break;
+        case AudioTestService::Error::DacPower: status="音频供电或静音控制失败"; break;
+        case AudioTestService::Error::ToneInit: status="音频硬件初始化失败"; break;
+        case AudioTestService::Error::ToneWrite: status="音频数据写入失败"; break;
+        case AudioTestService::Error::NotHeard: status="未确认听到提示音"; break;
+        case AudioTestService::Error::Timeout: status="测试超时"; break;
+        default: break;
+      }
     }
+    pill(status);
+    if(waiting)choice("听到提示音了吗？",audio.heardSelected(),"是","否");
+    else {small("1 kHz · 500 ms · 固定低音量",24,101);small(failed?"请检查硬件或查看串口日志":"请留意设备声音",24,128);}
+    footer(waiting?"↑↓ 选择  Left 返回":"Left 返回",waiting?"OK 确认":active?"正在测试":"OK 播放");return;
   }
-
-  const SelfTestItemText& selectedItem = kSelfTestItems[focusIndex_];
-  for (uint8_t line = 0; line < 3; ++line) {
-    const int16_t baselineY = static_cast<int16_t>(
-        yOffset + kDescriptionFirstBaselineY + line * kDescriptionLineStep);
-    text.drawUTF8(kDescriptionX, baselineY, selectedItem.description[line]);
+  if(view_==View::MotorTest) {
+    const bool active=motor.isActive();
+    const bool finished=motor.state()==MotorTestService::State::Finished;
+    const bool failed=motor.state()==MotorTestService::State::Failed;
+    const char* status="LRA 就绪";
+    if(active)status="LRA 播放中";
+    else if(finished)status="LRA 已完成";
+    else if(failed) {
+      switch(motor.error()) {
+        case MotorTestService::Error::StartFailed: status="LRA 启动失败"; break;
+        case MotorTestService::Error::Timeout: status="LRA 超时"; break;
+        case MotorTestService::Error::ChipNoResponse: status="LRA 无响应"; break;
+        case MotorTestService::Error::ChipConfig: status="LRA 配置失败"; break;
+        default: status="LRA 失败"; break;
+      }
+    }
+    right(status,24);line(16,34,352);
+    for(uint8_t i=0;i<MotorTestService::kModeCount;++i) {
+      const int16_t rowY=54+i*21;
+      const bool selected=i==motor.selectedIndex();
+      if(selected)DrawUtils::drawRoundRect(c,14,y+rowY-15,356,20,8,black,black);
+      t.setForegroundColor(selected?white:black);
+      small(motor.modeName(i),24,rowY);
+      right(motor.modeHint(i),rowY);
+      t.setForegroundColor(black);
+    }
+    footer("↑↓ 选择  Left 返回",active?"播放中":"OK 播放");return;
   }
-
-  if (focusIndex_ == kScreenTestItemIndex && screenResult_ != ScreenResult::NotRun) {
-    const char* status = screenResult_ == ScreenResult::Passed ? "结果：通过" : "结果：异常";
-    text.drawUTF8(kDescriptionX, static_cast<int16_t>(yOffset + height - 9), status);
+  if(view_==View::ImuTest) {
+    snprintf(linebuf,sizeof(linebuf),"%u / 3",imuPageIndex_+1);right(linebuf,24);line(16,34,352);
+    if(imuPageIndex_==0){pill(imu.state()==ImuTestService::State::Failed?"测试失败，请按 OK 重试":imu.state()==ImuTestService::State::Powering?"正在开启传感器":imu.hasPassed()?"测试通过，正在持续检测":"持续检测中，请轻晃设备");snprintf(linebuf,sizeof(linebuf),"0x%02X",imu.address());pair("设备地址",linebuf,94);snprintf(linebuf,sizeof(linebuf),"0x%02X",imu.whoAmI());pair("芯片标识",linebuf,128);}
+    else if(imuPageIndex_==1){auto& v=imu.latest();small("加速度",24,62);snprintf(linebuf,sizeof(linebuf),"X %d   Y %d   Z %d",v.ax,v.ay,v.az);small(linebuf,24,87);line(24,96,328);small("陀螺仪",24,116);snprintf(linebuf,sizeof(linebuf),"X %d   Y %d   Z %d",v.gx,v.gy,v.gz);small(linebuf,24,138);}
+    else {const auto& v=imu.latest();int dx=(static_cast<int>(v.ay)-imu.calAy())*96/4096,dy=-(static_cast<int>(v.ax)-imu.calAx())*36/4096; if(dx>96)dx=96;if(dx< -96)dx=-96;if(dy>36)dy=36;if(dy< -36)dy=-36;DrawUtils::drawClippedRect(c,170,y+56,213,y+99,black);DrawUtils::drawClippedFilledRect(c,176+dx,y+61+dy,207+dx,y+92+dy,black);const char* info=imu.calibrated()?"已校准，倾转设备查看方框移动":"放正设备后按 OK 校准";small(info,(384-t.getUTF8Width(info))/2,128);}
+    footer("↑↓ 翻页  Left 返回",imuPageIndex_==2?"OK 校准":"OK 重测");return;
   }
-
-  char pageText[12];
-  snprintf(pageText, sizeof(pageText), "%u/%u", static_cast<unsigned>(currentPage + 1U),
-           static_cast<unsigned>(pageCount()));
-  const int16_t pageWidth = text.getUTF8Width(pageText);
-  text.drawUTF8(static_cast<int16_t>(width - pageWidth - 10),
-                static_cast<int16_t>(yOffset + height - 9), pageText);
+  if(view_==View::PowerTest) {
+    snprintf(linebuf,sizeof(linebuf),"%u / 2",powerPageIndex_+1);right(linebuf,24);line(16,34,352);auto& v=power.reading();
+    if(!powerPageIndex_){pill(power.state()==PowerDiagnosticService::State::Failed?"电量计通信失败":power.state()==PowerDiagnosticService::State::Warning?"电池数据异常":"电池状态正常");snprintf(linebuf,sizeof(linebuf),"%u.%02u%% 约%u mAh",v.stateOfChargeX100/100,v.stateOfChargeX100%100,power.estimatedRemainingMah());pair("剩余电量",linebuf,94);snprintf(linebuf,sizeof(linebuf),"%u mV",v.voltageMv);pair("电池电压",linebuf,128);}
+    else {const auto rate=v.chargeRateX100;snprintf(linebuf,sizeof(linebuf),"%s%lu.%02lu%% / h",rate<0?"-":"+",static_cast<unsigned long>((rate<0?-rate:rate)/100),static_cast<unsigned long>((rate<0?-rate:rate)%100));pair("变化率",linebuf,61);int32_t current=power.estimatedCurrentMaX10();snprintf(linebuf,sizeof(linebuf),"%s%lu.%01lu mA",current<0?"-":"+",static_cast<unsigned long>((current<0?-current:current)/10),static_cast<unsigned long>((current<0?-current:current)%10));pair("估算电流",linebuf,88);snprintf(linebuf,sizeof(linebuf),"%s / %s",power.audioLdoEnabled()?"开启":"关闭",power.sensorLdoEnabled()?"开启":"关闭");pair("音频 / 传感器 LDO",linebuf,115);snprintf(linebuf,sizeof(linebuf),"版本 0x%04X  状态 0x%04X",v.version,v.status);small(linebuf,24,140);}
+    footer("↑↓ 翻页  Left 返回","OK 重测");
+  }
 }
 
 void DeviceSelfTestPage::renderScreenIntro(DisplayMonoTft& display, int16_t yOffset) const {
@@ -1236,123 +1358,6 @@ void DeviceSelfTestPage::renderAudioTest(DisplayMonoTft& display, int16_t yOffse
     footer = "Up/Down选择  OK确认";
   } else if (service.state() == AudioTestService::State::Passed ||
              service.state() == AudioTestService::State::Failed) {
-    footer = "Left返回  OK重测";
-  }
-  text.drawUTF8(18, yOffset + height - 9, footer);
-}
-
-void DeviceSelfTestPage::renderMotorTest(DisplayMonoTft& display, int16_t yOffset,
-                                         const MotorTestService& service) const {
-  auto& canvas = display.canvas();
-  auto& text = display.text();
-  const int16_t width = static_cast<int16_t>(display.width());
-  const int16_t height = static_cast<int16_t>(display.height());
-
-  canvas.drawFilledRectangle(0, yOffset, width - 1, yOffset + height - 1, ST7305_COLOR_WHITE);
-  canvas.drawFilledRectangle(0, yOffset, width - 1, yOffset + kHeaderHeight - 1,
-                             ST7305_COLOR_BLACK);
-  text.setFont(u8g2_font_7x14_tf);
-  text.setFontMode(0);
-  text.setBackgroundColor(ST7305_COLOR_BLACK);
-  text.setForegroundColor(ST7305_COLOR_WHITE);
-  text.drawUTF8(TextUtils::centeredTextXInBox(text, "马达测试", 0, width), yOffset + 22,
-                "马达测试");
-
-  text.setFontMode(1);
-  text.setBackgroundColor(ST7305_COLOR_WHITE);
-  text.setForegroundColor(ST7305_COLOR_BLACK);
-
-  const char* status = "按OK执行一次短振动";
-  switch (service.state()) {
-    case MotorTestService::State::Pulsing:
-      status = "正在振动...";
-      break;
-    case MotorTestService::State::WaitingConfirm:
-      status = "振动已结束";
-      break;
-    case MotorTestService::State::Passed:
-      status = "测试通过：已确认振动";
-      break;
-    case MotorTestService::State::Failed:
-      switch (service.error()) {
-        case MotorTestService::Error::StartFailed:
-          status = "马达驱动启动失败";
-          break;
-        case MotorTestService::Error::NotFelt:
-          status = "未确认感觉到振动";
-          break;
-        case MotorTestService::Error::Timeout:
-          status = "测试超时";
-          break;
-        case MotorTestService::Error::ChipNoResponse:
-          status = "马达芯片无响应 0x5A";
-          break;
-        case MotorTestService::Error::ChipConfig:
-          status = "马达芯片配置失败";
-          break;
-        default:
-          status = "测试失败";
-          break;
-      }
-      break;
-    default:
-      break;
-  }
-  text.drawUTF8(18, yOffset + 55, status);
-
-  char infoText[48];
-  snprintf(infoText, sizeof(infoText), "时长：%ums  最长%ums",
-           static_cast<unsigned>(MotorTestService::kPulseMs),
-           static_cast<unsigned>(MotorDriver::kMaxPulseMs));
-  text.drawUTF8(18, yOffset + 82, infoText);
-
-  const bool waiting = service.state() == MotorTestService::State::WaitingConfirm;
-  if (!waiting) {
-    text.drawUTF8(18, yOffset + 109, "驱动：DRV2605L  0x5A");
-    if ((service.state() == MotorTestService::State::Passed ||
-         service.state() == MotorTestService::State::Failed) &&
-        service.lastPulseMs() > 0U) {
-      char pulseText[32];
-      snprintf(pulseText, sizeof(pulseText), "振动：%lu ms",
-               static_cast<unsigned long>(service.lastPulseMs()));
-      text.drawUTF8(18, yOffset + 136, pulseText);
-    }
-  } else {
-    text.drawUTF8(18, yOffset + 109, "感觉到振动了吗？");
-
-    constexpr int16_t kOptionWidth = 96;
-    constexpr int16_t kOptionGap = 32;
-    constexpr int16_t kOptionTop = 120;
-    constexpr int16_t kOptionBottom = 144;
-    const int16_t leftX = static_cast<int16_t>((width - kOptionWidth * 2 - kOptionGap) / 2);
-    const int16_t rightX = static_cast<int16_t>(leftX + kOptionWidth + kOptionGap);
-    const int16_t selectedX = service.feltSelected() ? leftX : rightX;
-    canvas.drawFilledRectangle(selectedX, yOffset + kOptionTop,
-                               static_cast<int16_t>(selectedX + kOptionWidth - 1),
-                               yOffset + kOptionBottom, ST7305_COLOR_BLACK);
-    const char* labels[2] = {"是", "否"};
-    const int16_t positions[2] = {leftX, rightX};
-    for (uint8_t index = 0; index < 2; ++index) {
-      const bool selected = (index == 0) == service.feltSelected();
-      text.setFontMode(selected ? 0 : 1);
-      text.setBackgroundColor(selected ? ST7305_COLOR_BLACK : ST7305_COLOR_WHITE);
-      text.setForegroundColor(selected ? ST7305_COLOR_WHITE : ST7305_COLOR_BLACK);
-      text.drawUTF8(TextUtils::centeredTextXInBox(text, labels[index], positions[index],
-                                                  kOptionWidth),
-                    yOffset + 138, labels[index]);
-    }
-    text.setFontMode(1);
-    text.setBackgroundColor(ST7305_COLOR_WHITE);
-    text.setForegroundColor(ST7305_COLOR_BLACK);
-  }
-
-  const char* footer = "Left返回  OK振动";
-  if (service.state() == MotorTestService::State::Pulsing) {
-    footer = "Left立即停止";
-  } else if (waiting) {
-    footer = "Up/Down选择  OK确认";
-  } else if (service.state() == MotorTestService::State::Passed ||
-             service.state() == MotorTestService::State::Failed) {
     footer = "Left返回  OK重测";
   }
   text.drawUTF8(18, yOffset + height - 9, footer);

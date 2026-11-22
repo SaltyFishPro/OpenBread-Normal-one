@@ -1,5 +1,7 @@
 # 主菜单预览
 
+[daily_fortune_mock.html](daily_fortune_mock.html) 是今日抽签交互方案，包含抽签前、签筒动画、签面、签文、当天再次进入、跨天和时间未校准状态。签文及日期仅为网页内存中的示例，不操作设备或联网；屏幕采用 384×168、14/20/24px，系统字体与实机点阵字体不同。
+
 [device_self_test_current_mock.html](device_self_test_current_mock.html) 模拟现有设备自检列表和已实现测试页面，包含屏幕的八个图案、按键、IIC、RTC、SD、音频、马达、IMU、电源及字库测试，可切换正常、测试中和异常示例。快速自检和无线测试只显示现有列表入口。屏幕为 384×168，浏览器字体和模拟数据不代表实机字形及硬件状态。
 
 [txt_reader_cover_mock.html](txt_reader_cover_mock.html) 为 TXT 阅读方案二：横向三本纸质书封，焦点反色，正文居中书名、页码和简洁分页标记。按键、试读导入和异常场景与方案一一致，两个文件独立保留。

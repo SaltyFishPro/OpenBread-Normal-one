@@ -275,6 +275,21 @@ int main() {
               static_cast<unsigned long>(loadElapsed),loadReads,baselineReads);
   check(cache.state()==UiFontCache::State::Ready,"valid UI font not ready");
   check(cache.cacheBytes()<=UiFontCache::kBudgetBytes && !TestFs::handles,"UI budget or open SD handle");
+  check(cache.canRetainForSleep(),"ready current snapshot not eligible for sleep");
+  const auto* sleepGlyph=cache.glyph(0x8BBE);
+  check(sleepGlyph && sleepGlyph->length!=UINT16_MAX,"sleep test glyph missing");
+  const UiFontCache::Glyph savedSleepGlyph=*sleepGlyph;
+  const auto sleepReads=TestFs::reads;
+  SdCardSession::invalidate();
+  check(!cache.currentCard() && !cache.canRetainForSleep(),"changed SD session not detected");
+  check(cache.state()==UiFontCache::State::Ready && cache.glyph(0x8BBE) &&
+        !memcmp(cache.glyph(0x8BBE),&savedSleepGlyph,sizeof(savedSleepGlyph)) &&
+        TestFs::reads==sleepReads,"sleep snapshot did not survive SD unmount");
+  cache.end();
+  check(!cache.canRetainForSleep(),"closed cache eligible for sleep reuse");
+  check(cache.begin(),"changed session reload failed to start");settle(cache);
+  check(cache.state()==UiFontCache::State::Ready && cache.currentCard(),"changed session did not reload");
+  std::puts("PASS: completed UI snapshot survives SD session invalidation without reads; later visit reloads");
   std::vector<UiFontCache::Glyph> reference;
   reference.reserve(sizeof(UiFontCodepoints::kValues)/sizeof(uint32_t));
   for (auto cp:UiFontCodepoints::kValues) {

@@ -38,7 +38,7 @@ public:
               const SdCardService& sdCardService, const ImuTestService& imuTestService,
               const PowerDiagnosticService& powerDiagnosticService,
               const AudioTestService& audioTestService, const MotorTestService& motorTestService,
-              SdBitmapFont& font);
+              SdBitmapFont& font, SdBitmapFont* ui20 = nullptr);
   bool needsAnimationFrame() const;
 
 private:
@@ -58,7 +58,11 @@ private:
     Failed
   };
 
-  void renderList(DisplayMonoTft& display, int16_t yOffset) const;
+  void renderModern(DisplayMonoTft&, int16_t, SdBitmapFont*, const IicScanService&,
+                    const RtcTestService&, const SdCardService&, const ImuTestService&,
+                    const PowerDiagnosticService&, const AudioTestService&, const MotorTestService&) const;
+  void renderList(DisplayMonoTft& display, int16_t yOffset, uint32_t nowMs,
+                  SdBitmapFont* ui20);
   void renderScreenIntro(DisplayMonoTft& display, int16_t yOffset) const;
   void renderScreenPattern(DisplayMonoTft& display, int16_t yOffset, uint32_t nowMs);
   void renderScreenConfirm(DisplayMonoTft& display, int16_t yOffset) const;
@@ -72,14 +76,15 @@ private:
   void renderPowerTest(DisplayMonoTft&, int16_t, const PowerDiagnosticService&) const;
   void renderAudioTest(DisplayMonoTft& display, int16_t yOffset,
                        const AudioTestService& audioTestService) const;
-  void renderMotorTest(DisplayMonoTft& display, int16_t yOffset,
-                       const MotorTestService& motorTestService) const;
   void selectScreenPattern(uint8_t patternIndex);
   uint8_t buttonMask(const ButtonState& buttons) const;
   bool updateButtonTest(const ButtonState& buttons);
 
   View view_ = View::List;
   uint8_t focusIndex_ = 0;
+  int16_t focusFromY_ = 40;
+  uint32_t focusStartMs_ = 0;
+  bool focusAnimating_ = false;
   uint8_t screenPatternIndex_ = 0;
   uint8_t viewedScreenPatterns_ = 0;
   bool confirmScreenNormal_ = true;

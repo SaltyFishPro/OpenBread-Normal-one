@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OpenBread · 今日抽签</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#efefe9;color:#242920;font:14px/1.6 "Microsoft YaHei",sans-serif}main{max-width:1160px;margin:auto;padding:42px 24px}header{display:flex;justify-content:space-between;align-items:end;margin-bottom:22px}h1{font-size:30px;font-weight:500;margin:0}header p,.muted{color:#777e70;margin:4px 0}.layout{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:20px}.card{background:#fbfcf8;border:1px solid #dce2d6;border-radius:20px;padding:24px}.caption{display:flex;justify-content:space-between;color:#7a8274;margin-bottom:16px}.screen{aspect-ratio:384/168;width:100%;overflow:hidden;border:1px solid #31362e;background:#000;box-shadow:0 16px 40px #1c271411}canvas{display:block;width:100%;height:100%;image-rendering:pixelated}.keys{display:flex;justify-content:center;gap:8px;margin-top:24px;flex-wrap:wrap}button{font:inherit;cursor:pointer;border:1px solid #d2dacd;background:#f6f8f4;color:#34412f;border-radius:9px;padding:9px 14px}button:hover{background:#e8eee3}button:focus-visible{outline:2px solid #667b5c;outline-offset:2px}.primary{background:#303c2c;color:white}.primary:hover{background:#4d6045}#hint{text-align:center;color:#6e7868;min-height:22px;margin:12px 0 0}aside h2{font-size:15px;margin:0 0 10px}aside p{font-size:12px;color:#7b8274}.scenes{display:grid;gap:8px}.scenes button{text-align:left}.note{margin-top:22px;border-top:1px solid #e0e6db;padding-top:16px}.note p{line-height:1.8}.tag{display:inline-block;border:1px solid #cad3c3;border-radius:20px;padding:1px 8px;color:#6d7b64;font-size:12px}@media(max-width:800px){main{padding:24px 14px}header{display:block}.layout{grid-template-columns:1fr}.card{padding:16px}}
+</style></head><body><main><header><div><span class="tag">OpenBread / 今日抽签</span><h1>给今天，一句小小的回应。</h1></div><p>384 × 168 · 离线抽签交互预览</p></header><div class="layout"><section class="card"><div class="caption"><span>设备屏幕</span><span id="state">抽签前</span></div><div class="screen"><canvas id="screen" width="384" height="168" aria-label="今日抽签设备画面"></canvas></div><div class="keys"><button data-key="left">← Left 返回</button><button data-key="up">↑ Up</button><button data-key="down">↓ Down</button><button data-key="ok" class="primary">OK 确认</button></div><p id="hint" aria-live="polite"></p></section><aside class="card"><h2>体验完整流程</h2><p>模拟日期与签文仅保存在当前页面内存，不会操作设备或联网。</p><div class="scenes"><button id="fresh">新的一天 · 尚未抽签</button><button id="again">今天再次进入</button><button id="tomorrow">模拟第二天</button><button id="invalid">时间未校准</button></div><div class="note"><p>方向键和 Enter 可模拟设备按键；屏幕内只使用 14 / 20 / 24px。签文、动画和日期均为示例，网页字体与设备点阵字形存在差异。</p><p>今日签文在页面刷新后复位；正式固件可持久保存。</p></div></aside></div></main>
+<script>
+'use strict';
+const fortunes=[
+ {name:'顺风签',line:'今天适合迈出一小步。',detail:['不用急着抵达，','开始本身就很值得。'],theme:'行动'},
+ {name:'好天气签',line:'把时间留给喜欢的事。',detail:['生活里的小小愉快，','也值得被认真收藏。'],theme:'惊喜'},
+ {name:'慢慢来签',line:'停一停，也是前进。',detail:['给自己一点空白，','答案可能正在路上。'],theme:'休息'},
+ {name:'相遇签',line:'一次问候，也许会有回音。',detail:['给熟悉的人发条消息，','让今天多一点温度。'],theme:'相遇'},
+ {name:'灵感签',line:'试试那个刚冒出的念头。',detail:['不必马上做到完美，','先让它有个开始。'],theme:'灵感'},
+ {name:'小幸运签',line:'留意路上的小惊喜。',detail:['一束光，一阵风，','都有可能让今天变好。'],theme:'惊喜'}
+];
+const canvas=document.getElementById('screen'),ctx=canvas.getContext('2d'), reduced=matchMedia('(prefers-reduced-motion: reduce)');
+let view='intro',saved=null,fortune=null,offsetDay=0,dateValid=true,animStart=0,raf=0,notice='';
+function date(){let d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()+offsetDay);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
+function txt(s,x,y,size=14,align='left',color='#fff'){ctx.font=`${size}px "Microsoft YaHei",sans-serif`;ctx.textAlign=align;ctx.textBaseline='alphabetic';ctx.fillStyle=color;ctx.fillText(s,x,y)}
+function line(x1,y1,x2,y2,color='#fff',width=1){ctx.strokeStyle=color;ctx.lineWidth=width;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke()}
+function capsule(x,y,w,h,fill='#fff'){ctx.fillStyle=fill;ctx.beginPath();ctx.roundRect(x,y,w,h,h/2);ctx.fill()}
+function drawTop(){txt('今日抽签',16,22);txt(date().replaceAll('-','.'),368,22,14,'right');line(16,31,368,31,'#666')}
+function footer(left,right){line(16,143,368,143,'#666');txt(left,16,161);txt(right,368,161,14,'right')}
+function drawJar(x,y,shake=0,rise=0){ctx.save();ctx.translate(x,y);ctx.rotate(shake);ctx.lineWidth=1.4;ctx.strokeStyle='#fff';
+ for(let i=0;i<5;i++){let sx=-17+i*8,sy=0-(i===2?rise:0);line(sx,sy+5,sx-5+(i*2),sy+35,'#fff',1.3);ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(sx,sy+5,2,0,Math.PI*2);ctx.fill()}
+ ctx.beginPath();ctx.moveTo(-25,35);ctx.lineTo(-21,73);ctx.quadraticCurveTo(0,82,21,73);ctx.lineTo(25,35);ctx.closePath();ctx.stroke();line(-24,43,24,43,'#fff',1.1);txt('签',0,65,20,'center');ctx.restore()}
+function start(){if(!dateValid){view='invalid';draw();return}if(!saved||saved.date!==date()){const i=Math.floor(Math.random()*fortunes.length);saved={date:date(),index:i}}fortune=fortunes[saved.index];view='anim';notice='';animStart=performance.now();cancelAnimationFrame(raf);if(reduced.matches){view='result';draw();return}function frame(t){if(view!=='anim')return;draw(t);if(t-animStart<1150)raf=requestAnimationFrame(frame);else{view='result';draw()}}raf=requestAnimationFrame(frame);draw()}
+function draw(now=performance.now()){ctx.fillStyle='#000';ctx.fillRect(0,0,384,168);drawTop();
+ if(view==='intro'||view==='anim'){
+   const t=view==='anim'?Math.min(1,(now-animStart)/1150):0;const shake=view==='anim'&&t<.67?Math.sin(t*48)*.09*(1-t):0;const rise=view==='anim'?Math.max(0,(t-.42)/.58)*28:0;
+   drawJar(81,46,shake,rise);line(143,48,143,124,'#555');txt(view==='anim'?'心里默念，等待回应':'今天，会遇见什么？',163,71,20);txt(view==='anim'?'让这支签，慢慢来到你面前':'给自己一点小小的期待',163,100);footer('← 返回',view==='anim'?'正在抽签':'OK 抽一支签');
+ }else if(view==='result'||view==='detail'){
+   capsule(20,48,92,76);txt('今日',66,68,14,'center','#000');txt('签',66,99,24,'center','#000');txt(fortune.theme,66,116,14,'center','#000');
+   line(133,47,133,126,'#555');txt(fortune.name,153,67,20);if(view==='result'){txt(fortune.line,153,98,14);txt('愿你拥有属于自己的节奏',153,123,14,'left','#ccc')}else{txt(fortune.detail[0],153,96);txt(fortune.detail[1],153,120)}
+   footer('← 返回',view==='result'?'OK 查看签文':'OK 返回签面');
+ }else if(view==='invalid'){txt('时间还没有校准',192,70,20,'center');txt('请先到设置中校准设备时间',192,102,14,'center');footer('← 返回','');}
+ document.getElementById('state').textContent={intro:'抽签前',anim:'抽签动画',result:'今日签面',detail:'签文详情',invalid:'时间未校准'}[view];document.getElementById('hint').textContent=notice||({intro:'OK 抽签，Left 返回。',anim:'正在抽取今日签文；Left 可返回。',result:'OK 查看签文，上下切换详情，Left 返回。',detail:'上下或 OK 返回签面，Left 返回。',invalid:'时间为模拟状态，可在右侧切换其他场景。'}[view]);}
+function key(k){notice='';if(view==='intro'&&k==='ok'){start();return}if(view==='anim'){if(k==='left'){cancelAnimationFrame(raf);view='intro';notice='已返回；当天再次进入仍可查看这支签。'}draw();return}if(view==='result'){if(k==='ok'||k==='down'||k==='up')view='detail';else if(k==='left')notice='已到今日抽签入口；实机中返回主菜单。'}else if(view==='detail'){if(k==='ok'||k==='up'||k==='down')view='result';else if(k==='left')view='result'}else if(k==='left')notice='已到今日抽签入口；实机中返回主菜单。';draw()}
+function enter(){cancelAnimationFrame(raf);notice='';fortune=null;if(!dateValid)view='invalid';else if(saved&&saved.date===date()){fortune=fortunes[saved.index];view='result'}else view='intro';draw()}
+document.querySelectorAll('[data-key]').forEach(b=>b.addEventListener('click',()=>key(b.dataset.key)));
+document.addEventListener('keydown',e=>{if(e.target.matches('button')&&e.key==='Enter')return;let k={ArrowLeft:'left',ArrowUp:'up',ArrowDown:'down',Enter:'ok',Escape:'left'}[e.key];if(k){e.preventDefault();key(k)}});
+document.getElementById('fresh').onclick=()=>{saved=null;offsetDay=0;dateValid=true;enter()};
+document.getElementById('again').onclick=()=>{dateValid=true;enter();if(view==='intro'){notice='今天还没有抽签，请先按 OK。';draw()}};
+document.getElementById('tomorrow').onclick=()=>{offsetDay++;dateValid=true;enter()};
+document.getElementById('invalid').onclick=()=>{dateValid=false;enter()};
+draw();
+</script></body></html>
