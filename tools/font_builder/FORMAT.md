@@ -78,7 +78,7 @@ next_baseline_y += ascent + descent + line_gap
 
 ## NBCI v1 常用字索引
 
-可选伴随文件名为 `font-字号.common.bin`，不改变 NBFT v1 字库。所有整数小端；位置指向 NBFT 的 **24-byte 字形记录**，不直接指向点阵。电脑端实现与验证见 [font_common_index.py](font_common_index.py)。当前固件在「SD字库测试」中读取此文件，最多接收 7500 条；其他页面尚未迁移。
+可选伴随文件名为 `font-字号.common.bin`，不改变 NBFT v1 字库。所有整数小端；位置指向 NBFT 的 **24-byte 字形记录**，不直接指向点阵。电脑端实现与验证见 [font_common_index.py](font_common_index.py)。固件 `SdBitmapFont` 可在完整字体路径读取此文件，最多接收 7500 条；是否启用、缓存预算及页面覆盖范围以[设备字体说明](../../docs/SD_BITMAP_FONTS.md)为准。
 
 ### 96-byte 文件头
 

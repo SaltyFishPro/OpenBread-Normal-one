@@ -38,6 +38,8 @@ TimeService::Snapshot clockData;
 WifiProvisionService::State wifiState = WifiProvisionService::State::Idle;
 unsigned timeRequests = 0, timeCancels = 0;
 BluetoothService::State btState = BluetoothService::State::Connected;
+RemoteService::Feedback remoteFeedback = RemoteService::Feedback::None;
+uint8_t remoteFeedbackFrame = 0;
 }
 const TimeService::Snapshot& TimeService::snapshot() const { return clockData; }
 void TimeService::cancelNtpSync() { ++timeCancels; }
@@ -68,14 +70,17 @@ bool WifiProvisionService::isRadioActive() const { return false; }
 void WifiProvisionService::cancelProvision(TimeService&) {}
 BluetoothService::State BluetoothService::state() const { return btState; }
 BluetoothService::Error BluetoothService::error() const { return Error::None; }
-const char* BluetoothService::deviceName() const { return "Normal One"; }
+const char* BluetoothService::deviceName() const { return "OpenBread Remote 24A1"; }
+bool BluetoothService::isConnected() const { return btState == State::Connected; }
 void BluetoothService::stop() {}
 bool BluetoothService::start(uint32_t) { return false; }
 RemoteService::State RemoteService::state() const { return State::Ready; }
-uint32_t RemoteService::triggerCount() const { return 3; }
-uint32_t RemoteService::pagerUpCount() const { return 2; }
-uint32_t RemoteService::pagerDownCount() const { return 3; }
-uint32_t RemoteService::pagerPauseCount() const { return 1; }
+uint32_t RemoteService::triggerCount() const { return 0; }
+uint32_t RemoteService::pagerUpCount() const { return 0; }
+uint32_t RemoteService::pagerDownCount() const { return 0; }
+uint32_t RemoteService::pagerPauseCount() const { return 0; }
+RemoteService::Feedback RemoteService::feedback() const { return remoteFeedback; }
+uint8_t RemoteService::feedbackFrame() const { return remoteFeedbackFrame; }
 bool RemoteService::triggerCameraShutter(uint32_t,BluetoothService&) { return false; }
 bool RemoteService::triggerPagerUp(uint32_t,BluetoothService&) { return false; }
 bool RemoteService::triggerPagerDown(uint32_t,BluetoothService&) { return false; }
@@ -300,6 +305,11 @@ int main() {
   // Fast path: the prebuilt ui subset must yield identical glyphs with a
   // handful of sequential reads instead of a full-font CRC and random lookups.
   root("valid");
+  SdBitmapFont remoteTitleFont;
+  check(remoteTitleFont.openUiSubset(20),"remote UI title subset open");
+  for(int i=0;i<10000 && remoteTitleFont.state()==SdBitmapFont::State::Checking;++i)
+    remoteTitleFont.tick();
+  check(remoteTitleFont.state()==SdBitmapFont::State::Ready,"remote UI title subset ready");
   const auto subsetReadsStart=TestFs::reads;
   cache.begin(); settle(cache);
   const auto subsetReads=TestFs::reads-subsetReadsStart;
@@ -524,11 +534,28 @@ int main() {
     timer.handleDetailBack(6,0,1300);
     d.clear();timer.renderDetail(6,0,0,d,1400,nullptr);save(d,"timer-popup");
     BluetoothService bt;RemoteService remote;RemotePage remotePage;d.clear();
-    remotePage.renderDetail(4,0,0,d,bt,remote);save(d,"bluetooth");
+    d.text().setFont(u8g2_font_7x14_tf);
+    d.text().setForegroundColor(ST7305_COLOR_WHITE);
+    d.text().setBackgroundColor(ST7305_COLOR_BLACK);
+    d.text().setFontMode(0);
+    remotePage.renderDetail(4,0,0,d,bt,remote,&remoteTitleFont);save(d,"bluetooth");
     for(uint8_t item=1;item<=2;++item) {
-      d.canvas().setRotation(0);d.clear();remotePage.renderDetail(4,item,0,d,bt,remote);
+      d.canvas().setRotation(0);d.clear();
+      remotePage.renderDetail(4,item,0,d,bt,remote,&remoteTitleFont);
       save(d,item==1?"camera":"pager");
     }
+    remoteFeedback=RemoteService::Feedback::Camera;remoteFeedbackFrame=0;
+    d.canvas().setRotation(0);d.clear();
+    remotePage.renderDetail(4,1,0,d,bt,remote,&remoteTitleFont);
+    save(d,"camera-feedback");
+    remoteFeedback=RemoteService::Feedback::PagerUp;remoteFeedbackFrame=1;
+    d.clear();remotePage.renderDetail(4,2,0,d,bt,remote,&remoteTitleFont);
+    save(d,"pager-up-feedback");
+    remoteFeedback=RemoteService::Feedback::PagerDown;remoteFeedbackFrame=1;
+    d.clear();remotePage.renderDetail(4,2,0,d,bt,remote,&remoteTitleFont);
+    save(d,"pager-down-feedback");
+    remoteFeedback=RemoteService::Feedback::None;remoteFeedbackFrame=0;
+    remoteTitleFont.end();
     d.canvas().setRotation(1);
     SettingsPage settings;WifiProvisionService wifi;
     check(settings.detailPageCount(0,7)==2,"about page count");

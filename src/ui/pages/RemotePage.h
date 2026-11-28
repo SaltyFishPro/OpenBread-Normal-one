@@ -5,6 +5,7 @@
 class BluetoothService;
 class DisplayMonoTft;
 class RemoteService;
+class SdBitmapFont;
 
 class RemotePage {
 public:
@@ -26,5 +27,5 @@ public:
   void handleSectionExit(uint8_t homeFocus, BluetoothService& bluetooth) const;
   bool renderDetail(uint8_t homeFocus, uint8_t sectionFocus, int16_t yOffset,
                     DisplayMonoTft& display, const BluetoothService& bluetooth,
-                    const RemoteService& remote) const;
+                    const RemoteService& remote, SdBitmapFont* titleFont = nullptr) const;
 };

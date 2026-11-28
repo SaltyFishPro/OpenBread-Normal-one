@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OpenBread · 蓝牙遥控预览</title>
+<style>
+:root{--paper:#edf0ea;--panel:#fbfcf8;--ink:#242a23;--muted:#727a70;--line:#cfd6cb}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 "Microsoft YaHei",sans-serif}main{max-width:1180px;margin:auto;padding:34px 22px 46px}header{display:flex;justify-content:space-between;align-items:end;gap:20px;margin-bottom:20px}h1{font-size:28px;font-weight:500;margin:0 0 4px}header p{color:var(--muted);margin:0}.layout{display:grid;grid-template-columns:minmax(440px,1fr) 286px;gap:18px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px}.screen-wrap{background:#e3e8df;border:1px solid #c4ccc0;border-radius:12px;padding:18px;min-height:480px;display:grid;place-items:center}.device{background:#151915;border:2px solid #0b0d0b;border-radius:28px;padding:17px;box-shadow:0 14px 30px #24301b18}.screen{position:relative;background:#000;overflow:hidden;image-rendering:pixelated}.screen.landscape{width:min(100%,576px);aspect-ratio:384/168}.screen.portrait{height:384px;width:168px}.screen canvas{display:block;width:100%;height:100%}.mode{display:flex;gap:8px;align-items:center;margin:16px 0 0}.mode button,.scenes button,.keys button{border:1px solid var(--line);background:#f6f8f3;color:#34402f;border-radius:9px;padding:8px 11px;font:inherit;cursor:pointer}.mode button.active,.scenes button.active,.keys button.primary{background:#303b2e;color:#fff;border-color:#303b2e}.mode span{color:var(--muted);font-size:12px;margin-left:auto}.keys{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:14px}.hint{text-align:center;color:var(--muted);min-height:22px;margin:10px 0 0}.panel h2{font-size:16px;font-weight:500;margin:0 0 9px}.panel p{font-size:12px;color:var(--muted)}.scenes{display:grid;gap:8px;margin:14px 0 20px}.scenes button{text-align:left}.state{border-top:1px solid var(--line);padding-top:14px}.state-row{display:flex;justify-content:space-between;gap:12px;margin:8px 0}.state-row b{font-weight:500}.state-row span{color:var(--muted);text-align:right}.legend{border-top:1px solid var(--line);margin-top:16px;padding-top:14px;color:var(--muted);font-size:12px;line-height:1.8}.tag{display:inline-block;color:#596653;border:1px solid #c6d0c0;border-radius:99px;padding:1px 8px;font-size:12px;margin-bottom:8px}@media(max-width:800px){main{padding:22px 12px}.layout{grid-template-columns:1fr}.screen-wrap{min-height:430px}header{display:block}header p{margin-top:8px}}
+.screen.capture::after{content:"";position:absolute;inset:0;background:#fff;pointer-events:none;animation:screen-flash 240ms ease-out forwards}.device.haptic{animation:device-haptic 180ms ease-out}.keys button.pressed{transform:translateY(2px);filter:brightness(1.25)}.screen-wrap.pager-demo{display:flex;gap:24px}.phone-demo{display:none;width:176px;align-items:center;flex-direction:column;gap:9px;color:var(--muted);font-size:12px}.pager-demo .phone-demo{display:flex}.phone{width:168px;height:336px;padding:11px 9px;background:#151915;border:2px solid #0b0d0b;border-radius:22px;box-shadow:0 10px 20px #24301b18}.phone-screen{height:100%;overflow:hidden;background:#f8f8f2;color:#282d27;border-radius:12px;position:relative}.phone-status{height:22px;padding:3px 8px;font-size:9px;border-bottom:1px solid #d8ddd2;display:flex;justify-content:space-between}.phone-viewport{height:calc(100% - 22px);overflow:hidden}.phone-track{height:100%;display:flex;flex-direction:column;will-change:transform}.phone-page{flex:0 0 100%;padding:13px 10px;font-size:10px;line-height:1.8;overflow:hidden}.phone-page h3{font-size:12px;font-weight:600;margin:0 0 8px}.phone-page p{font-size:10px;color:#4d554a;line-height:1.85;margin:0 0 9px}.phone-page .page-no{text-align:center;border-top:1px solid #d8ddd2;padding-top:5px;color:#747c70}.phone-track.scroll-up{animation:phone-scroll-up 420ms cubic-bezier(.2,.7,.2,1) forwards}.phone-track.scroll-down{transform:translateY(-100%);animation:phone-scroll-down 420ms cubic-bezier(.2,.7,.2,1) forwards}@keyframes phone-scroll-up{to{transform:translateY(-100%)}}@keyframes phone-scroll-down{to{transform:translateY(0)}}@keyframes screen-flash{0%{opacity:.82}100%{opacity:0}}@keyframes device-haptic{0%,100%{transform:translateX(0)}25%{transform:translateX(-2px)}55%{transform:translateX(2px)}80%{transform:translateX(-1px)}}@media(max-width:600px){.screen-wrap.pager-demo{gap:12px}.phone-demo{width:156px}.phone{transform:scale(.92);margin:-13px}}
+</style>
+</head>
+<body>
+<main>
+<header><div><span class="tag">OpenBread / 无线功能</span><h1>蓝牙遥控预览</h1><p>连接、拍照和翻页器的统一交互方案</p></div><p>设备画面按 384 × 168 / 168 × 384 模拟</p></header>
+<div class="layout">
+<section class="panel">
+<div class="screen-wrap" id="screenWrap"><div class="device" id="device"><div id="screenBox" class="screen landscape"><canvas id="screen" width="384" height="168"></canvas></div></div><div class="phone-demo"><span>手机 · 阅读页面</span><div class="phone"><div class="phone-screen"><div class="phone-status"><span>9:41</span><span>●●● ▰</span></div><div class="phone-viewport"><div class="phone-track" id="phoneTrack"></div></div></div></div></div></div>
+<div class="mode"><button data-mode="connect" class="active">蓝牙连接</button><button data-mode="camera">蓝牙拍照</button><button data-mode="pager">翻页器</button><span id="modeLabel">横屏 · 连接页</span></div>
+<div class="keys"><button data-key="left">← Left 返回</button><button data-key="up">↑ Up</button><button data-key="down">↓ Down</button><button data-key="ok" class="primary">OK 确认</button></div>
+<p class="hint" id="hint" aria-live="polite">OK 开始广播</p>
+</section>
+<aside class="panel">
+<h2>体验完整流程</h2><p>预览只模拟设备端蓝牙 HID 遥控状态，不会开启电脑或手机蓝牙。</p>
+<div class="scenes"><button data-scene="off" class="active">未连接 · 初始状态</button><button data-scene="advertising">等待手机连接</button><button data-scene="connected">已连接 · 可遥控</button><button data-scene="error">连接异常 · 等待超时</button></div>
+<div class="state"><div class="state-row"><b>设备名</b><span>OpenBread Remote 24A1</span></div><div class="state-row"><b>蓝牙状态</b><span id="btState">蓝牙关闭</span></div><div class="state-row"><b>最近动作</b><span id="lastAction">无</span></div><div class="state-row"><b>动作计数</b><span id="count">拍照 0 · 上 0 · 下 0 · 暂停 0</span></div></div>
+<div class="legend">蓝牙连接：OK 开始或停止广播。<br>蓝牙拍照：连接后 OK 发送一次拍照按键。<br>翻页器：Up/Down 发送滑动，OK 发送点按。<br>Left 返回时关闭蓝牙广播，避免后台保持无线。</div>
+</aside>
+</div>
+</main>
+<script>
+'use strict';
+const canvas=document.getElementById('screen'),ctx=canvas.getContext('2d'),box=document.getElementById('screenBox'),device=document.getElementById('device'),screenWrap=document.getElementById('screenWrap'),phoneTrack=document.getElementById('phoneTrack');
+const hint=document.getElementById('hint'),modeLabel=document.getElementById('modeLabel'),btState=document.getElementById('btState'),lastAction=document.getElementById('lastAction'),count=document.getElementById('count');
+let mode='connect',scene='off',cameraCount=0,upCount=0,downCount=0,pauseCount=0,readerPage=0,scrollBusy=false;
+const modes={connect:'蓝牙连接',camera:'蓝牙拍照',pager:'翻页器'};
+const readerPages=[
+ ['沿着海岸线','清晨的海面还没有完全醒来。薄雾贴着水面缓慢移动，远处的灯塔只剩下一道安静的轮廓。','我把书合上，沿着堤岸继续向前走。潮声一阵一阵，像在提醒我不要错过今天。'],
+ ['风从山谷来','山间的风比想象中更轻。树叶翻出浅色的背面，阳光穿过枝梢，在石阶上留下细碎的光点。','路边有一间旧木屋，窗台上摆着一只蓝色的杯子，像是有人刚刚离开。'],
+ ['雨后的车站','雨停以后，车站的玻璃映出整片灰白天空。列车还没有进站，广播声在大厅里慢慢散开。','我坐在靠窗的位置，听见鞋底带进来的水声，渐渐被人群淹没。'],
+ ['夜色与灯火','入夜后的街道很安静，只有便利店的灯还亮着。门口的风铃轻轻响了一下，又回到沉默。','我沿着熟悉的路往回走，口袋里的车票已经被体温捂得柔软。'],
+ ['新的早晨','窗帘缝里透进一点光。桌上的书停在昨天读到的地方，杯子里还留着淡淡的茶香。','今天没有特别的安排，我决定慢一点，把还没读完的故事继续看下去。']
+];
+function pageMarkup(index){const [title,p1,p2]=readerPages[(index+readerPages.length)%readerPages.length];return `<section class="phone-page"><h3>${title}</h3><p>${p1}</p><p>${p2}</p><p>${p1}</p><div class="page-no">${index+1} / ${readerPages.length}</div></section>`}
+function renderPhone(){phoneTrack.innerHTML=pageMarkup(readerPage)}
+function scrollPhone(direction){if(scrollBusy)return;scrollBusy=true;const next=(readerPage+(direction==='up'?1:-1)+readerPages.length)%readerPages.length;phoneTrack.classList.remove('scroll-up','scroll-down');phoneTrack.innerHTML=direction==='up'?pageMarkup(readerPage)+pageMarkup(next):pageMarkup(next)+pageMarkup(readerPage);if(direction==='down')phoneTrack.style.transform='translateY(-100%)';else phoneTrack.style.transform='translateY(0)';void phoneTrack.offsetWidth;phoneTrack.classList.add(direction==='up'?'scroll-up':'scroll-down');hint.textContent=direction==='up'?'手机页面向上滚动':'手机页面向下滚动';setTimeout(()=>{readerPage=next;phoneTrack.className='phone-track';phoneTrack.style.transform='';renderPhone();scrollBusy=false},440)}
+function t(s,x,y,size=14,align='left',color='#fff'){ctx.fillStyle=color;ctx.font=`${size}px "Microsoft YaHei",sans-serif`;ctx.textAlign=align;ctx.textBaseline='alphabetic';ctx.fillText(s,x,y)}
+function line(x1,y1,x2,y2,color='#fff'){ctx.strokeStyle=color;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke()}
+function bt(x,y,scale=1,active=false){ctx.save();ctx.translate(x,y);ctx.scale(scale,scale);ctx.strokeStyle=active?'#fff':'#aaa';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(0,-18);ctx.lineTo(0,18);ctx.lineTo(11,8);ctx.lineTo(-9,-8);ctx.moveTo(0,-18);ctx.lineTo(11,-8);ctx.lineTo(-9,8);ctx.stroke();ctx.restore()}
+function camera(x,y){ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.strokeRect(x-23,y-14,46,29);ctx.strokeRect(x-11,y-21,15,7);ctx.beginPath();ctx.arc(x,y,9,0,Math.PI*2);ctx.stroke()}
+function pager(x,y){ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.strokeRect(x-21,y-27,42,54);ctx.strokeRect(x-10,y-17,20,3);ctx.beginPath();ctx.moveTo(x-9,y+2);ctx.lineTo(x+9,y+2);ctx.moveTo(x-9,y+12);ctx.lineTo(x+9,y+12);ctx.stroke()}
+function footer(left,right,w,h){line(16,h-25,w-16,h-25,'#666');t(left,16,h-8);t(right,w-16,h-8,14,'right')}
+function draw(){const portrait=mode!=='connect',w=portrait?168:384,h=portrait?384:168;if(canvas.width!==w){canvas.width=w;canvas.height=h}ctx.fillStyle='#000';ctx.fillRect(0,0,w,h);if(!portrait){t('无线功能',16,22);t('蓝牙',w-16,22,14,'right');line(16,31,w-16,31,'#555');bt(70,80,1.7,scene==='connected');line(122,48,122,125,'#555');t('蓝牙连接',144,62,20);t(scene==='off'?'蓝牙关闭':scene==='advertising'?'等待手机连接':scene==='connected'?'已连接':'连接异常',144,89);t('OpenBread Remote 24A1',144,112);footer(scene==='connected'?'OK 停止广播':'OK 开始广播','LEFT 返回',w,h)}else{t(modes[mode],w/2,25,20,'center');line(16,35,w-16,35,'#555');if(mode==='camera')camera(w/2,92);else pager(w/2,90);t(scene==='connected'?'已连接':'未连接',w/2,148,14,'center');if(mode==='camera'){t(`已发送 ${cameraCount}`,w/2,178,14,'center');t(scene==='connected'?'OK 拍照':'请先连接蓝牙',w/2,310,14,'center');footer('LEFT 返回','',w,h)}else{t(`翻页 ↑${upCount} ↓${downCount}`,w/2,178,14,'center');t(`暂停 ${pauseCount}`,w/2,202,14,'center');t(scene==='connected'?'↑↓ 上下滑动':'请先连接蓝牙',w/2,300,14,'center');t('OK 点按',w/2,326,14,'center');footer('LEFT 返回','',w,h)}}}
+function setScene(next){scene=next;btState.textContent=next==='off'?'蓝牙关闭':next==='advertising'?'等待手机连接':next==='connected'?'已连接':'连接异常';hint.textContent=next==='connected'?'连接已建立，可发送遥控动作':next==='advertising'?'手机蓝牙搜索 “OpenBread Remote 24A1”':'OK 开始广播';document.querySelectorAll('[data-scene]').forEach(b=>b.classList.toggle('active',b.dataset.scene===next));draw()}
+function setMode(next){mode=next;box.className='screen '+(next==='connect'?'landscape':'portrait');screenWrap.classList.toggle('pager-demo',next==='pager');modeLabel.textContent=(next==='connect'?'横屏':'竖屏')+' · '+modes[next];document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('active',b.dataset.mode===next));hint.textContent=next==='connect'?'OK 开始广播':scene==='connected'?(next==='camera'?'OK 拍照':'↑↓ 上下滑动 · OK 点按'):'请先进入蓝牙连接完成配对';draw()}
+function captureFeedback(){box.classList.remove('capture');device.classList.remove('haptic');void box.offsetWidth;box.classList.add('capture');device.classList.add('haptic');setTimeout(()=>{box.classList.remove('capture');device.classList.remove('haptic')},260);const vibrationSupported=typeof navigator!=='undefined'&&typeof navigator.vibrate==='function';if(vibrationSupported)navigator.vibrate([28,24,42]);hint.textContent=vibrationSupported?'拍照指令已发送 · 振动反馈已触发':'拍照指令已发送 · 当前浏览器不支持振动'}
+function action(key){if(key==='left'){setScene('off');setMode('connect');lastAction.textContent='返回并关闭蓝牙';return}if(mode==='connect'&&key==='ok'){const next=scene==='advertising'||scene==='connected'?'off':'advertising';setScene(next);lastAction.textContent=next==='off'?'停止广播':'开始广播';return}if(scene!=='connected'){hint.textContent='请先进入“蓝牙连接”并完成配对';return}if(mode==='camera'&&key==='ok'){cameraCount++;lastAction.textContent='已发送拍照';captureFeedback()}if(mode==='pager'&&(key==='up'||key==='down'||key==='ok')){if(key==='up')upCount++;if(key==='down')downCount++;if(key==='ok')pauseCount++;lastAction.textContent=key==='up'?'已发送上滑':key==='down'?'已发送下滑':'已发送点按';if(key==='up'||key==='down')scrollPhone(key);else hint.textContent='HID 点按动作已发送'}count.textContent=`拍照 ${cameraCount} · 上 ${upCount} · 下 ${downCount} · 暂停 ${pauseCount}`;draw()}
+document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.mode)));document.querySelectorAll('[data-scene]').forEach(b=>b.addEventListener('click',()=>setScene(b.dataset.scene)));document.querySelectorAll('[data-key]').forEach(b=>b.addEventListener('click',()=>action(b.dataset.key)));window.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='Backspace'){e.preventDefault();action('left')}else if(e.key==='ArrowUp'){e.preventDefault();action('up')}else if(e.key==='ArrowDown'){e.preventDefault();action('down')}else if(e.key==='Enter'||e.key===' '){e.preventDefault();action('ok')}});renderPhone();setScene('off');
+</script>
+<style>
+.screen.capture::after{display:none}
+</style>
+<script>
+window.remoteCameraFlash=false;
+window.remotePagerFeedback='';
+window.remotePagerFrame=0;
+window.remotePagerTimer=0;
+function camera(x,y,inverted=window.remoteCameraFlash){
+  const ink=inverted?'#000':'#fff',fill=inverted?'#fff':'#000';
+  ctx.fillStyle=fill;ctx.fillRect(x-25,y-15,50,30);ctx.strokeStyle=ink;ctx.lineWidth=2;
+  ctx.strokeRect(x-23,y-14,46,28);ctx.strokeRect(x-11,y-21,15,7);
+  ctx.beginPath();ctx.arc(x,y,9,0,Math.PI*2);ctx.stroke();
+}
+function pager(x,y){
+  ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.strokeRect(x-21,y-27,42,54);
+  ctx.strokeRect(x-10,y-17,20,3);ctx.beginPath();ctx.moveTo(x-9,y+2);ctx.lineTo(x+9,y+2);
+  ctx.moveTo(x-9,y+12);ctx.lineTo(x+9,y+12);ctx.stroke();
+  if(!window.remotePagerFeedback)return;
+  const travel=(window.remotePagerFrame%4)*3;
+  const arrowY=window.remotePagerFeedback==='up'?y+10-travel:y-10+travel;
+  const tipY=window.remotePagerFeedback==='up'?arrowY-8:arrowY+8;
+  ctx.beginPath();ctx.moveTo(x+30,arrowY);ctx.lineTo(x+30,tipY);
+  if(window.remotePagerFeedback==='up'){
+    ctx.moveTo(x+30,tipY);ctx.lineTo(x+25,tipY+5);ctx.moveTo(x+30,tipY);ctx.lineTo(x+35,tipY+5);
+  }else{
+    ctx.moveTo(x+30,tipY);ctx.lineTo(x+25,tipY-5);ctx.moveTo(x+30,tipY);ctx.lineTo(x+35,tipY-5);
+  }
+  ctx.stroke();
+}
+function captureFeedback(){
+  window.remoteCameraFlash=true;device.classList.remove('haptic');void device.offsetWidth;
+  device.classList.add('haptic');draw();setTimeout(()=>{window.remoteCameraFlash=false;device.classList.remove('haptic');draw()},140);
+  const supported=typeof navigator!=='undefined'&&typeof navigator.vibrate==='function';
+  if(supported)navigator.vibrate([28,24,42]);
+  hint.textContent=supported?'拍照指令已发送 · 振动反馈已触发':'拍照指令已发送 · 当前浏览器不支持振动';
+}
+const remoteOriginalAction=action;
+action=function(key){
+  if(mode==='pager'&&(key==='up'||key==='down')&&scene==='connected'){
+    window.remotePagerFeedback=key;window.remotePagerFrame=0;draw();
+    clearInterval(window.remotePagerTimer);
+    let elapsed=0;
+    window.remotePagerTimer=setInterval(()=>{
+      elapsed+=45;window.remotePagerFrame++;
+      if(elapsed>=360){clearInterval(window.remotePagerTimer);window.remotePagerFeedback='';window.remotePagerFrame=0;}
+      draw();
+    },45);
+  }
+  remoteOriginalAction(key);
+};
+</script>
+</body>
+</html>

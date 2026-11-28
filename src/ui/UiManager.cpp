@@ -221,6 +221,11 @@ void UiManager::tick() {
   if (bluetoothService_.consumeChanged() && !staticReaderDetail) {
     needsRedraw_ = true;
   }
+  remoteService_.tick(nowMs);
+  if (remoteService_.consumeChanged() && state_ == UiState::Detail &&
+      remotePage_.detailPageCount(homePage_.focusIndex(), sectionFocusIndex_) > 0) {
+    needsRedraw_ = true;
+  }
   otaService_.tick(nowMs);
   if (otaService_.consumeChanged() && !staticReaderDetail) {
     needsRedraw_ = true;
@@ -1316,7 +1321,7 @@ void UiManager::renderDetail(int16_t yOffset) {
                                       readerService_, sdBitmapFont_, &sdTitleFont_)) {
     handled = true;
   } else if (remotePage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset, display_,
-                                      bluetoothService_, remoteService_)) {
+                                      bluetoothService_, remoteService_, &ui20Font_)) {
     handled = true;
   } else if (timeCalibrationPage_.renderDetail(homePage_.focusIndex(), sectionFocusIndex_, yOffset,
                                                display_, timeService_, &ui24Font_)) {
